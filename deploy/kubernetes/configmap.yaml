@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluecdc-config
+data:
+  ENVIRONMENT: production
+  AUTH_MODE: token
+  LOG_LEVEL: info
+  CORS_ORIGINS: '["https://cluecdc.example.com"]'
+  API_INTERNAL_URL: http://cluecdc-api:8000
+  KAFKA_BOOTSTRAP_SERVERS: kafka.example.internal:9092

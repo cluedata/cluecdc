@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluecdc-api
+spec:
+  selector:
+    app.kubernetes.io/name: cluecdc-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluecdc-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluecdc-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluecdc-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      initContainers:
+        - name: migrate
+          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: cluecdc-config }
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: database-url } }
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: secret-encryption-key } }
+            - name: CONNECT_SECRET_TOKEN
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: connect-secret-token } }
+            - name: AUTH_TOKENS_JSON
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: auth-tokens-json } }
+      containers:
+        - name: api
+          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef: { name: cluecdc-config }
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: database-url } }
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: secret-encryption-key } }
+            - name: CONNECT_SECRET_TOKEN
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: connect-secret-token } }
+            - name: AUTH_TOKENS_JSON
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: auth-tokens-json } }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }

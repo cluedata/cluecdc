@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented non-secret local Fernet example rejected in production"
+regexTarget = "secret"
+regexes = [
+  '''MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=''',
+]
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''apps/api/app/core/config\.py$''',
+  '''apps/api/tests/test_domain\.py$''',
+  '''scripts/bootstrap\.py$''',
+]

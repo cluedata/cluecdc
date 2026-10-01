@@ -1,0 +1,303 @@
+name: cluecdc
+services:
+  cluecdc-metadata-postgres:
+    image: postgres:17.9
+    environment:
+      POSTGRES_DB: cluecdc
+      POSTGRES_USER: cluecdc
+      POSTGRES_PASSWORD: ${METADATA_PASSWORD:?Run python scripts/bootstrap.py}
+    ports: ["127.0.0.1:${METADATA_PORT:-5433}:5432"]
+    volumes: ["metadata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cluecdc -d cluecdc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  cdc-source-postgres:
+    image: postgres:17.9
+    command:
+      [
+        "postgres",
+        "-c",
+        "wal_level=logical",
+        "-c",
+        "max_replication_slots=10",
+        "-c",
+        "max_wal_senders=10",
+      ]
+    environment:
+      POSTGRES_DB: commerce
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SOURCE_ADMIN_PASSWORD:?Run python scripts/bootstrap.py}
+      SOURCE_PASSWORD: ${SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+    ports: ["127.0.0.1:${POSTGRES_SOURCE_PORT:-5434}:5432"]
+    volumes:
+      - source:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d commerce"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  cdc-source-mysql:
+    image: mysql:8.4
+    command:
+      - --server-id=223344
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-expire-logs-seconds=604800
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_SOURCE_ADMIN_PASSWORD:?Run python scripts/bootstrap.py}
+      MYSQL_DATABASE: shop
+      MYSQL_CDC_PASSWORD: ${MYSQL_SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+    ports: ["127.0.0.1:${MYSQL_SOURCE_PORT:-3307}:3306"]
+    volumes:
+      - mysql-source:/var/lib/mysql
+      - ./infrastructure/mysql/source-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  commerce-generator:
+    profiles: ["tools"]
+    build:
+      {
+        context: .,
+        dockerfile: infrastructure/docker/commerce-generator.Dockerfile,
+      }
+    environment:
+      PGHOST: ${WORKLOAD_PGHOST:-cdc-source-postgres}
+      PGPORT: ${WORKLOAD_PGPORT:-5432}
+      PGDATABASE: ${WORKLOAD_PGDATABASE:-commerce}
+      PGUSER: ${WORKLOAD_PGUSER:-cdc_user}
+      PGPASSWORD: ${SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+      PGSCHEMA: ${WORKLOAD_PGSCHEMA:-public}
+      MYSQL_HOST: ${WORKLOAD_MYSQL_HOST:-cdc-source-mysql}
+      MYSQL_PORT: ${WORKLOAD_MYSQL_PORT:-3306}
+      MYSQL_DATABASE: ${WORKLOAD_MYSQL_DATABASE:-shop}
+      MYSQL_USER: ${WORKLOAD_MYSQL_USER:-cdc_mysql}
+      MYSQL_PASSWORD: ${MYSQL_SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+    depends_on:
+      cdc-source-postgres: { condition: service_healthy }
+      cdc-source-mysql: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "generate.py", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  kafka:
+    image: apache/kafka:4.1.2
+    ports: ["127.0.0.1:${KAFKA_PORT:-9092}:9092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST:-localhost}:${KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes: ["kafka:/var/lib/kafka/data"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+  destination-postgres:
+    image: postgres:17.9
+    environment:
+      POSTGRES_DB: analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DESTINATION_ADMIN_PASSWORD:?Run python scripts/bootstrap.py}
+      DESTINATION_PASSWORD: ${DESTINATION_PASSWORD:?Run python scripts/bootstrap.py}
+    ports: ["127.0.0.1:${POSTGRES_DESTINATION_PORT:-5435}:5432"]
+    volumes:
+      - destination:/var/lib/postgresql/data
+      - ./infrastructure/postgres/destination-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d analytics"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  destination-mysql:
+    image: mysql:8.4
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_DESTINATION_ADMIN_PASSWORD:?Run python scripts/bootstrap.py}
+      MYSQL_DATABASE: analytics_mysql
+      MYSQL_DELIVERY_PASSWORD: ${MYSQL_DESTINATION_PASSWORD:?Run python scripts/bootstrap.py}
+    ports: ["127.0.0.1:${MYSQL_DESTINATION_PORT:-3308}:3306"]
+    volumes:
+      - mysql-destination:/var/lib/mysql
+      - ./infrastructure/mysql/destination-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  cloudbeaver-init:
+    image: python:3.13.7-alpine3.22
+    restart: "no"
+    environment:
+      SOURCE_PASSWORD: ${SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+      MYSQL_SOURCE_PASSWORD: ${MYSQL_SOURCE_PASSWORD:?Run python scripts/bootstrap.py}
+      DESTINATION_PASSWORD: ${DESTINATION_PASSWORD:?Run python scripts/bootstrap.py}
+    volumes:
+      - cloudbeaver_workspace:/workspace
+      - ./infrastructure/cloudbeaver/init.py:/init.py:ro
+    command: ["python", "/init.py"]
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:${CLOUDBEAVER_VERSION:-26.2.0}
+    restart: unless-stopped
+    environment:
+      CB_SERVER_NAME: ${CB_SERVER_NAME:-ClueCDC Database Explorer}
+      CB_SERVER_URL: ${CB_SERVER_URL:-http://localhost:8978}
+      CB_ADMIN_NAME: ${CB_ADMIN_NAME:-cluecdc}
+      CB_ADMIN_PASSWORD: ${CB_ADMIN_PASSWORD:?Run python scripts/bootstrap.py}
+      CLOUDBEAVER_APP_ANONYMOUS_ACCESS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${CLOUDBEAVER_PORT:-8978}:8978"
+    volumes:
+      - cloudbeaver_workspace:/opt/cloudbeaver/workspace
+    depends_on:
+      cloudbeaver-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8978'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+  kafka-connect:
+    build: { context: ., dockerfile: infrastructure/docker/connect.Dockerfile }
+    ports: ["127.0.0.1:${KAFKA_CONNECT_PORT:-8083}:8083"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: cluecdc-connect
+      CONFIG_STORAGE_TOPIC: _cluecdc_connect_configs
+      OFFSET_STORAGE_TOPIC: _cluecdc_connect_offsets
+      STATUS_STORAGE_TOPIC: _cluecdc_connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_CONFIG_PROVIDERS: cluecdc
+      CONNECT_CONFIG_PROVIDERS_CLUECDC_CLASS: io.cluecdc.connect.ClueSecretConfigProvider
+      CONNECT_CONFIG_PROVIDERS_CLUECDC_PARAM_URL: http://cluecdc-api:8000
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+      CLUECDC_SECRETS_TOKEN: ${CONNECT_SECRET_TOKEN:?Run python scripts/bootstrap.py}
+    depends_on:
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:8083/connector-plugins >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  cluecdc-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      args: { INSTALL_DEV: "true" }
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      AUTH_MODE: ${AUTH_MODE:-developer}
+      AUTH_TOKENS_JSON: ${AUTH_TOKENS_JSON:-{}}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Run python scripts/bootstrap.py}
+      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Run python scripts/bootstrap.py}
+      DATABASE_URL: postgresql+asyncpg://cluecdc:${METADATA_PASSWORD}@cluecdc-metadata-postgres:5432/cluecdc
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+    ports: ["127.0.0.1:${CLUECDC_API_PORT:-8000}:8000"]
+    depends_on:
+      cluecdc-metadata-postgres: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  cluecdc-web:
+    build: { context: ., dockerfile: Dockerfile }
+    environment:
+      API_INTERNAL_URL: http://cluecdc-api:8000
+    ports: ["127.0.0.1:${CLUECDC_WEB_PORT:-3000}:3000"]
+    depends_on:
+      cluecdc-api: { condition: service_healthy }
+  minio:
+    profiles: ["lakehouse"]
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-cluecdc-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-cluecdc-minio-local-only}
+      MINIO_SITE_REGION: us-west-2
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes: ["minio:/data"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  minio-setup:
+    profiles: ["lakehouse"]
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-cluecdc-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-cluecdc-minio-local-only}
+    entrypoint: ["/bin/sh", "/bootstrap-minio.sh"]
+    volumes:
+      - ./infrastructure/minio/bootstrap.sh:/bootstrap-minio.sh:ro
+volumes:
+  metadata:
+  source:
+  kafka:
+  destination:
+  mysql-source:
+  mysql-destination:
+  cloudbeaver_workspace:
+  minio:

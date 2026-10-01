@@ -1,0 +1,71 @@
+:root {
+  --md-primary-fg-color: #f36b21;
+  --md-primary-fg-color--light: #ff8a3d;
+  --md-primary-fg-color--dark: #cf4d0b;
+  --md-accent-fg-color: #f36b21;
+  --clue-ink: #152238;
+}
+
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #d9530f;
+}
+
+.md-header,
+.md-tabs {
+  background: var(--clue-ink);
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 2rem;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(15rem, 0.8fr);
+  gap: 2rem;
+  align-items: center;
+  margin: 1rem 0 2.5rem;
+  padding: 2rem;
+  border: 1px solid color-mix(in srgb, var(--md-default-fg-color) 12%, transparent);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, color-mix(in srgb, #f36b21 13%, transparent), transparent 55%);
+}
+
+.md-typeset .hero h1 {
+  margin: 0 0 0.6rem;
+  color: var(--md-default-fg-color);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+}
+
+.md-typeset .hero-logo {
+  width: min(14rem, 70%);
+  margin: auto;
+  filter: drop-shadow(0 1rem 2rem rgb(0 0 0 / 18%));
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-radius: 0.8rem;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: #f36b21;
+  transform: translateY(-2px);
+}
+
+@media screen and (max-width: 44.9844em) {
+  .md-typeset .hero {
+    grid-template-columns: 1fr;
+    padding: 1.25rem;
+  }
+  .md-typeset .hero-logo {
+    display: none;
+  }
+}

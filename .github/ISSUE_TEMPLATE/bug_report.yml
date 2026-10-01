@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible ClueCDC defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not report security vulnerabilities here. Remove passwords, tokens, connection strings, payloads, and customer data from logs."
+  - type: input
+    id: version
+    attributes: { label: ClueCDC version, placeholder: "0.1.0 or commit SHA" }
+    validations: { required: true }
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment type
+      options: [Docker Compose, Local development, Other self-hosted]
+    validations: { required: true }
+  - type: input
+    id: os
+    attributes: { label: Operating system }
+    validations: { required: true }
+  - type: input
+    id: browser
+    attributes: { label: Browser, description: Required only for UI issues }
+  - type: input
+    id: kafka
+    attributes: { label: Kafka version }
+  - type: input
+    id: connect
+    attributes: { label: Kafka Connect version }
+  - type: input
+    id: debezium
+    attributes: { label: Debezium version }
+  - type: textarea
+    id: steps
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected behavior }
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes: { label: Actual behavior }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Include correlation/request IDs. Remove all secrets and data before submitting.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, tokens, connection strings, payloads, and customer data.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

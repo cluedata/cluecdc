@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: repository-safety
+        name: repository safety checks
+        entry: python scripts/check-repository.py
+        language: system
+        pass_filenames: false
+      - id: ruff
+        name: ruff
+        entry: python -m ruff check apps/api scripts
+        language: system
+        pass_filenames: false
+      - id: prettier
+        name: prettier
+        entry: npm run format:check
+        language: system
+        pass_filenames: false

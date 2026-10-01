@@ -1,0 +1,26 @@
+{
+  "name": "cluecdc",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "packages/ui",
+    "packages/contracts"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @cluecdc/web",
+    "build": "npm run build -w @cluecdc/web",
+    "lint": "npm run lint -w @cluecdc/web",
+    "typecheck": "npm run typecheck -w @cluecdc/web",
+    "test": "npm run test:web && npm run test:api",
+    "test:web": "npm run test -w @cluecdc/web",
+    "test:api": "python -m pytest apps/api/tests -q",
+    "lint:api": "python -m ruff check apps/api scripts && python -m ruff format --check apps/api scripts",
+    "typecheck:api": "python -m mypy --config-file apps/api/pyproject.toml apps/api/app",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "format": "prettier --write apps/web packages",
+    "format:check": "prettier --check apps/web packages"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
+  }
+}

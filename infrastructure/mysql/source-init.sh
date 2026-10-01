@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+mysql --protocol=socket -uroot -p"${MYSQL_ROOT_PASSWORD}" <<SQL
+CREATE USER IF NOT EXISTS 'cdc_mysql'@'%' IDENTIFIED BY '${MYSQL_CDC_PASSWORD}';
+GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'cdc_mysql'@'%';
+GRANT ALL PRIVILEGES ON shop.* TO 'cdc_mysql'@'%';
+USE shop;
+CREATE TABLE customers (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  credit DECIMAL(30,6) NOT NULL DEFAULT 0,
+  profile JSON NULL,
+  avatar BLOB NULL,
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+);
+CREATE TABLE orders (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  total DECIMAL(18,4) NOT NULL,
+  status ENUM('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
+  note TEXT NULL,
+  ordered_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+CREATE TABLE order_items (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL,
+  sku VARCHAR(80) NOT NULL,
+  quantity INT UNSIGNED NOT NULL,
+  price DECIMAL(18,4) NOT NULL,
+  CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
+);
+INSERT INTO customers(name,email,credit,profile)
+SELECT CONCAT('Khách hàng ', n), CONCAT('customer', n, '@example.test'), n * 10.125,
+       JSON_OBJECT('locale','vi-VN','note',IF(n=1,'Xin chào 👋',''))
+FROM (
+  SELECT a.n + b.n * 10 + 1 AS n FROM
+  (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) a
+  CROSS JOIN
+  (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) b
+) seed;
+INSERT INTO orders(customer_id,total,status,note)
+SELECT id, id * 3.1415, IF(id % 2 = 0,'paid','pending'), IF(id=1,'Đơn hàng đầu tiên','') FROM customers;
+INSERT INTO order_items(order_id,sku,quantity,price)
+SELECT id, CONCAT('SKU-',id), (id % 5) + 1, total FROM orders;
+FLUSH PRIVILEGES;
+SQL

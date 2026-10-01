@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: npm ci
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: python scripts/check-repository.py
+      - run: docker compose config --quiet
+      - run: kubectl kustomize deploy/kubernetes > /dev/null
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: python -m ruff check apps/api scripts
+      - run: python -m ruff format --check apps/api scripts
+      - run: python -m mypy --config-file apps/api/pyproject.toml apps/api/app
+
+  documentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-docs.txt
+      - run: mkdocs build --strict
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: python -m pip install --upgrade pip==26.2.1
+      - run: python -m pip install -e "apps/api[dev]" pip-audit==2.10.1
+      - run: python -m pip_audit --local --skip-editable
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  containers-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: python scripts/bootstrap.py
+      - run: docker build -t cluecdc-web:test .
+      - run: docker build --build-arg INSTALL_DEV=false -f infrastructure/docker/api.Dockerfile -t cluecdc-api:test .
+      - run: docker compose up -d --build --wait --wait-timeout 240
+      - run: docker compose exec -T cluecdc-api alembic check
+      - run: python scripts/demo.py --api-url http://localhost:3000/api/v1
+      - run: python scripts/demo-destination.py --skip-capture-demo
+      - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
+      - run: npm run test:e2e -w @cluecdc/web
+      - run: python scripts/verify-secrets.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification
+          path: |
+            artifacts/
+            apps/web/test-results/
+      - run: docker compose logs --no-color > compose.log
+        if: failure()
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compose-logs
+          path: compose.log
+      - run: docker compose down
+        if: always()

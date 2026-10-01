@@ -1,0 +1,7 @@
+{
+  "name": "@cluecdc/contracts",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
