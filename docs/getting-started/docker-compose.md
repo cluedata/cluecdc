@@ -1,42 +1,63 @@
 # Docker Compose
 
-The default Compose file is the reproducible Community development/demo stack.
-It contains Web, API, metadata PostgreSQL, Kafka, Kafka Connect, PostgreSQL and
-MySQL source/destination databases, and CloudBeaver. `commerce-generator` is
-behind the `tools` profile and does not start by default. MinIO is behind the
-optional `lakehouse` profile:
+The default `compose.yaml` is the smallest practical ClueCDC runtime:
+
+| Service | Role | Default |
+| --- | --- | --- |
+| `metadata-db` | ClueCDC application metadata only | Runtime |
+| `kafka` | Single local KRaft broker | Runtime |
+| `kafka-connect` | Debezium source and JDBC sink connectors | Runtime |
+| `cluecdc-api` | Control-plane API and reconciliation worker | Runtime |
+| `cluecdc-web` | Web UI and same-origin API proxy | Runtime |
 
 ```bash
-docker compose --profile lakehouse up -d --build --wait
-```
-
-All host publications bind to `127.0.0.1`. Container-to-container configuration
-must use Compose DNS names and container ports, not host ports.
-
-| Service                | Container address           | Default host address |
-| ---------------------- | --------------------------- | -------------------- |
-| Web                    | `cluecdc-web:3000`          | `localhost:3000`     |
-| API                    | `cluecdc-api:8000`          | `localhost:8000`     |
-| Kafka                  | `kafka:29092`               | `localhost:9092`     |
-| Kafka Connect          | `kafka-connect:8083`        | `localhost:8083`     |
-| PostgreSQL source      | `cdc-source-postgres:5432`  | `localhost:5434`     |
-| PostgreSQL destination | `destination-postgres:5432` | `localhost:5435`     |
-
-```bash
-docker compose up -d --build --wait
+cp .env.example .env
+docker compose up -d --build
 docker compose ps
-docker compose logs --tail 100 cluecdc-api kafka-connect
-docker compose down
 ```
 
-Use `docker compose down` for a recoverable stop. `docker compose down -v`
-permanently deletes all named volumes and is intentionally not part of normal
-cleanup instructions.
+Open `http://localhost:3000`. Containers communicate over the Compose network
+using service names; for example, Kafka Connect resolves secrets through
+`http://cluecdc-api:8000`.
 
-For an end-to-end acceptance run:
+## Developer tools
+
+CloudBeaver is optional and is not a product dependency:
 
 ```bash
-python scripts/demo.py --api-url http://localhost:3000/api/v1
-python scripts/demo-destination.py --skip-capture-demo
-python scripts/verify-secrets.py
+docker compose -f compose.yaml -f compose.dev.yaml up -d
 ```
+
+It is available at `http://localhost:8978`. Configure any database connections
+you need through its own UI.
+
+## Integration and E2E fixtures
+
+Source and destination PostgreSQL/MySQL containers exist only in
+`compose.test.yaml`:
+
+```bash
+docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+```
+
+The optional workload generator is behind the `tools` profile:
+
+```bash
+docker compose -f compose.yaml -f compose.test.yaml --profile tools up -d
+```
+
+These fixture credentials are test-only and live in `.env.test.example`.
+They are not required to open or operate ClueCDC.
+
+## Storage and health
+
+Metadata and Kafka use named persistent volumes. The API waits for metadata
+PostgreSQL health; Connect waits for Kafka and API health; the web service waits
+for API health. `docker compose down` preserves volumes and
+`docker compose down -v` irreversibly removes local state.
+
+The broker, Connect REST endpoint, API, and web UI bind to loopback by default.
+The metadata database is not exposed to the host.
+
+This topology is for local use. See [production considerations](../deployment/production.md)
+and [scaling](../deployment/scaling.md) before deploying a shared environment.

@@ -403,9 +403,7 @@ export interface DeliveryConfiguration {
   tasks_max: number;
 }
 export interface Delivery extends Entity {
-  destination_id: string | null;
-  lakehouse_destination_id?: string | null;
-  delivery_type?: "DATABASE" | "ICEBERG";
+  destination_id: string;
   pipeline_id: string;
   pipeline_name: string;
   connector_id: string | null;
@@ -415,7 +413,7 @@ export interface Delivery extends Entity {
   configuration_json: DeliveryConfiguration;
   desired_state: string;
   actual_state: string;
-  destination: Destination | LakehouseTarget;
+  destination: Destination;
   connector: Connector | null;
   connect_cluster?: ConnectCluster | null;
   pipeline?: Pipeline;
@@ -479,9 +477,8 @@ export interface ConnectorPlugin {
   version: string;
 }
 
-export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
-export type ConnectionProvider =
-  "POSTGRESQL" | "MYSQL" | "SQL_SERVER" | "ORACLE" | "AWS_S3" | "MINIO";
+export type ConnectionCategory = "DATABASE";
+export type ConnectionProvider = "POSTGRESQL" | "MYSQL";
 export interface Connection extends Entity {
   name: string;
   type: ConnectionProvider;
@@ -515,23 +512,3 @@ export interface ConnectionTestResult {
   status?: string;
   checks: ConnectionCheck[];
 }
-export interface LakehouseTarget extends Entity {
-  name: string;
-  description: string;
-  table_format: "ICEBERG";
-  storage_connection_id: string;
-  warehouse: string;
-  namespace: string;
-  file_format: "PARQUET" | "ORC";
-  write_mode: "UPSERT" | "APPEND_ONLY";
-  delete_mode: "PROPAGATE" | "IGNORE";
-  partition_config: string[];
-  identifier_fields: string[];
-  schema_evolution: boolean;
-  auto_create_tables: boolean;
-  status: string;
-  delivery_count: number;
-  storage_connection: Connection;
-}
-/** @deprecated Use LakehouseTarget. */
-export type LakehouseDestination = LakehouseTarget;

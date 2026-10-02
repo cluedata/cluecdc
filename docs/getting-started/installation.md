@@ -24,10 +24,13 @@ curl http://localhost:3000
 
 All default services should be healthy. If a service is not ready, inspect `docker compose logs --tail 100 SERVICE` before retrying.
 
-## Optional lakehouse profile
+## Optional developer tools and test fixtures
 
 ```bash
-docker compose --profile lakehouse up -d --build --wait
+docker compose -f compose.yaml -f compose.dev.yaml up -d
+docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
 ```
 
-This adds MinIO for local S3-compatible Iceberg storage. It does not add Trino or a separate catalog; the implemented Iceberg path uses the connector's Hadoop catalog.
+The developer override adds optional database inspection tooling. The test
+override adds PostgreSQL/MySQL source and destination fixtures for integration
+and E2E checks. Neither is required for the default runtime.

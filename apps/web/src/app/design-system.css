@@ -2698,7 +2698,7 @@ time,
   background: var(--text-muted);
 }
 
-/* Lakehouse connections keep infrastructure screens dense and explicit. */
+/* Connection inventory and provider selection. */
 .connection-categories {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2718,8 +2718,7 @@ time,
 .connection-category:last-child {
   border-right: 0;
 }
-.connection-category > svg,
-.lakehouse-composition svg {
+.connection-category > svg {
   color: var(--brand-primary);
 }
 .connection-category strong,
@@ -2827,31 +2826,6 @@ time,
   background: var(--brand-subtle);
   color: var(--brand-primary);
 }
-.lakehouse-composition {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--section-gap);
-}
-.lakehouse-composition > div {
-  min-width: 190px;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-1) var(--space-3);
-  align-items: center;
-  padding: var(--space-4);
-  border: var(--border-standard);
-  border-radius: var(--radius-md);
-  background: var(--background-surface);
-}
-.lakehouse-composition > div svg {
-  grid-row: span 2;
-}
-.lakehouse-composition small {
-  color: var(--text-muted);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
 .inline-form {
   display: flex;
   gap: var(--space-3);
@@ -2875,7 +2849,6 @@ time,
   .browser-columns.three {
     grid-template-columns: 1fr;
   }
-  .lakehouse-composition,
   .inline-form {
     align-items: stretch;
     flex-direction: column;

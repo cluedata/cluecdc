@@ -85,6 +85,10 @@ logs = subprocess.run(
     [
         "docker",
         "compose",
+        "-f",
+        "compose.yaml",
+        "-f",
+        "compose.test.yaml",
         "logs",
         "--no-color",
         "cluecdc-api",

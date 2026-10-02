@@ -9,8 +9,8 @@ or source registration is required.
 ## Start the tools container
 
 ```powershell
-docker compose up -d --build commerce-generator
-docker compose exec commerce-generator python generate.py status
+docker compose -f compose.yaml -f compose.test.yaml --profile tools up -d --build commerce-generator
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python generate.py status
 ```
 
 The service is in the optional `tools` profile, so a normal stack startup does
@@ -22,7 +22,7 @@ batch, including the run ID, affected counts and first inserted IDs.
 ## Insert ecommerce transactions
 
 ```powershell
-docker compose exec commerce-generator python insert.py --count 10 --run-id checkout-demo
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python insert.py --count 10 --run-id checkout-demo
 ```
 
 Each group inserts one customer, one order linked to that customer, and one
@@ -34,7 +34,7 @@ repeated inserts are unique. The count is limited to 1-10000 groups per batch.
 ## Update generated rows
 
 ```powershell
-docker compose exec commerce-generator python update.py --count 10 --run-id checkout-demo
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python update.py --count 10 --run-id checkout-demo
 ```
 
 Only fixtures with that exact run ID are selected. Names, timestamps, order
@@ -46,7 +46,7 @@ are excluded. An empty selection reports zero affected rows.
 ## Generate traffic for a bounded duration
 
 ```powershell
-docker compose exec commerce-generator python simulate.py --duration 120 --interval 1 --batch-size 5 --run-id checkout-load
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python simulate.py --duration 120 --interval 1 --batch-size 5 --run-id checkout-load
 ```
 
 Each batch commits INSERTs, then UPDATEs in a separate transaction. The default
@@ -59,9 +59,9 @@ loop. Generated rows are retained for inspection.
 ## Test schema changes
 
 ```powershell
-docker compose exec commerce-generator python alter.py --table customers --column cdc_test_note --type text --default "checkout-test"
-docker compose exec commerce-generator python insert.py --count 1 --run-id after-schema
-docker compose exec commerce-generator python update.py --count 1 --run-id after-schema
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python alter.py --table customers --column cdc_test_note --type text --default "checkout-test"
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python insert.py --count 1 --run-id after-schema
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python update.py --count 1 --run-id after-schema
 ```
 
 `alter.py` modifies only column names starting with `cdc_test_`; the existing
@@ -72,13 +72,13 @@ column reports `changed: false` and leaves its definition unchanged.
 Change the default for future inserts, using the column's type:
 
 ```powershell
-docker compose exec commerce-generator python alter.py --table customers --column cdc_test_note --action set-default --type text --default "revised-test"
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python alter.py --table customers --column cdc_test_note --action set-default --type text --default "revised-test"
 ```
 
 Explicitly remove that test column when finished:
 
 ```powershell
-docker compose exec commerce-generator python alter.py --table customers --column cdc_test_note --action drop
+docker compose -f compose.yaml -f compose.test.yaml exec commerce-generator python alter.py --table customers --column cdc_test_note --action drop
 ```
 
 Dropping a test column removes its values. No drop operation runs automatically.
@@ -108,9 +108,9 @@ replication slots, pipeline definitions or delivery mappings.
 The same commands can run without a persistent tools container:
 
 ```powershell
-docker compose run --rm commerce-generator python insert.py --count 3
-docker compose run --rm commerce-generator python update.py --count 3
-docker compose run --rm commerce-generator python alter.py --help
+docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator python insert.py --count 3
+docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator python update.py --count 3
+docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator python alter.py --help
 ```
 
 Compose accepts `WORKLOAD_PGHOST`, `WORKLOAD_PGPORT`, `WORKLOAD_PGDATABASE`,
@@ -119,7 +119,7 @@ different password, pass an environment variable to the one-off container
 without placing its value on the command line:
 
 ```powershell
-docker compose run --rm -e PGPASSWORD commerce-generator python generate.py status
+docker compose -f compose.yaml -f compose.test.yaml run --rm -e PGPASSWORD commerce-generator python generate.py status
 ```
 
 This forwards `PGPASSWORD` from your shell. The selected database/schema must
@@ -130,8 +130,8 @@ reset another source.
 ## Verification and stop
 
 ```powershell
-docker compose run --rm commerce-generator python -m unittest -v
-docker compose stop commerce-generator
+docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator python -m unittest -v
+docker compose -f compose.yaml -f compose.test.yaml stop commerce-generator
 ```
 
 Regression checks use real PostgreSQL, create an isolated test schema inside a

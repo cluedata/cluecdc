@@ -12,8 +12,6 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | Plugin discovery         | GET /connect/clusters/{uuid}/plugins                                                                                 |
 | Destinations             | GET/POST /destinations; POST /destinations/test-connection; GET/PUT/DELETE /destinations/{uuid}                      |
 | Connections              | GET/POST /connections; POST /connections/test; GET/PUT/DELETE /connections/{uuid}; POST /connections/{uuid}/test     |
-| Lakehouse targets        | GET/POST /lakehouse-targets; GET/PUT/DELETE /lakehouse-targets/{uuid}                                                |
-| Iceberg delivery         | POST /lakehouse-targets/{uuid}/preview-delivery, /deploy                                                            |
 | Deliveries               | GET /deliveries; GET/DELETE /deliveries/{uuid}; GET /deliveries/{uuid}/status                                        |
 | Delivery lifecycle       | POST /deliveries/{uuid}/pause, /resume, /restart, /restart-task?task=0; PUT /deliveries/{uuid}/mappings              |
 | Destination delivery     | POST /destinations/{uuid}/test, /preview, /deploy; GET /mappings, /status                                            |
@@ -32,8 +30,8 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | Session                  | GET /session                                                                                                         |
 
 Connection credentials are write-only. Responses expose a configured flag and
-mask, never secret values. Lakehouse targets use Amazon S3 or MinIO storage and
-the Iceberg connector's built-in Hadoop catalog.
+mask, never secret values. Public connection providers are limited to the
+implemented PostgreSQL and MySQL adapters.
 
 Discovery/health return 202 with a durable Job. Poll until COMPLETED/FAILED; results and sanitized errors are stored. Test/readiness requests are bounded asynchronous read-only database calls. Source tables support search/schema/cdc_ready/has_primary_key/min_size filters. Discovery/list bounds are 500 entries; audit supports a bounded limit and resource_id filter.
 

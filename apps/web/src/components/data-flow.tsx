@@ -72,15 +72,11 @@ export function DataFlow({
                 label: "Destination",
                 name: delivery?.destination.name || "No destination",
                 detail: delivery
-                  ? "table_format" in delivery.destination
-                    ? `${delivery.destination.table_format} / ${delivery.destination.namespace}`
-                    : `${delivery.destination.type} / ${delivery.destination.database_name}`
+                  ? `${delivery.destination.type} / ${delivery.destination.database_name}`
                   : "Select an endpoint",
                 status: delivery?.destination.status || "NOT_CONFIGURED",
                 href: delivery
-                  ? delivery.delivery_type === "ICEBERG"
-                    ? `/deliveries/${delivery.id}`
-                    : `/destinations/${delivery.destination_id}`
+                  ? `/destinations/${delivery.destination_id}`
                   : `/deliveries/new?pipeline_id=${pipeline.id}`,
               },
             ]}

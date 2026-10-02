@@ -1,6 +1,13 @@
 # First CDC pipeline
 
-This tutorial uses the bundled PostgreSQL source and destination. It exercises the real Debezium, Kafka, and JDBC sink path.
+This tutorial uses the PostgreSQL source and destination fixtures from the test
+Compose override. Start them first:
+
+```bash
+docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+```
+
+This exercises the real Debezium, Kafka, and JDBC sink path.
 
 ## 1. Register infrastructure
 
@@ -22,7 +29,7 @@ Open **Data Movement → Sources → Add source** and use:
 | Host / port | `cdc-source-postgres` / `5432` |
 | Database | `commerce` |
 | User | `cdc_user` |
-| Password | the `SOURCE_PASSWORD` value from `.env` |
+| Password | `cluecdc-source-test-only` unless overridden |
 
 Test the connection, save it, run discovery, and review CDC readiness. Select `public.customers` and `public.orders`; both have stable keys and local logical-replication configuration.
 
@@ -39,7 +46,7 @@ From the pipeline's **Destinations** tab choose **Add destination**, then create
 | Host / port | `destination-postgres` / `5432` |
 | Database | `analytics` |
 | User | `delivery_user` |
-| Password | the `DESTINATION_PASSWORD` value from `.env` |
+| Password | `cluecdc-destination-test-only` unless overridden |
 
 Map the customers and orders topics to destination tables. Validate the source keys/types, destination permissions, topics, and installed JDBC plugin; then deploy.
 
@@ -48,15 +55,17 @@ Map the customers and orders topics to destination tables. Validate the source k
 Insert a source record:
 
 ```bash
-docker compose exec -T cdc-source-postgres psql -U postgres -d commerce -c \
-  "INSERT INTO public.customers (email, full_name) VALUES ('ada@example.test', 'Ada Lovelace');"
+docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres \
+  psql -U postgres -d commerce -c \
+  "INSERT INTO public.customers (email, name) VALUES ('ada-new@example.test', 'Ada Lovelace');"
 ```
 
 Inspect the pipeline **Events** tab, then query the destination:
 
 ```bash
-docker compose exec -T destination-postgres psql -U postgres -d analytics -c \
-  "SELECT * FROM public.customers WHERE email = 'ada@example.test';"
+docker compose -f compose.yaml -f compose.test.yaml exec -T destination-postgres \
+  psql -U postgres -d analytics -c \
+  "SELECT * FROM public.customers WHERE email = 'ada-new@example.test';"
 ```
 
 The row should appear after the source and sink tasks process it. Updates and deletes follow the same path.

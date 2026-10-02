@@ -1,0 +1,20 @@
+services:
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:26.2.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CLOUDBEAVER_PORT:-8978}:8978"
+    volumes:
+      - cloudbeaver-workspace:/opt/cloudbeaver/workspace
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8978'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  cloudbeaver-workspace:

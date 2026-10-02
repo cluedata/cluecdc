@@ -103,7 +103,7 @@ data = {
     "source_id": source["id"],
     "kafka_cluster_id": kafka["id"],
     "connect_cluster_id": connect["id"],
-    "topic_prefix": "commerce",
+    "topic_prefix": "commerce_demo",
     "snapshot_mode": "initial",
     "tables": [
         {"schema_name": "public", "table_name": name}
@@ -138,6 +138,10 @@ result = subprocess.run(
     [
         "docker",
         "compose",
+        "-f",
+        "compose.yaml",
+        "-f",
+        "compose.test.yaml",
         "exec",
         "-T",
         "cdc-source-postgres",

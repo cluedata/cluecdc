@@ -1,18 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  CheckCircle2,
-  Cloud,
-  Plus,
-  Search,
-  Server,
-  Trash2,
-} from "lucide-react";
+import { CheckCircle2, Plus, Search, Server, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type {
   Connection,
@@ -20,8 +13,6 @@ import type {
   ConnectionProvider,
   ConnectionProviderMetadata,
   ConnectionTestResult,
-  LakehouseTarget,
-  Pipeline,
 } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
 import { api, date, post } from "@/lib/api";
@@ -38,18 +29,12 @@ import {
 
 const categoryCopy: Record<
   ConnectionCategory,
-  { title: string; description: string; icon: typeof Cloud }
+  { title: string; description: string; icon: typeof Server }
 > = {
   DATABASE: {
     title: "Database",
     description: "CDC sources and database delivery targets.",
     icon: Server,
-  },
-  OBJECT_STORAGE: {
-    title: "Object Storage",
-    description:
-      "Stores physical Lakehouse data files. Examples: S3 and MinIO.",
-    icon: Cloud,
   },
 };
 
@@ -57,10 +42,6 @@ const providerName = (provider: string) =>
   ({
     POSTGRESQL: "PostgreSQL",
     MYSQL: "MySQL",
-    SQL_SERVER: "SQL Server",
-    ORACLE: "Oracle",
-    AWS_S3: "Amazon S3",
-    MINIO: "MinIO",
   })[provider] || provider;
 
 export function ConnectionsPage({
@@ -194,7 +175,7 @@ export function ConnectionsPage({
         description={
           capability
             ? `Filtered view of connections with the ${capability.toLowerCase()} capability.`
-            : "Manage every database, object store, catalog, and query engine from one inventory."
+            : "Manage PostgreSQL and MySQL source and destination connections."
         }
         eyebrow="CONNECTIONS"
       >
@@ -269,8 +250,8 @@ export function ConnectionsPage({
         />
       ) : (
         <Empty
-          title="No infrastructure connections"
-          description="Add object storage first, then an Iceberg catalog and optional query engine."
+          title="No database connections"
+          description="Add a PostgreSQL or MySQL connection for a CDC source or destination."
           href="/connections/new"
           action="Add connection"
         />
@@ -279,7 +260,7 @@ export function ConnectionsPage({
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Delete connection?"
-        description="This is blocked while pipelines, deliveries, or Lakehouse targets use the connection. Stored credentials will also be removed."
+        description="This is blocked while pipelines or deliveries use the connection. Stored credentials will also be removed."
       >
         <div className="dialog-actions">
           <Button variant="outline" onClick={() => setDeleting(null)}>
@@ -307,12 +288,10 @@ type FormState = {
 };
 
 const initialState = (provider: ConnectionProvider): FormState => {
-  if (["POSTGRESQL", "MYSQL", "SQL_SERVER", "ORACLE"].includes(provider)) {
+  if (["POSTGRESQL", "MYSQL"].includes(provider)) {
     const ports: Record<string, number> = {
       POSTGRESQL: 5432,
       MYSQL: 3306,
-      SQL_SERVER: 1433,
-      ORACLE: 1521,
     };
     return {
       name: "",
@@ -328,28 +307,10 @@ const initialState = (provider: ConnectionProvider): FormState => {
       credentials: { password: "" },
     };
   }
-  if (["AWS_S3", "MINIO"].includes(provider))
-    return {
-      name: "",
-      description: "",
-      config: {
-        endpoint: provider === "AWS_S3" ? "" : "http://localhost:9000",
-        region: "us-east-1",
-        bucket: "lakehouse",
-        base_path: "warehouse",
-        path_style_access: provider !== "AWS_S3",
-        ssl_enabled: provider === "AWS_S3",
-        verify_write: true,
-      },
-      credentials: { access_key: "", secret_key: "", session_token: "" },
-    };
   throw new Error(`Unsupported connection provider: ${provider}`);
 };
 
-const providerCategory = (provider: ConnectionProvider): ConnectionCategory =>
-  ["POSTGRESQL", "MYSQL", "SQL_SERVER", "ORACLE"].includes(provider)
-    ? "DATABASE"
-    : "OBJECT_STORAGE";
+const providerCategory = (): ConnectionCategory => "DATABASE";
 
 export function ConnectionWizard() {
   const router = useRouter();
@@ -376,7 +337,7 @@ export function ConnectionWizard() {
       config,
       credentials,
       provider,
-      category: providerCategory(provider),
+      category: providerCategory(),
     };
   };
   const create = useMutation({
@@ -558,7 +519,7 @@ export function ConnectionWizard() {
                 <dt>Type</dt>
                 <dd>{providerName(provider)}</dd>
                 <dt>Category</dt>
-                <dd>{categoryCopy[providerCategory(provider)].title}</dd>
+                <dd>{categoryCopy[providerCategory()].title}</dd>
                 <dt>Credentials</dt>
                 <dd>Configured and encrypted on save</dd>
               </dl>
@@ -597,7 +558,7 @@ function ProviderFields({
   config: (key: string, value: string | number | boolean) => void;
   secret: (key: string, value: string) => void;
 }) {
-  if (["POSTGRESQL", "MYSQL", "SQL_SERVER", "ORACLE"].includes(provider))
+  if (["POSTGRESQL", "MYSQL"].includes(provider))
     return (
       <>
         <Field label="Host">
@@ -643,69 +604,6 @@ function ProviderFields({
             <option value="PROD">Production</option>
           </select>
         </Field>
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={Boolean(form.config.ssl_enabled)}
-            onChange={(e) => config("ssl_enabled", e.target.checked)}
-          />{" "}
-          TLS enabled
-        </label>
-      </>
-    );
-  if (["AWS_S3", "MINIO"].includes(provider))
-    return (
-      <>
-        <Field
-          label="Endpoint"
-          hint="Optional for Amazon S3; required for other providers."
-        >
-          <Input
-            value={String(form.config.endpoint)}
-            onChange={(e) => config("endpoint", e.target.value)}
-          />
-        </Field>
-        <Field label="Region">
-          <Input
-            value={String(form.config.region)}
-            onChange={(e) => config("region", e.target.value)}
-          />
-        </Field>
-        <Field label="Bucket">
-          <Input
-            value={String(form.config.bucket)}
-            onChange={(e) => config("bucket", e.target.value)}
-          />
-        </Field>
-        <Field label="Base path">
-          <Input
-            value={String(form.config.base_path)}
-            onChange={(e) => config("base_path", e.target.value)}
-          />
-        </Field>
-        <Field label="Access key">
-          <Input
-            autoComplete="off"
-            value={form.credentials.access_key}
-            onChange={(e) => secret("access_key", e.target.value)}
-          />
-        </Field>
-        <Field label="Secret key">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={form.credentials.secret_key}
-            onChange={(e) => secret("secret_key", e.target.value)}
-          />
-        </Field>
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={Boolean(form.config.path_style_access)}
-            onChange={(e) => config("path_style_access", e.target.checked)}
-          />{" "}
-          Path-style access
-        </label>
         <label className="check-row">
           <input
             type="checkbox"
@@ -794,10 +692,7 @@ export function ConnectionDetailPage({ id }: { id: string }) {
         <div className="panel-heading">
           <div>
             <h2>Used by</h2>
-            <p>
-              Pipelines, deliveries, and Lakehouse targets using this
-              connection.
-            </p>
+            <p>Pipelines and deliveries using this connection.</p>
           </div>
         </div>
         {value.used_by?.length ? (
@@ -926,342 +821,6 @@ function ConnectionEditor({ value }: { value: Connection }) {
             </Button>
           </div>
         </div>
-      </section>
-    </>
-  );
-}
-
-export function LegacyLakehouseTargetsPage() {
-  const values = useQuery({
-    queryKey: ["lakehouse-targets"],
-    queryFn: () => api<LakehouseTarget[]>("/lakehouse-targets"),
-  });
-  const columns: ColumnDef<LakehouseTarget>[] = [
-    { accessorKey: "name", header: "Lakehouse" },
-    { accessorKey: "namespace", header: "Namespace" },
-    { accessorKey: "file_format", header: "File format" },
-    { accessorKey: "write_mode", header: "CDC behavior" },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => <Status value={row.original.status} />,
-    },
-    { accessorKey: "delivery_count", header: "Deliveries" },
-  ];
-  if (values.isPending) return <Loading />;
-  if (values.isError) return <ErrorPanel error={values.error} />;
-  return (
-    <>
-      <PageHeader
-        title="Lakehouse Targets"
-        description="Write CDC data to Apache Iceberg tables on Amazon S3 or MinIO."
-        eyebrow="DATA FLOW"
-      >
-        <Button asChild>
-          <Link href="/deliveries/new?type=lakehouse">
-            <Plus size={16} /> New Lakehouse
-          </Link>
-        </Button>
-      </PageHeader>
-      {values.data?.length ? (
-        <DataTable
-          data={values.data}
-          columns={columns}
-          getRowHref={(row) =>
-            `/deliveries/new?type=lakehouse&target_id=${row.id}`
-          }
-        />
-      ) : (
-        <Empty
-          title="No Lakehouse targets"
-          description="Create an Amazon S3 or MinIO connection, then configure the Iceberg target here."
-          href="/deliveries/new?type=lakehouse"
-          action="Create Lakehouse"
-        />
-      )}
-    </>
-  );
-}
-
-export function LakehouseWizard({
-  deliveryFirst = false,
-}: { deliveryFirst?: boolean } = {}) {
-  const router = useRouter();
-  const params = useSearchParams();
-  const connections = useQuery({
-    queryKey: ["connections"],
-    queryFn: () => api<Connection[]>("/connections"),
-  });
-  const pipelines = useQuery({
-    queryKey: ["pipelines"],
-    queryFn: () => api<Pipeline[]>("/pipelines"),
-    enabled: deliveryFirst,
-  });
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    storage_connection_id: "",
-    warehouse: "s3://lakehouse/warehouse",
-    namespace: "production",
-    file_format: "PARQUET",
-    write_mode: "UPSERT",
-    delete_mode: "PROPAGATE",
-    schema_evolution: true,
-    auto_create_tables: true,
-    pipeline_id: params.get("pipeline_id") || "",
-  });
-  const create = useMutation({
-    mutationFn: async () => {
-      const target = await post<LakehouseTarget>("/lakehouse-targets", {
-        ...form,
-        pipeline_id: undefined,
-      });
-      if (!deliveryFirst) return target;
-      return post<{ id: string }>(`/lakehouse-targets/${target.id}/deploy`, {
-        pipeline_id: form.pipeline_id,
-        name: form.name,
-      });
-    },
-    onSuccess: (value) =>
-      router.push(
-        deliveryFirst
-          ? `/deliveries/${value.id}`
-          : `/lakehouse-targets/${value.id}`,
-      ),
-  });
-  if (connections.isPending) return <Loading />;
-  if (connections.isError) return <ErrorPanel error={connections.error} />;
-  const options = (category: ConnectionCategory) =>
-    connections.data.filter((item) => item.category === category);
-  if (!options("OBJECT_STORAGE").length)
-    return (
-      <>
-        <PageHeader
-          title="Create Lakehouse Delivery"
-          description="An object store is required before a Lakehouse can be created."
-        />
-        <Empty
-          title="No Object Storage connections"
-          description="Lakehouse deliveries need an object store for physical data files."
-          href="/connections/new"
-          action="Add Object Storage"
-        />
-      </>
-    );
-  const set = (key: string, value: string | boolean) =>
-    setForm((old) => ({ ...old, [key]: value }));
-  return (
-    <>
-      <PageHeader
-        title={
-          deliveryFirst
-            ? "Create Lakehouse Delivery"
-            : "Create Lakehouse Target"
-        }
-        description="Choose Amazon S3 or MinIO storage. Iceberg metadata is managed by the built-in Hadoop catalog."
-        eyebrow="LAKEHOUSE / NEW"
-      />
-      <section className="panel source-form-page">
-        <div className="panel-body">
-          <div className="form-grid">
-            {deliveryFirst && (
-              <Field label="Source pipeline">
-                <select
-                  value={form.pipeline_id}
-                  onChange={(e) => set("pipeline_id", e.target.value)}
-                >
-                  <option value="">Select pipeline</option>
-                  {pipelines.data
-                    ?.filter((item) => item.connector_id)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-            )}
-            <Field label="Name">
-              <Input
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-              />
-            </Field>
-            <Field label="Table format">
-              <select disabled>
-                <option>Apache Iceberg</option>
-              </select>
-            </Field>
-            <Field label="Object Storage">
-              <select
-                value={form.storage_connection_id}
-                onChange={(e) => set("storage_connection_id", e.target.value)}
-              >
-                <option value="">Select storage</option>
-                {options("OBJECT_STORAGE").map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Warehouse">
-              <Input
-                value={form.warehouse}
-                onChange={(e) => set("warehouse", e.target.value)}
-              />
-            </Field>
-            <Field label="Namespace">
-              <Input
-                value={form.namespace}
-                onChange={(e) => set("namespace", e.target.value)}
-              />
-            </Field>
-            <Field label="File format">
-              <select
-                value={form.file_format}
-                onChange={(e) => set("file_format", e.target.value)}
-              >
-                <option value="PARQUET">Parquet</option>
-                <option value="ORC">ORC</option>
-              </select>
-            </Field>
-            <Field label="CDC write mode">
-              <select
-                value={form.write_mode}
-                onChange={(e) => set("write_mode", e.target.value)}
-              >
-                <option value="UPSERT">Upsert</option>
-                <option value="APPEND_ONLY">Append only</option>
-              </select>
-            </Field>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={form.auto_create_tables}
-                onChange={(e) => set("auto_create_tables", e.target.checked)}
-              />{" "}
-              Automatic table creation
-            </label>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={form.schema_evolution}
-                onChange={(e) => set("schema_evolution", e.target.checked)}
-              />{" "}
-              Schema evolution
-            </label>
-          </div>
-          {create.isError && <ErrorPanel error={create.error} />}
-          <div className="wizard-actions">
-            <Button
-              disabled={
-                !form.name ||
-                !form.storage_connection_id ||
-                (deliveryFirst && !form.pipeline_id) ||
-                create.isPending
-              }
-              onClick={() => create.mutate()}
-            >
-              {deliveryFirst ? "Create Delivery" : "Save Lakehouse Target"}
-            </Button>
-          </div>
-        </div>
-      </section>
-    </>
-  );
-}
-
-export function LegacyLakehouseTargetDetail({ id }: { id: string }) {
-  const [pipelineId, setPipelineId] = useState("");
-  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
-  const destination = useQuery({
-    queryKey: ["lakehouse-destination", id],
-    queryFn: () => api<LakehouseTarget>(`/lakehouse-targets/${id}`),
-  });
-  const pipelines = useQuery({
-    queryKey: ["pipelines"],
-    queryFn: () => api<Pipeline[]>("/pipelines"),
-  });
-  const deploy = useMutation({
-    mutationFn: () =>
-      post(`/lakehouse-targets/${id}/deploy`, {
-        pipeline_id: pipelineId,
-        name: "Iceberg delivery",
-      }),
-    onSuccess: () => toast.success("Iceberg delivery deployed"),
-  });
-  const review = useMutation({
-    mutationFn: () =>
-      post<Record<string, unknown>>(
-        `/lakehouse-targets/${id}/preview-delivery`,
-        { pipeline_id: pipelineId, name: "Iceberg delivery" },
-      ),
-    onSuccess: setPreview,
-  });
-  if (destination.isPending) return <Loading />;
-  if (destination.isError) return <ErrorPanel error={destination.error} />;
-  const value = destination.data;
-  return (
-    <>
-      <PageHeader
-        title={value.name}
-        description={`${value.table_format} · ${value.namespace} · ${value.write_mode}`}
-        eyebrow="LAKEHOUSE TARGET"
-      >
-        <Status value={value.status} />
-      </PageHeader>
-      <section className="lakehouse-composition">
-        <div>
-          <Cloud size={21} />
-          <small>OBJECT STORAGE</small>
-          <strong>{value.storage_connection.name}</strong>
-        </div>
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Deploy Iceberg Delivery</h2>
-            <p>
-              Creates and validates an Apache Iceberg sink in the
-              pipeline&apos;s Kafka Connect cluster.
-            </p>
-          </div>
-        </div>
-        <div className="inline-form">
-          <Field label="Capture pipeline">
-            <select
-              value={pipelineId}
-              onChange={(e) => {
-                setPipelineId(e.target.value);
-                setPreview(null);
-              }}
-            >
-              <option value="">Select pipeline</option>
-              {pipelines.data?.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Button
-            variant="outline"
-            disabled={!pipelineId || review.isPending}
-            onClick={() => review.mutate()}
-          >
-            Review Config
-          </Button>
-          <Button
-            disabled={!pipelineId || !preview || deploy.isPending}
-            onClick={() => deploy.mutate()}
-          >
-            Deploy
-          </Button>
-        </div>
-        {review.isError && <ErrorPanel error={review.error} />}
-        {deploy.isError && <ErrorPanel error={deploy.error} />}
-        {preview && <JsonView value={preview} />}
       </section>
     </>
   );

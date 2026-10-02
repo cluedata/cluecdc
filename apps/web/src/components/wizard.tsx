@@ -19,7 +19,6 @@ import type {
   ConnectCluster,
   Destination,
   KafkaCluster,
-  LakehouseTarget,
   Source,
   SourceTable,
   TopicMapping,
@@ -28,10 +27,8 @@ import { Button, Input } from "@cluecdc/ui";
 import { api, number, post } from "@/lib/api";
 import { captureSchema, type CaptureForm } from "@/lib/validation";
 import {
-  createLakehousePipelineFlow,
   createPipelineFlow,
   PipelineCreationError,
-  retryLakehouseDelivery,
   retryPipelineDelivery,
   type DeliveryCreateInput,
 } from "@/services/pipeline-orchestrator";
@@ -74,9 +71,6 @@ export function PipelineWizard() {
   const [destinationId, setDestinationId] = useState(
     params.get("destination_id") || "",
   );
-  const [destinationKind, setDestinationKind] = useState<
-    "database" | "lakehouse"
-  >("database");
   const [delivery, setDelivery] = useState<DeliveryDraft>(deliveryDefaults);
   const [preview, setPreview] = useState<{
     config: Record<string, string>;
@@ -105,10 +99,6 @@ export function PipelineWizard() {
     queryKey: ["destinations"],
     queryFn: () => api<Destination[]>("/destinations"),
   });
-  const lakehouseDestinations = useQuery({
-    queryKey: ["lakehouse-targets"],
-    queryFn: () => api<LakehouseTarget[]>("/lakehouse-targets"),
-  });
   const form = useForm<CaptureForm>({
     resolver: zodResolver(captureSchema),
     defaultValues: {
@@ -132,13 +122,7 @@ export function PipelineWizard() {
   const destination = destinations.data?.find(
     (item) => item.id === destinationId,
   );
-  const lakehouseDestination = lakehouseDestinations.data?.find(
-    (item) => item.id === destinationId,
-  );
-  const destinationOptions =
-    destinationKind === "lakehouse"
-      ? lakehouseDestinations.data || []
-      : destinations.data || [];
+  const destinationOptions = destinations.data || [];
   const topics = chosen.map(
     (table) =>
       `${form.getValues("topic_prefix")}.${table.schema_name}.${table.table_name}`,
@@ -146,11 +130,9 @@ export function PipelineWizard() {
   const mappings: TopicMapping[] = chosen.map((table, index) => ({
     topic: topics[index],
     schema_name:
-      destinationKind === "lakehouse"
-        ? lakehouseDestination?.namespace || table.schema_name
-        : destination?.type === "mysql"
-          ? destination.database_name
-          : table.schema_name,
+      destination?.type === "mysql"
+        ? destination.database_name
+        : table.schema_name,
     table_name: table.table_name,
   }));
   const capturePayload = () => ({
@@ -181,17 +163,7 @@ export function PipelineWizard() {
   });
   const create = useMutation({
     mutationFn: () =>
-      destinationKind === "lakehouse"
-        ? createLakehousePipelineFlow(
-            capturePayload(),
-            destinationId,
-            delivery.name,
-          )
-        : createPipelineFlow(
-            capturePayload(),
-            destinationId,
-            deliveryPayload(),
-          ),
+      createPipelineFlow(capturePayload(), destinationId, deliveryPayload()),
     onSuccess: ({ pipeline }) => router.push(`/pipelines/${pipeline.id}`),
     onError: (error) => {
       if (error instanceof PipelineCreationError) setPartial(error);
@@ -199,18 +171,11 @@ export function PipelineWizard() {
   });
   const retry = useMutation({
     mutationFn: () =>
-      destinationKind === "lakehouse"
-        ? retryLakehouseDelivery(
-            partial!.pipeline!.id,
-            connectId,
-            destinationId,
-            delivery.name,
-          )
-        : retryPipelineDelivery(
-            partial!.pipeline!.id,
-            destinationId,
-            deliveryPayload(),
-          ),
+      retryPipelineDelivery(
+        partial!.pipeline!.id,
+        destinationId,
+        deliveryPayload(),
+      ),
     onSuccess: () => router.push(`/pipelines/${partial!.pipeline!.id}`),
   });
   const canContinue = (() => {
@@ -526,40 +491,12 @@ export function PipelineWizard() {
 
           {step === 3 && (
             <>
-              <Field
-                label="Destination type"
-                hint="Choose a database sink or an Iceberg Lakehouse."
-              >
-                <select
-                  value={destinationKind}
-                  onChange={(event) => {
-                    setDestinationKind(
-                      event.target.value as "database" | "lakehouse",
-                    );
-                    setDestinationId("");
-                  }}
-                >
-                  <option value="database">Database</option>
-                  <option value="lakehouse">Lakehouse · Apache Iceberg</option>
-                </select>
-              </Field>
-              {(
-                destinationKind === "database"
-                  ? destinations.isPending
-                  : lakehouseDestinations.isPending
-              ) ? (
+              {destinations.isPending ? (
                 <Loading />
-              ) : (
-                  destinationKind === "database"
-                    ? destinations.isError
-                    : lakehouseDestinations.isError
-                ) ? (
+              ) : destinations.isError ? (
                 <ErrorPanel
-                  error={destinations.error || lakehouseDestinations.error}
-                  retry={() => {
-                    if (destinationKind === "database") destinations.refetch();
-                    else lakehouseDestinations.refetch();
-                  }}
+                  error={destinations.error}
+                  retry={() => destinations.refetch()}
                 />
               ) : (
                 <>
@@ -571,32 +508,18 @@ export function PipelineWizard() {
                       <option value="">Select an existing destination</option>
                       {destinationOptions.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.name} ·{" "}
-                          {"table_format" in item
-                            ? item.table_format
-                            : item.type}{" "}
-                          · {item.status}
+                          {item.name} · {item.type} · {item.status}
                         </option>
                       ))}
                     </select>
                   </Field>
                   <Button asChild variant="outline">
-                    <Link
-                      href={
-                        destinationKind === "lakehouse"
-                          ? "/deliveries/new?type=lakehouse"
-                          : "/destinations/new"
-                      }
-                    >
-                      <Plus size={14} /> Create New Delivery
+                    <Link href="/destinations/new">
+                      <Plus size={14} /> Create New Destination
                     </Link>
                   </Button>
                   <h3>Delivery Settings</h3>
-                  <p className="muted">
-                    {destinationKind === "lakehouse"
-                      ? "Apache Iceberg Sink · Powered by Kafka Connect"
-                      : "JDBC Sink · Powered by Kafka Connect"}
-                  </p>
+                  <p className="muted">JDBC Sink · Powered by Kafka Connect</p>
                   <div className="form-grid">
                     <Field label="Delivery name">
                       <Input
@@ -609,65 +532,39 @@ export function PipelineWizard() {
                         }
                       />
                     </Field>
-                    {destinationKind === "database" && (
-                      <Field label="Insert mode">
-                        <select
-                          value={delivery.write_mode}
+                    <Field label="Insert mode">
+                      <select
+                        value={delivery.write_mode}
+                        onChange={(event) =>
+                          setDelivery((old) => ({
+                            ...old,
+                            write_mode: event.target.value as
+                              "upsert" | "insert",
+                          }))
+                        }
+                      >
+                        <option value="upsert">Upsert</option>
+                        <option value="insert">Insert</option>
+                      </select>
+                    </Field>
+                    {(
+                      ["delete_enabled", "auto_create", "auto_evolve"] as const
+                    ).map((key) => (
+                      <label className="check-row" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={delivery[key]}
                           onChange={(event) =>
                             setDelivery((old) => ({
                               ...old,
-                              write_mode: event.target.value as
-                                "upsert" | "insert",
+                              [key]: event.target.checked,
                             }))
                           }
-                        >
-                          <option value="upsert">Upsert</option>
-                          <option value="insert">Insert</option>
-                        </select>
-                      </Field>
-                    )}
-                    {destinationKind === "database" &&
-                      (
-                        [
-                          "delete_enabled",
-                          "auto_create",
-                          "auto_evolve",
-                        ] as const
-                      ).map((key) => (
-                        <label className="check-row" key={key}>
-                          <input
-                            type="checkbox"
-                            checked={delivery[key]}
-                            onChange={(event) =>
-                              setDelivery((old) => ({
-                                ...old,
-                                [key]: event.target.checked,
-                              }))
-                            }
-                          />{" "}
-                          {key.replaceAll("_", " ")}
-                        </label>
-                      ))}
+                        />{" "}
+                        {key.replaceAll("_", " ")}
+                      </label>
+                    ))}
                   </div>
-                  {destinationKind === "lakehouse" && lakehouseDestination && (
-                    <dl className="facts">
-                      <dt>Storage</dt>
-                      <dd>{lakehouseDestination.storage_connection.name}</dd>
-                      <dt>Namespace</dt>
-                      <dd>{lakehouseDestination.namespace}</dd>
-                      <dt>CDC behavior</dt>
-                      <dd>
-                        {lakehouseDestination.write_mode} · deletes{" "}
-                        {lakehouseDestination.delete_mode.toLowerCase()}
-                      </dd>
-                      <dt>Schema evolution</dt>
-                      <dd>
-                        {lakehouseDestination.schema_evolution
-                          ? "Enabled"
-                          : "Disabled"}
-                      </dd>
-                    </dl>
-                  )}
                   <h3>Topic → destination table</h3>
                   <div className="mapping-list">
                     {mappings.map((item) => (
@@ -682,13 +579,7 @@ export function PipelineWizard() {
                   </div>
                   <details className="advanced">
                     <summary>Advanced delivery settings</summary>
-                    <JsonView
-                      value={
-                        destinationKind === "lakehouse"
-                          ? { destination: lakehouseDestination, topics }
-                          : { ...delivery, topics }
-                      }
-                    />
+                    <JsonView value={{ ...delivery, topics }} />
                   </details>
                 </>
               )}
@@ -721,23 +612,14 @@ export function PipelineWizard() {
                   {
                     label: "Delivery",
                     name: delivery.name,
-                    detail:
-                      destinationKind === "lakehouse"
-                        ? "Kafka Connect Iceberg Sink"
-                        : "Kafka Connect JDBC Sink",
+                    detail: "Kafka Connect JDBC Sink",
                     status: "CREATING",
                   },
                   {
                     label: "Destination",
-                    name:
-                      lakehouseDestination?.name ||
-                      destination?.name ||
-                      "Destination",
-                    detail:
-                      destinationKind === "lakehouse"
-                        ? `${lakehouseDestination?.storage_connection.name || "S3 / MinIO storage"}`
-                        : destination?.type,
-                    status: lakehouseDestination?.status || destination?.status,
+                    name: destination?.name || "Destination",
+                    detail: destination?.type,
+                    status: destination?.status,
                   },
                 ]}
               />
@@ -757,14 +639,9 @@ export function PipelineWizard() {
                 <dt>Topics</dt>
                 <dd>{topics.join(", ")}</dd>
                 <dt>Delivery</dt>
-                <dd>
-                  {destinationKind === "lakehouse"
-                    ? "Iceberg Sink"
-                    : "JDBC Sink"}{" "}
-                  · {delivery.name}
-                </dd>
+                <dd>JDBC Sink · {delivery.name}</dd>
                 <dt>Destination</dt>
-                <dd>{lakehouseDestination?.name || destination?.name}</dd>
+                <dd>{destination?.name}</dd>
                 <dt>Connect cluster</dt>
                 <dd>{connectCluster?.name}</dd>
               </dl>
@@ -850,11 +727,7 @@ export function PipelineWizard() {
           </div>
           <div>
             <small>DESTINATION</small>
-            <strong>
-              {lakehouseDestination?.name ||
-                destination?.name ||
-                "Choose destination"}
-            </strong>
+            <strong>{destination?.name || "Choose destination"}</strong>
           </div>
         </aside>
       </div>

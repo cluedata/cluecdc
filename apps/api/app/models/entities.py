@@ -188,7 +188,7 @@ class Connection(Entity, Base):
     __tablename__ = "connections"
     __table_args__ = (
         CheckConstraint(
-            "category IN ('DATABASE','OBJECT_STORAGE')",
+            "category = 'DATABASE'",
             name="ck_connections_category",
         ),
     )
@@ -207,53 +207,11 @@ class Connection(Entity, Base):
     last_test_message: Mapped[str | None] = mapped_column(String(1000))
 
 
-class LakehouseTarget(Entity, Base):
-    """Composite Delivery target built exclusively from reusable Connections.
-
-    The physical table name remains ``lakehouse_destinations`` so installations that
-    adopted the initial Lakehouse migration keep all data and foreign keys intact.
-    """
-
-    __tablename__ = "lakehouse_destinations"
-    name: Mapped[str] = mapped_column(String(120), unique=True)
-    description: Mapped[str] = mapped_column(String(1000), default="")
-    table_format: Mapped[str] = mapped_column(String(20), default="ICEBERG")
-    storage_connection_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("connections.id", ondelete="RESTRICT"), index=True
-    )
-    catalog_connection_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("connections.id", ondelete="SET NULL"), index=True
-    )
-    query_engine_connection_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("connections.id", ondelete="SET NULL"), index=True
-    )
-    warehouse: Mapped[str] = mapped_column(String(1000))
-    namespace: Mapped[str] = mapped_column(String(255))
-    file_format: Mapped[str] = mapped_column(String(20), default="PARQUET")
-    write_mode: Mapped[str] = mapped_column(String(20), default="UPSERT")
-    delete_mode: Mapped[str] = mapped_column(String(30), default="PROPAGATE")
-    partition_config: Mapped[list] = mapped_column(JSON, default=list)
-    identifier_fields: Mapped[list] = mapped_column(JSON, default=list)
-    schema_evolution: Mapped[bool] = mapped_column(Boolean, default=True)
-    auto_create_tables: Mapped[bool] = mapped_column(Boolean, default=True)
-    status: Mapped[str] = mapped_column(String(20), default="UNKNOWN", index=True)
-
-
-# Python compatibility for extensions written against the initial preview API.
-LakehouseDestination = LakehouseTarget
-
-
 class PipelineDestination(Entity, Base):
     __tablename__ = "pipeline_destinations"
     __table_args__ = (UniqueConstraint("destination_id", "name"),)
     pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id"), index=True)
-    destination_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("destinations.id"), index=True
-    )
-    lakehouse_destination_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("lakehouse_destinations.id"), index=True
-    )
-    delivery_type: Mapped[str] = mapped_column(String(30), default="DATABASE")
+    destination_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("destinations.id"), index=True)
     connector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connectors.id"), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     delivery_mode: Mapped[str] = mapped_column(String, default="upsert")
@@ -290,9 +248,6 @@ class PipelineEvent(Entity, Base):
     )
     delivery_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("pipeline_destinations.id", ondelete="SET NULL"), index=True
-    )
-    lakehouse_destination_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("lakehouse_destinations.id", ondelete="SET NULL"), index=True
     )
     connector_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("connectors.id", ondelete="SET NULL"), index=True

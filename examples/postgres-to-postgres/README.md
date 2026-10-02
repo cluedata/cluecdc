@@ -10,7 +10,7 @@ Start the stack and run the reproducible acceptance scripts:
 
 ```bash
 cp .env.example .env
-docker compose up -d --build --wait
+docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
 python scripts/demo.py --api-url http://localhost:3000/api/v1
 python scripts/demo-destination.py --skip-capture-demo
 ```

@@ -9,8 +9,9 @@ cp .env.example .env
 python scripts/bootstrap.py
 ```
 
-The simplest full environment is `docker compose up -d --build --wait`. For
-frontend iteration, leave the API stack running and use `npm run dev`; set
+The core environment is `docker compose up -d --build --wait`. Add database
+fixtures with `docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait`.
+For frontend iteration, leave the API stack running and use `npm run dev`; set
 `API_INTERNAL_URL` when the API is not at `http://localhost:8000`.
 
 Run backend commands from the repository root:

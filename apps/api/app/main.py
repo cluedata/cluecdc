@@ -21,8 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.api import router as alert_router
+from app.api.connections import router as connection_router
 from app.api.destinations import router as destination_router
-from app.api.lakehouse import router as lakehouse_router
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.database import Session, engine, session_dependency
@@ -83,7 +83,7 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(destination_router)
-app.include_router(lakehouse_router)
+app.include_router(connection_router)
 app.include_router(alert_router)
 
 

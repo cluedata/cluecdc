@@ -11,7 +11,6 @@ from app.core.errors import DomainError
 from app.models.entities import Job, Pipeline, PipelineDestination, now
 from app.repositories.metadata import audit
 from app.services.destinations.service import reconcile as reconcile_delivery
-from app.services.lakehouse import reconcile as reconcile_lakehouse_delivery
 from app.services.pipeline import reconcile
 from app.services.pipeline_tables import run_operation, sync_snapshot_operations
 from app.services.source import discover, health
@@ -98,10 +97,7 @@ async def worker_loop():
                         )
                     ).all()
                     for link in links:
-                        if link.delivery_type == "ICEBERG":
-                            await reconcile_lakehouse_delivery(session, link)
-                        else:
-                            await reconcile_delivery(session, link)
+                        await reconcile_delivery(session, link)
                     await sync_snapshot_operations(session)
                     await session.commit()
                 next_reconcile = (

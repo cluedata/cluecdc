@@ -66,8 +66,6 @@ export function connectorTechnology(connector: Connector | null): string {
   if (!connector) return "Not deployed";
   const value = connector.connector_class.toLowerCase();
   if (value.includes("jdbc")) return "Kafka Connect JDBC Sink";
-  if (value.includes("elasticsearch")) return "Elasticsearch Sink";
-  if (value.includes("clickhouse")) return "ClickHouse Sink";
   if (value.includes("postgres")) return "Debezium PostgreSQL Connector";
   if (value.includes("mysql")) return "Debezium MySQL Connector";
   return connector.connector_class.split(".").at(-1) || "Kafka Connect";

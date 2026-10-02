@@ -15,11 +15,11 @@ From the repository folder, start the services if needed:
 
 ```powershell
 python scripts/bootstrap.py
-docker compose up -d --wait --wait-timeout 180
-docker compose ps
+docker compose -f compose.yaml -f compose.test.yaml up -d --wait --wait-timeout 180
+docker compose -f compose.yaml -f compose.test.yaml ps
 ```
 
-For a first installation or after application changes, use `docker compose up -d --build --wait --wait-timeout 180` instead. Docker with Compose v2 and Python 3.12+ are required. Node is needed only for local frontend development/tests.
+For a first installation or after application changes, use `docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait --wait-timeout 180` instead. Docker with Compose v2 and Python 3.12+ are required. Node is needed only for local frontend development/tests.
 
 Open [ClueCDC](http://localhost:3000). A reset workspace has no registered clusters, sources, pipelines, destinations, events or audit history. The local databases keep their table definitions and database roles so you can start a new workflow. The reset performed for this guide also cleared the source's sample rows.
 
@@ -138,7 +138,7 @@ VALUES ('Guide customer','guide.customer@example.test');
 INSERT INTO public.orders(customer_id,total)
 SELECT id,12.34 FROM public.customers
 WHERE email='guide.customer@example.test';
-'@ | docker compose exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
+'@ | docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
 ```
 
 Open **Pipeline → Events**, select the customers or orders topic, and **Fetch recent events**. Inspect CREATE records, keys, partition and offset.
@@ -151,7 +151,7 @@ SELECT c.id,c.name,c.email,o.total,o.status
 FROM public.customers c
 LEFT JOIN public.orders o ON o.customer_id=c.id
 WHERE c.email='guide.customer@example.test';
-'@ | docker compose exec -T destination-postgres psql -U postgres -d analytics -v ON_ERROR_STOP=1
+'@ | docker compose -f compose.yaml -f compose.test.yaml exec -T destination-postgres psql -U postgres -d analytics -v ON_ERROR_STOP=1
 ```
 
 Run the query again after a few seconds if delivery is pending. Expect the customer, total `12.34`, and status `pending`. This SQL result proves a write; connector RUNNING alone does not.
@@ -164,7 +164,7 @@ UPDATE public.customers SET name='Guide customer updated',updated_at=now()
 WHERE email='guide.customer@example.test';
 UPDATE public.orders SET total=45.67,status='paid',updated_at=now()
 WHERE customer_id=(SELECT id FROM public.customers WHERE email='guide.customer@example.test');
-'@ | docker compose exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
+'@ | docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
 ```
 
 Fetch events again and select UPDATE to inspect before/after and changed fields. Repeat the destination query; expect the updated name, total `45.67`, and status `paid`.
@@ -176,7 +176,7 @@ Fetch events again and select UPDATE to inspect before/after and changed fields.
 DELETE FROM public.orders
 WHERE customer_id=(SELECT id FROM public.customers WHERE email='guide.customer@example.test');
 DELETE FROM public.customers WHERE email='guide.customer@example.test';
-'@ | docker compose exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
+'@ | docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1
 ```
 
 Inspect DELETE events and repeat the destination query. With deletes enabled, it should return no rows. Null tombstones are ignored; the CDC delete envelope performs deletion.
@@ -248,7 +248,7 @@ For service diagnostics:
 
 ```powershell
 docker compose ps
-docker compose logs --tail 100 cluecdc-api kafka-connect
+docker compose -f compose.yaml -f compose.test.yaml logs --tail 100 cluecdc-api kafka-connect
 ```
 
 Review logs locally before sharing; database/connector logs can contain row details.
@@ -281,20 +281,20 @@ For capture only, run `python scripts/demo.py --api-url http://127.0.0.1:3000/ap
 Stop while preserving data:
 
 ```powershell
-docker compose down
+docker compose -f compose.yaml -f compose.test.yaml down
 ```
 
 **Destructive local reset:** the following removes this Compose project's metadata, source/destination data, Kafka records, connector configuration/offsets and source slots/publications. Use it only when you intend to erase this local workspace. It does not delete data in separately configured external databases/Kafka clusters.
 
 ```powershell
-docker compose down --volumes --remove-orphans
+docker compose -f compose.yaml -f compose.test.yaml down --volumes --remove-orphans
 docker compose up -d --wait --wait-timeout 180
 ```
 
 Startup recreates database structures/roles and seeds the local source with sample rows. To leave those source tables empty too:
 
 ```powershell
-docker compose exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public.payments, public.orders, public.customers RESTART IDENTITY;'
+docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres psql -U postgres -d commerce -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public.payments, public.orders, public.customers RESTART IDENTITY;'
 ```
 
 The local destination's initialization creates empty tables. Keep `.env` for the existing local credentials/settings. Refresh the browser after resetting. Generated screenshots/reports under `artifacts/` and browser test results are ordinary files and remain outside Docker volumes.

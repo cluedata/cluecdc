@@ -515,20 +515,12 @@ async def _prepare_destinations(
         )
     ).all()
     for link in links:
-        if link.delivery_type == "ICEBERG":
-            raise DomainError(
-                "ICEBERG_DELIVERY_REDEPLOY_REQUIRED",
-                "Redeploy the Iceberg delivery before changing pipeline tables",
-                409,
-            )
         if link.connector_id is None:
             raise DomainError(
                 "DESTINATION_NOT_DEPLOYED",
                 "Deploy the destination delivery before adding pipeline tables",
                 409,
             )
-        if not link.destination_id:
-            raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
         destination = await get(session, Destination, link.destination_id)
         mapping = TopicMapping(
             topic=table.topic_name,
@@ -721,16 +713,8 @@ async def _update_sinks(
         )
     ).all()
     for link in links:
-        if link.delivery_type == "ICEBERG":
-            raise DomainError(
-                "ICEBERG_DELIVERY_REDEPLOY_REQUIRED",
-                "Redeploy the Iceberg delivery before changing pipeline tables",
-                409,
-            )
         if not link.connector_id:
             continue
-        if not link.destination_id:
-            raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
         connector = await get(session, Connector, link.connector_id)
         destination = await get(session, Destination, link.destination_id)
         mappings = [

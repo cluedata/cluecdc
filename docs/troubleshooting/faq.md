@@ -4,9 +4,10 @@
 
 No. Debezium, Kafka, and sink connectors form the data plane. The API manages configuration and operations.
 
-## Can I use SQL Server or Trino?
+## Which databases are supported?
 
-No. SQL Server capture is planned but unimplemented. The current Iceberg integration uses a Hadoop catalog and does not manage Trino.
+PostgreSQL and MySQL are supported as both CDC sources and JDBC destinations.
+Providers without working runtime adapters are not exposed.
 
 ## Why is monitoring data unavailable?
 

@@ -20,6 +20,11 @@ API unit tests use temporary SQLite and mocked external clients where isolation 
 
 ## Live integration
 
-Start the full Compose stack, run `scripts/demo.py` and `scripts/demo-destination.py`, then run Playwright. These checks use the real source, Debezium, Kafka, Connect, destination, API proxy, and browser path. Test artifacts are ignored and must be sanitized before sharing.
+Start the integration stack with
+`docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait`, run
+`scripts/demo.py` and `scripts/demo-destination.py`, then run Playwright. These
+checks use the real source, Debezium, Kafka, Connect, destination, API proxy,
+and browser path. Test artifacts are ignored and must be sanitized before
+sharing.
 
 Documentation is validated with `mkdocs build --strict`.

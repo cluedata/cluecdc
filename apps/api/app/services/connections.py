@@ -3,12 +3,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.connection_providers import get_connection_provider
 from app.core.errors import DomainError
 from app.models.entities import (
     Connection,
     Destination,
-    LakehouseTarget,
     Pipeline,
     PipelineDestination,
     SecretReference,
@@ -16,7 +14,7 @@ from app.models.entities import (
     now,
 )
 from app.repositories.metadata import audit, get, serialize
-from app.schemas.lakehouse import ConnectionInput
+from app.schemas.connections import ConnectionInput
 from app.services.secrets import secret_provider
 
 MASK = "••••••••••••"
@@ -26,7 +24,6 @@ def view(connection: Connection) -> dict:
     result = serialize(connection)
     result["config"] = result.pop("config_json")
     result["capabilities"] = result.pop("capabilities_json")
-    # ``provider`` is retained as a compatibility alias for the first Lakehouse API.
     result["type"] = connection.provider
     result["last_checked"] = connection.last_tested_at
     result["credentials"] = {"configured": bool(connection.secret_ref), "masked_value": MASK}
@@ -36,10 +33,7 @@ def view(connection: Connection) -> dict:
 def _capabilities(data: ConnectionInput) -> list[str]:
     if data.capabilities is not None:
         return list(dict.fromkeys(data.capabilities))
-    return {
-        "DATABASE": ["SOURCE", "DESTINATION"],
-        "OBJECT_STORAGE": ["DESTINATION"],
-    }[data.category]
+    return ["SOURCE", "DESTINATION"]
 
 
 def _database_values(connection: Connection) -> dict:
@@ -107,11 +101,7 @@ def _credential_values(data: ConnectionInput) -> dict[str, str]:
 
 
 def _validate_required_credentials(data: ConnectionInput, values: dict[str, str]) -> None:
-    required: set[str] = set()
-    if data.category == "DATABASE":
-        required = {"password"}
-    elif data.provider == "MINIO":
-        required = {"access_key", "secret_key"}
+    required = {"password"}
     missing = required - set(values)
     if missing:
         raise DomainError(
@@ -132,42 +122,26 @@ async def test_input(data: ConnectionInput) -> dict:
     """Test an unsaved connection without persisting credentials or configuration."""
     values = _credential_values(data)
     _validate_required_credentials(data, values)
-    transient = Connection(
-        name=data.name,
-        category=data.category,
-        provider=data.provider,
-        description=data.description,
-        config_json=data.config,
-        capabilities_json=_capabilities(data),
-    )
-    if data.category == "DATABASE":
-        if data.provider not in {"POSTGRESQL", "MYSQL"}:
-            raise DomainError(
-                "PROVIDER_NOT_IMPLEMENTED",
-                f"{data.provider.replace('_', ' ').title()} runtime support is not installed",
-                422,
-            )
-        from app.providers import get_provider
+    from app.providers import get_provider
 
-        database = Destination(
-            name=data.name,
-            description=data.description,
-            type=data.provider.lower(),
-            environment=str(data.config.get("environment", "DEV")),
-            host=str(data.config["host"]),
-            port=int(data.config["port"]),
-            database_name=str(data.config["database_name"]),
-            username=str(data.config["username"]),
-            secret_ref=uuid.uuid4(),
-            ssl_enabled=bool(data.config.get("ssl_enabled", False)),
-            provider_options=dict(data.config.get("provider_options", {})),
-        )
-        return (
-            await get_provider(database.type)
-            .destination_adapter(database, values["password"])
-            .test_connection()
-        )
-    return await get_connection_provider(transient, values).test_connection()
+    database = Destination(
+        name=data.name,
+        description=data.description,
+        type=data.provider.lower(),
+        environment=str(data.config.get("environment", "DEV")),
+        host=str(data.config["host"]),
+        port=int(data.config["port"]),
+        database_name=str(data.config["database_name"]),
+        username=str(data.config["username"]),
+        secret_ref=uuid.uuid4(),
+        ssl_enabled=bool(data.config.get("ssl_enabled", False)),
+        provider_options=dict(data.config.get("provider_options", {})),
+    )
+    return (
+        await get_provider(database.type)
+        .destination_adapter(database, values["password"])
+        .test_connection()
+    )
 
 
 async def create(session: AsyncSession, data: ConnectionInput, actor: str) -> Connection:
@@ -228,14 +202,7 @@ async def update(
 
 
 async def dependencies(session: AsyncSession, connection: Connection) -> list[dict]:
-    destinations = (
-        await session.scalars(
-            select(LakehouseTarget).where(LakehouseTarget.storage_connection_id == connection.id)
-        )
-    ).all()
-    result: list[dict[str, object]] = [
-        {"type": "lakehouse_target", "id": str(item.id), "name": item.name} for item in destinations
-    ]
+    result: list[dict[str, object]] = []
     if "SOURCE" in connection.capabilities_json:
         for pipeline in (
             await session.scalars(select(Pipeline).where(Pipeline.source_id == connection.id))
@@ -258,24 +225,6 @@ async def dependencies(session: AsyncSession, connection: Connection) -> list[di
                     "pipeline": delivery_pipeline.name if delivery_pipeline else None,
                 }
             )
-    for destination in destinations:
-        links = (
-            await session.scalars(
-                select(PipelineDestination).where(
-                    PipelineDestination.lakehouse_destination_id == destination.id
-                )
-            )
-        ).all()
-        for link in links:
-            target_pipeline = await session.get(Pipeline, link.pipeline_id)
-            if target_pipeline:
-                result.append(
-                    {
-                        "type": "pipeline",
-                        "id": str(target_pipeline.id),
-                        "name": target_pipeline.name,
-                    }
-                )
     return result
 
 
@@ -292,11 +241,10 @@ async def delete(session: AsyncSession, connection: Connection, actor: str) -> d
         await session.get(SecretReference, connection.secret_ref) if connection.secret_ref else None
     )
     audit(session, actor, "connection.deleted", connection)
-    if connection.category == "DATABASE":
-        for model in (Source, Destination):
-            adapter = await session.get(model, connection.id)
-            if adapter is not None:
-                await session.delete(adapter)
+    for model in (Source, Destination):
+        adapter = await session.get(model, connection.id)
+        if adapter is not None:
+            await session.delete(adapter)
     await session.delete(connection)
     await session.flush()
     if secret:
@@ -307,36 +255,25 @@ async def delete(session: AsyncSession, connection: Connection, actor: str) -> d
 async def test(session: AsyncSession, connection: Connection, actor: str) -> dict:
     values = await credentials(session, connection)
     try:
-        if connection.category == "DATABASE":
-            if connection.provider not in {"POSTGRESQL", "MYSQL"}:
-                raise DomainError(
-                    "PROVIDER_NOT_IMPLEMENTED",
-                    f"{connection.provider.replace('_', ' ').title()} runtime support "
-                    "is not installed",
-                    422,
-                )
-            destination = await session.get(Destination, connection.id)
-            source = await session.get(Source, connection.id)
-            from app.providers import get_provider
+        destination = await session.get(Destination, connection.id)
+        source = await session.get(Source, connection.id)
+        from app.providers import get_provider
 
-            database_provider = get_provider(connection.provider.lower())
-            if destination is not None:
-                result = await database_provider.destination_adapter(
-                    destination, values.get("password", "")
-                ).test_connection()
-            elif source is not None:
-                result = await database_provider.source_adapter(
-                    source, values.get("password", "")
-                ).test()
-            else:
-                raise DomainError(
-                    "DATABASE_CAPABILITY_REQUIRED",
-                    "Enable a source or destination capability before testing",
-                    422,
-                )
+        database_provider = get_provider(connection.provider.lower())
+        if destination is not None:
+            result = await database_provider.destination_adapter(
+                destination, values.get("password", "")
+            ).test_connection()
+        elif source is not None:
+            result = await database_provider.source_adapter(
+                source, values.get("password", "")
+            ).test()
         else:
-            provider = get_connection_provider(connection, values)
-            result = await provider.test_connection()
+            raise DomainError(
+                "DATABASE_CAPABILITY_REQUIRED",
+                "Enable a source or destination capability before testing",
+                422,
+            )
     except DomainError as error:
         connection.status = "ERROR"
         connection.last_tested_at = now()

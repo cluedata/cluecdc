@@ -121,6 +121,10 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
       "docker",
       [
         "compose",
+        "-f",
+        "compose.yaml",
+        "-f",
+        "compose.test.yaml",
         "exec",
         "-T",
         "cdc-source-postgres",

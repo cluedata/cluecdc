@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { post } from "../src/lib/api";
-import {
-  createLakehousePipelineFlow,
-  createPipelineFlow,
-} from "../src/services/pipeline-orchestrator";
+import { createPipelineFlow } from "../src/services/pipeline-orchestrator";
 
 vi.mock("../src/lib/api", () => ({ post: vi.fn() }));
 
@@ -69,36 +66,6 @@ describe("pipeline orchestration", () => {
     ).rejects.toMatchObject({
       failedStage: "delivery",
       completed: ["capture_validated", "pipeline_saved", "capture_deployed"],
-    });
-  });
-
-  it("validates and deploys an Iceberg delivery after capture", async () => {
-    vi.mocked(post)
-      .mockResolvedValueOnce({ config: {}, topics: [] })
-      .mockResolvedValueOnce({ id: "pipeline" })
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ topics: [] })
-      .mockResolvedValueOnce({ config: {} })
-      .mockResolvedValueOnce({ id: "iceberg-delivery" });
-
-    await createLakehousePipelineFlow(
-      capture,
-      "production-lakehouse",
-      "customers-iceberg",
-    );
-
-    expect(vi.mocked(post).mock.calls.map(([path]) => path)).toEqual([
-      "/pipelines/preview",
-      "/pipelines",
-      "/pipelines/pipeline/deploy",
-      "/pipelines/pipeline/prepare-topics",
-      "/lakehouse-targets/production-lakehouse/preview-delivery",
-      "/lakehouse-targets/production-lakehouse/deploy",
-    ]);
-    expect(vi.mocked(post).mock.calls[4]?.[1]).toMatchObject({
-      pipeline_id: "pipeline",
-      connect_cluster_id: "connect",
-      name: "customers-iceberg",
     });
   });
 });

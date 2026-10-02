@@ -63,6 +63,25 @@ async def test_unknown_pipeline_and_duplicate_source(client, source_payload):
     assert (await client.post("/api/v1/sources", json=source_payload)).status_code == 409
 
 
+async def test_mysql_source_accepts_unique_explicit_server_id(client, source_payload):
+    payload = {
+        **source_payload,
+        "name": "mysql-source",
+        "type": "mysql",
+        "port": 3306,
+        "provider_options": {"server_id": 626_600_001},
+    }
+    response = await client.post("/api/v1/sources", json=payload)
+    assert response.status_code == 201
+    assert response.json()["provider_options"]["server_id"] == 626_600_001
+
+    duplicate = await client.post(
+        "/api/v1/sources", json={**payload, "name": "another-mysql-source"}
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "SERVER_ID_CONFLICT"
+
+
 async def test_source_edit_rotates_secret_and_invalidates_discovery(
     client, db_factory, source_payload
 ):

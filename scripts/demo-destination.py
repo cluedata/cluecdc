@@ -58,6 +58,10 @@ def sql(service, database, statement):
         [
             "docker",
             "compose",
+            "-f",
+            "compose.yaml",
+            "-f",
+            "compose.test.yaml",
             "exec",
             "-T",
             service,

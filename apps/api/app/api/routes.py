@@ -20,7 +20,6 @@ from app.models.entities import (
     Destination,
     Job,
     KafkaCluster,
-    LakehouseTarget,
     Pipeline,
     PipelineDestination,
     PipelineEvent,
@@ -44,7 +43,6 @@ from app.schemas.requests import (
     ResyncPipelineTableInput,
     SourceInput,
 )
-from app.services import lakehouse as lakehouse_service
 from app.services import pipeline as pipeline_service
 from app.services import pipeline_tables as pipeline_table_service
 from app.services import source as source_service
@@ -102,7 +100,9 @@ async def create_source(
     await db.flush()
     if source.type == "mysql":
         options = dict(source.provider_options)
-        options["server_id"] = await assign_mysql_server_id(db, source.id, options.get("server_id"))
+        options["server_id"] = await assign_mysql_server_id(
+            db, source.id, options.get("server_id"), exclude_source_id=source.id
+        )
         source.provider_options = options
     audit(db, user.actor, "source.created", source)
     await db.commit()
@@ -463,9 +463,7 @@ async def connectors(db: DB, user: Annotated[Principal, Depends(require("connect
 async def deliveries(db: DB, user: Annotated[Principal, Depends(require("destinations.read"))]):
     """Expose managed sink connectors as first-class delivery resources."""
     return [
-        await lakehouse_service.delivery_view(db, delivery)
-        if delivery.delivery_type == "ICEBERG"
-        else await destination_service.delivery_view(db, delivery)
+        await destination_service.delivery_view(db, delivery)
         for delivery in await destination_service.all_deliveries(db)
     ]
 
@@ -477,11 +475,7 @@ async def delivery_detail(
     user: Annotated[Principal, Depends(require("destinations.read"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
-    return (
-        await lakehouse_service.delivery_view(db, delivery)
-        if delivery.delivery_type == "ICEBERG"
-        else await destination_service.delivery_view(db, delivery)
-    )
+    return await destination_service.delivery_view(db, delivery)
 
 
 @router.get("/deliveries/{identifier}/status")
@@ -491,11 +485,7 @@ async def delivery_status(
     user: Annotated[Principal, Depends(require("destinations.read"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier, lock=True)
-    result = (
-        await lakehouse_service.reconcile(db, delivery)
-        if delivery.delivery_type == "ICEBERG"
-        else await destination_service.reconcile(db, delivery)
-    )
+    result = await destination_service.reconcile(db, delivery)
     await db.commit()
     return result
 
@@ -508,14 +498,6 @@ async def update_delivery_mappings(
     user: Annotated[Principal, Depends(require("destinations.operate"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
-    if delivery.delivery_type == "ICEBERG":
-        raise DomainError(
-            "ICEBERG_MAPPING_IMMUTABLE",
-            "Update Iceberg table routing by redeploying the delivery",
-            422,
-        )
-    if not delivery.destination_id:
-        raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
     destination = await destination_service.locked(db, delivery.destination_id)
     delivery = await destination_service.locked_delivery(db, destination.id, identifier)
     return await destination_service.update_mapping(db, destination, delivery, data, user.actor)
@@ -532,11 +514,6 @@ async def operate_delivery(
     if operation not in {"pause", "resume", "restart", "restart-task"}:
         raise DomainError("INVALID_OPERATION", "Unsupported delivery operation", 404)
     delivery = await destination_service.delivery_by_id(db, identifier)
-    if delivery.delivery_type == "ICEBERG":
-        delivery = await destination_service.delivery_by_id(db, identifier, lock=True)
-        return await lakehouse_service.operate(db, delivery, operation, user.actor, task)
-    if not delivery.destination_id:
-        raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
     destination = await destination_service.locked(db, delivery.destination_id)
     delivery = await destination_service.locked_delivery(db, destination.id, identifier)
     return await destination_service.operate(db, destination, delivery, operation, user.actor, task)
@@ -549,11 +526,6 @@ async def delete_delivery(
     user: Annotated[Principal, Depends(require("destinations.operate"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
-    if delivery.delivery_type == "ICEBERG":
-        delivery = await destination_service.delivery_by_id(db, identifier, lock=True)
-        return await lakehouse_service.operate(db, delivery, "delete", user.actor)
-    if not delivery.destination_id:
-        raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
     destination = await destination_service.locked(db, delivery.destination_id)
     delivery = await destination_service.locked_delivery(db, destination.id, identifier)
     return await destination_service.operate(db, destination, delivery, "delete", user.actor)
@@ -604,9 +576,7 @@ async def pipelines(
                 select(PipelineDestination).where(PipelineDestination.pipeline_id == p["id"])
             )
         ).all()
-        p["destinations"] = len(
-            {(link.destination_id, link.lakehouse_destination_id) for link in links}
-        )
+        p["destinations"] = len({link.destination_id for link in links})
         p["delivery_state"] = (
             destination_service.aggregate([link.actual_state for link in links])
             if links
@@ -614,21 +584,13 @@ async def pipelines(
         )
         summaries = []
         for link in links:
-            if link.delivery_type == "ICEBERG":
-                if not link.lakehouse_destination_id:
-                    raise DomainError("INVALID_DELIVERY", "Lakehouse delivery is invalid", 500)
-                target = await get(db, LakehouseTarget, link.lakehouse_destination_id)
-            else:
-                if not link.destination_id:
-                    raise DomainError("INVALID_DELIVERY", "Database delivery is invalid", 500)
-                target = await get(db, Destination, link.destination_id)
+            target = await get(db, Destination, link.destination_id)
             summaries.append(
                 {
                     "id": link.id,
                     "name": link.name,
                     "destination_id": target.id,
                     "destination_name": target.name,
-                    "delivery_type": link.delivery_type,
                     "actual_state": link.actual_state,
                 }
             )
@@ -709,9 +671,7 @@ async def pipeline_detail(
         "notice": "Incremental snapshot status is sourced from Debezium notifications",
     }
     result["destinations"] = [
-        await lakehouse_service.delivery_view(db, link)
-        if link.delivery_type == "ICEBERG"
-        else await destination_service.delivery_view(db, link)
+        await destination_service.delivery_view(db, link)
         for link in (
             await db.scalars(
                 select(PipelineDestination).where(PipelineDestination.pipeline_id == identifier)
@@ -727,9 +687,7 @@ async def pipeline_destinations(
 ):
     await get(db, Pipeline, identifier)
     return [
-        await lakehouse_service.delivery_view(db, link)
-        if link.delivery_type == "ICEBERG"
-        else await destination_service.delivery_view(db, link)
+        await destination_service.delivery_view(db, link)
         for link in (
             await db.scalars(
                 select(PipelineDestination).where(PipelineDestination.pipeline_id == identifier)

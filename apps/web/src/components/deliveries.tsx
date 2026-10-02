@@ -33,52 +33,9 @@ import {
 import { DataFlowRail } from "./data-flow-rail";
 import { FilterBar, MetricCard, Panel, QuietState } from "./operational";
 import { DestinationWizard } from "./destinations";
-import { LakehouseWizard } from "./connections";
 
 export function DeliveryCreatePage() {
-  const params = useSearchParams();
-  const requestedType = params.get("type")?.toUpperCase();
-  const [type, setType] = useState<"DATABASE" | "LAKEHOUSE" | null>(
-    requestedType === "DATABASE" || requestedType === "LAKEHOUSE"
-      ? requestedType
-      : null,
-  );
-  if (type === "DATABASE") return <DestinationWizard deliveryFirst />;
-  if (type === "LAKEHOUSE") return <LakehouseWizard deliveryFirst />;
-  return (
-    <>
-      <PageHeader
-        title="Create Delivery"
-        description="Choose a database connection or compose a Lakehouse target from reusable connections."
-        eyebrow="DATA FLOW / DELIVERY"
-      />
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Destination type</h2>
-            <p>
-              The target type determines the delivery connector and
-              configuration.
-            </p>
-          </div>
-        </div>
-        <div className="destination-types">
-          <button type="button" onClick={() => setType("DATABASE")}>
-            <DatabaseZap size={22} />
-            <strong>Database</strong>
-            <small>Select a reusable database destination connection.</small>
-          </button>
-          <button type="button" onClick={() => setType("LAKEHOUSE")}>
-            <DatabaseZap size={22} />
-            <strong>Lakehouse</strong>
-            <small>
-              Compose storage, catalog, and optional query engine connections.
-            </small>
-          </button>
-        </div>
-      </section>
-    </>
-  );
+  return <DestinationWizard deliveryFirst />;
 }
 
 function deliveryType(delivery: Delivery): string {
@@ -86,15 +43,11 @@ function deliveryType(delivery: Delivery): string {
 }
 
 function destinationHref(delivery: Delivery): string {
-  return delivery.delivery_type === "ICEBERG"
-    ? `/deliveries/${delivery.id}`
-    : `/destinations/${delivery.destination_id}`;
+  return `/destinations/${delivery.destination_id}`;
 }
 
 function destinationDetail(delivery: Delivery): string {
-  return "table_format" in delivery.destination
-    ? `${delivery.destination.table_format} / ${delivery.destination.namespace}`
-    : `${delivery.destination.type} / ${delivery.destination.database_name}`;
+  return `${delivery.destination.type} / ${delivery.destination.database_name}`;
 }
 
 function taskSummary(delivery: Delivery): string {
@@ -509,32 +462,6 @@ export function DeliveryDetailPage({ id }: { id: string }) {
               <dd>Unavailable</dd>
             </dl>
           </Panel>
-          {"table_format" in delivery.destination && (
-            <Panel
-              title="Lakehouse target"
-              description="Apache Iceberg data and metadata are stored through this reusable object-storage connection."
-            >
-              <dl className="facts">
-                <dt>Storage</dt>
-                <dd>
-                  <Link
-                    className="text-link"
-                    href={`/connections/${delivery.destination.storage_connection_id}`}
-                  >
-                    {delivery.destination.storage_connection.name}
-                  </Link>
-                </dd>
-                <dt>Namespace</dt>
-                <dd>{delivery.destination.namespace}</dd>
-                <dt>Table format</dt>
-                <dd>{delivery.destination.table_format}</dd>
-                <dt>File format</dt>
-                <dd>{delivery.destination.file_format}</dd>
-                <dt>CDC behavior</dt>
-                <dd>{delivery.destination.write_mode}</dd>
-              </dl>
-            </Panel>
-          )}
         </>
       )}
       {tab === "Topics" && <TopicTable delivery={delivery} />}

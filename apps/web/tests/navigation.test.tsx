@@ -50,10 +50,6 @@ describe("main navigation", () => {
         .getAllByRole("link")
         .map((link) => link.textContent),
     ).toEqual(["Sources", "Destinations"]);
-    expect(
-      screen.queryByText("Lakehouse Destinations"),
-    ).not.toBeInTheDocument();
-
     const infrastructure = screen.getByRole("region", {
       name: "Infrastructure",
     });

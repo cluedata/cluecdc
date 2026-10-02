@@ -81,21 +81,12 @@ async def observe_connector(
     delivery: PipelineDestination | None = None,
 ) -> None:
     """Translate one Kafka Connect observation into normalized firing/recovery events."""
-    is_lakehouse = bool(delivery and delivery.delivery_type == "ICEBERG")
-    source_type = (
-        "lakehouse_destination" if is_lakehouse else ("destination" if delivery else "connector")
-    )
-    delivery_source_id = (
-        (delivery.lakehouse_destination_id if is_lakehouse else delivery.destination_id)
-        if delivery
-        else pipeline.source_id
-    )
+    source_type = "destination" if delivery else "connector"
+    delivery_source_id = delivery.destination_id if delivery else pipeline.source_id
     source_id = str(delivery_source_id)
     source = await session.get(Source, pipeline.source_id) if not delivery else None
     source_name = delivery.name if delivery else (source.name if source else connector.name)
-    component = (
-        "iceberg-delivery" if is_lakehouse else ("destination" if delivery else "kafka-connect")
-    )
+    component = "destination" if delivery else "kafka-connect"
     common: dict[str, Any] = {
         "source_type": source_type,
         "source_id": source_id,

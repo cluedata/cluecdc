@@ -17,6 +17,10 @@ function sql(service: string, database: string, statement: string) {
     "docker",
     [
       "compose",
+      "-f",
+      "compose.yaml",
+      "-f",
+      "compose.test.yaml",
       "exec",
       "-T",
       service,

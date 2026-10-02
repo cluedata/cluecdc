@@ -17,8 +17,6 @@ All notable changes are recorded here. ClueCDC follows Semantic Versioning.
 - Repository links and publication metadata target the ClueData organization.
 - Next.js and its ESLint configuration are updated to 16.3.8 to include the
   upstream `next/og` remote-code-execution fix.
-- The legacy nullable lakehouse catalog foreign key now matches the model's
-  `SET NULL` deletion behavior.
 - Database delivery operations use a consistent lock order so status polling
   cannot deadlock concurrent lifecycle requests.
 - The pipeline wizard provisions topics before previewing delivery connector
