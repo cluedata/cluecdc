@@ -70,8 +70,9 @@ The default stack starts six services: metadata PostgreSQL, one KRaft Kafka
 broker, Kafka Connect, the HTTP API, a separate ClueCDC background worker, and
 the web UI. Source/destination databases and MinIO are integration fixtures only.
 
-The metadata schema uses a fresh baseline. Existing prototype databases require
-an explicit backup and recreation; see the [migration decision](docs/development/migrations.md).
+The metadata schema uses a clean baseline with a data-preserving upgrade bridge
+for prototype revision `5e2d8a9f1c30`. Back up existing metadata before upgrading;
+other old revisions require a fresh database. See the [migration decision](docs/development/migrations.md).
 
 Optional developer tooling:
 

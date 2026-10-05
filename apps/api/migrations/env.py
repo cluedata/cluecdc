@@ -10,6 +10,11 @@ from app.models import Base
 def run(connection):
     context.configure(connection=connection, target_metadata=Base.metadata)
     with context.begin_transaction():
+        if connection.dialect.name == "postgresql":
+            from sqlalchemy import text
+
+            # Serialize concurrent API startup migrations in this database.
+            connection.execute(text("SELECT pg_advisory_xact_lock(731947230001)"))
         context.run_migrations()
 
 

@@ -7,6 +7,11 @@ All notable changes are recorded here. ClueCDC follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Compose startup with metadata at revision `5e2d8a9f1c30`: transactional,
+  data-preserving upgrade to `0001` and serialized PostgreSQL startup migrations.
+
 ### Added
 
 - AWS S3 and MinIO destinations with encrypted credentials, safe SDK probes,
