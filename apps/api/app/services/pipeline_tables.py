@@ -316,6 +316,7 @@ async def _context(session: AsyncSession, operation: PipelineOperation):
         await get(session, Connector, pipeline.connector_id) if pipeline.connector_id else None
     )
     cluster = await get(session, ConnectCluster, pipeline.connect_cluster_id)
+    await session.commit()
     return pipeline, table, source, database, connector, cluster
 
 
@@ -349,6 +350,7 @@ async def _run_add(session: AsyncSession, operation: PipelineOperation) -> None:
         await _checkpoint(session, operation, "validate_source", ADD_STEPS)
     if not _completed(operation, "prepare_destination"):
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        await session.commit()
         await KafkaExplorer().ensure_topics(
             kafka, [table.topic_name, notification_topic(pipeline.topic_prefix)]
         )
@@ -421,6 +423,7 @@ async def _run_resync(session: AsyncSession, operation: PipelineOperation) -> No
         publication = provider.publication_manager(database, connector.config_json)
         await publication.add_table(signal_schema, signal_table)
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        await session.commit()
         await KafkaExplorer().ensure_topics(kafka, [notification_topic(pipeline.topic_prefix)])
         if not connector.config_json.get("signal.data.collection"):
             await _update_source_connector(session, pipeline, connector, cluster)
@@ -515,6 +518,8 @@ async def _prepare_destinations(
         )
     ).all()
     for link in links:
+        if link.delivery_type == "OBJECT_STORAGE":
+            continue
         if link.connector_id is None:
             raise DomainError(
                 "DESTINATION_NOT_DEPLOYED",
@@ -540,7 +545,7 @@ async def _prepare_destinations(
         _, _, metadata, target = await destination_service.build(
             session, destination, data, (await get(session, Connector, link.connector_id)).name
         )
-        if handling == "AUTO_CREATE":
+        if handling == "AUTO_CREATE" and target is not None:
             await target.prepare(data, metadata)
             await target.validate(data, metadata)
 
@@ -573,10 +578,12 @@ async def _update_source_connector(
             409,
         )
     client = KafkaConnectClient(cluster.base_url)
+    await session.commit()
     await client.validate(config)
     await client.update(connector.name, config)
     connector.config_json = redact(config)
     audit(session, "worker", "pipeline.connector_config_updated", connector)
+    await session.commit()
 
 
 async def _wait_connector_healthy(
@@ -655,6 +662,7 @@ async def stop_active_snapshot(
     source = await get(session, Source, pipeline.source_id)
     database = await source_adapter(session, source)
     provider = get_provider(source.type)
+    await session.commit()
     signal_id = await provider.signal_service(
         database, source, pipeline.topic_prefix
     ).stop_snapshot(pipeline.id, table.schema_name, table.table_name)
@@ -717,6 +725,39 @@ async def _update_sinks(
             continue
         connector = await get(session, Connector, link.connector_id)
         destination = await get(session, Destination, link.destination_id)
+        if link.delivery_type == "OBJECT_STORAGE":
+            topics = [
+                mapping["topic"]
+                for mapping in link.topic_mapping_json
+                if mapping["topic"] != table.topic_name
+            ]
+            if not remove:
+                topics.append(table.topic_name)
+            if topics:
+                data = DeliveryInput(
+                    **{
+                        **link.configuration_json,
+                        "pipeline_id": pipeline.id,
+                        "topics": topics,
+                        "mappings": [],
+                    }
+                )
+                config, cluster, _, _ = await destination_service.build(
+                    session, destination, data, connector.name
+                )
+                await session.commit()
+                await KafkaConnectClient(cluster.base_url).update(connector.name, config)
+                connector.config_json = redact(config)
+                link.topic_mapping_json = [{"topic": topic} for topic in topics]
+                link.configuration_json = destination_service.stored_configuration(data)
+            else:
+                cluster = await get(session, ConnectCluster, connector.connect_cluster_id)
+                await session.commit()
+                await KafkaConnectClient(cluster.base_url).operate(connector.name, "delete")
+                await session.delete(link)
+                await session.flush()
+                await session.delete(connector)
+            continue
         mappings = [
             TopicMapping(**mapping)
             for mapping in link.topic_mapping_json
@@ -732,6 +773,7 @@ async def _update_sinks(
             )
         if not mappings:
             cluster = await get(session, ConnectCluster, connector.connect_cluster_id)
+            await session.commit()
             await KafkaConnectClient(cluster.base_url).operate(connector.name, "delete")
             await session.delete(link)
             await session.flush()
@@ -751,7 +793,7 @@ async def _update_sinks(
         await KafkaConnectClient(cluster.base_url).update(connector.name, config)
         connector.config_json = redact(config)
         link.topic_mapping_json = [mapping.model_dump() for mapping in mappings]
-        link.configuration_json = data.model_dump(mode="json", exclude={"mappings"})
+        link.configuration_json = destination_service.stored_configuration(data)
 
 
 async def _drop_destination_tables(
@@ -759,7 +801,10 @@ async def _drop_destination_tables(
 ) -> None:
     for identifier in operation.metadata_json.get("cleanup_destination_ids", []):
         destination = await get(session, Destination, uuid.UUID(identifier))
+        if destination.category != "DATABASE":
+            continue
         target = await destination_service.adapter(session, destination)
+        await session.commit()
         await target.drop_table(
             table.destination_schema or table.schema_name,
             table.destination_table or table.table_name,
@@ -809,6 +854,7 @@ async def sync_snapshot_operations(session: AsyncSession) -> int:
         signal_id = operation.metadata_json.get("signal_id")
         if not topic or not signal_id:
             continue
+        await session.commit()
         try:
             records = await KafkaExplorer().notifications(kafka, topic)
         except DomainError:

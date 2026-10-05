@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.errors import DomainError
 from app.models.entities import (
     AuditLog,
+    Connection,
     Connector,
     PipelineDestination,
     SecretReference,
@@ -133,7 +134,10 @@ async def test_destination_crud_encrypts_rotates_and_redacts(client, db_factory,
     changed = {**target_payload, "password": "rotated-secret", "description": "Warehouse"}
     assert (await client.put(f"/api/v1/destinations/{identifier}", json=changed)).status_code == 200
     async with db_factory() as db:
-        assert await db.get(SecretReference, previous_ref) is None
+        assert (await db.scalar(select(Connection))).secret_ref == previous_ref
+        assert (await EncryptedDatabaseSecretProvider(db).get_secret(previous_ref))[
+            "password"
+        ] == "rotated-secret"
     for path in ["/api/v1/destinations", f"/api/v1/destinations/{identifier}", "/api/v1/audit"]:
         response = await client.get(path)
         assert (

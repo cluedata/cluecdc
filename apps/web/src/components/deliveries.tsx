@@ -35,18 +35,35 @@ import { FilterBar, MetricCard, Panel, QuietState } from "./operational";
 import { DestinationWizard } from "./destinations";
 
 export function DeliveryCreatePage() {
-  return <DestinationWizard deliveryFirst />;
+  return (
+    <>
+      <div className="wizard-actions">
+        <Button asChild variant="outline">
+          <Link href="/deliveries/new/object-storage">
+            Create S3 / MinIO delivery
+          </Link>
+        </Button>
+      </div>
+      <DestinationWizard deliveryFirst />
+    </>
+  );
 }
 
 function deliveryType(delivery: Delivery): string {
+  if (delivery.delivery_type === "OBJECT_STORAGE")
+    return "Object storage (JSONL)";
   return connectorTechnology(delivery.connector).replace("Kafka Connect ", "");
 }
 
 function destinationHref(delivery: Delivery): string {
+  if (delivery.delivery_type === "OBJECT_STORAGE")
+    return `/connections/${delivery.destination_id}`;
   return `/destinations/${delivery.destination_id}`;
 }
 
 function destinationDetail(delivery: Delivery): string {
+  if (delivery.delivery_type === "OBJECT_STORAGE")
+    return `${delivery.destination.type} / JSONL archive`;
   return `${delivery.destination.type} / ${delivery.destination.database_name}`;
 }
 
@@ -218,7 +235,11 @@ function TopicTable({ delivery }: { delivery: Delivery }) {
             <th>Topic</th>
             <th>Partitions</th>
             <th>Consumer lag</th>
-            <th>Destination table</th>
+            <th>
+              {delivery.delivery_type === "OBJECT_STORAGE"
+                ? "Format"
+                : "Destination table"}
+            </th>
             <th>Status</th>
           </tr>
         </thead>
@@ -241,7 +262,9 @@ function TopicTable({ delivery }: { delivery: Delivery }) {
               </td>
               <td>
                 <code>
-                  {mapping.schema_name}.{mapping.table_name}
+                  {delivery.delivery_type === "OBJECT_STORAGE"
+                    ? "JSONL"
+                    : `${mapping.schema_name}.${mapping.table_name}`}
                 </code>
               </td>
               <td>
@@ -296,7 +319,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
   const tabs = [
     "Overview",
     "Topics",
-    "Mapping",
+    ...(delivery.delivery_type === "OBJECT_STORAGE" ? [] : ["Mapping"]),
     "Configuration",
     "Tasks",
     "Metrics",
@@ -493,7 +516,25 @@ export function DeliveryDetailPage({ id }: { id: string }) {
             active={configurationMode}
             onChange={setConfigurationMode}
           />
-          {configurationMode === "Basic" ? (
+          {configurationMode === "Basic" &&
+          delivery.delivery_type === "OBJECT_STORAGE" ? (
+            <dl className="facts">
+              <dt>Format</dt>
+              <dd>JSONL · Debezium event envelope</dd>
+              <dt>Compression</dt>
+              <dd>{delivery.configuration_json.compression}</dd>
+              <dt>Records per file</dt>
+              <dd>{delivery.configuration_json.file_max_records}</dd>
+              <dt>Flush interval</dt>
+              <dd>{delivery.configuration_json.flush_interval_ms} ms</dd>
+              <dt>Object key template</dt>
+              <dd>
+                <code>{delivery.configuration_json.file_name_template}</code>
+              </dd>
+              <dt>Delete handling</dt>
+              <dd>Delete envelopes are archived</dd>
+            </dl>
+          ) : configurationMode === "Basic" ? (
             <dl className="facts">
               <dt>Destination</dt>
               <dd>{delivery.destination.name}</dd>

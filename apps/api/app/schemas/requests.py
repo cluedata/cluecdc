@@ -188,7 +188,9 @@ class DeliveryInput(BaseModel):
     pipeline_id: UUID
     connect_cluster_id: UUID | None = None
     name: str = Field(default="Primary delivery", min_length=1, max_length=120)
-    mappings: list[TopicMapping] = Field(min_length=1, max_length=100)
+    delivery_type: Literal["DATABASE", "OBJECT_STORAGE"] = "DATABASE"
+    mappings: list[TopicMapping] = Field(default_factory=list, max_length=100)
+    topics: list[str] = Field(default_factory=list, max_length=100)
     write_mode: Literal["upsert", "insert"] = "upsert"
     primary_key_mode: Literal["record_key"] = "record_key"
     auto_create: bool = True
@@ -199,9 +201,48 @@ class DeliveryInput(BaseModel):
     max_retries: int = Field(default=5, ge=0, le=20)
     retry_backoff_ms: int = Field(default=1000, ge=100, le=10000)
     tasks_max: int = Field(default=1, ge=1, le=4)
+    output_format: Literal["JSONL"] = "JSONL"
+    compression: Literal["gzip", "none"] = "gzip"
+    file_max_records: int = Field(default=100_000, ge=1, le=10_000_000)
+    flush_interval_ms: int = Field(default=60_000, ge=1_000, le=3_600_000)
+    file_name_template: str = Field(
+        default="{{topic}}/year={{timestamp:unit=yyyy}}/month={{timestamp:unit=MM}}/day={{timestamp:unit=dd}}/{{topic}}-{{partition:padding=true}}-{{start_offset:padding=true}}.jsonl.gz",
+        min_length=1,
+        max_length=500,
+    )
+    error_policy: Literal["fail", "continue"] = "fail"
 
     @model_validator(mode="after")
     def valid_delivery(self) -> "DeliveryInput":
+        if self.delivery_type == "OBJECT_STORAGE":
+            if self.mappings:
+                raise ValueError("Object-storage deliveries use topics, not table mappings")
+            if not self.topics:
+                raise ValueError("Select at least one topic")
+            if len(self.topics) != len(set(self.topics)) or any(
+                not re.fullmatch(r"[a-zA-Z0-9_.-]+", topic) for topic in self.topics
+            ):
+                raise ValueError("Object-storage topics must be unique Kafka topic names")
+            required_tokens = {
+                "{{topic}}",
+                "{{partition:padding=true}}",
+                "{{start_offset:padding=true}}",
+            }
+            if not all(token in self.file_name_template for token in required_tokens):
+                raise ValueError(
+                    "file_name_template must identify topic, partition, and start offset"
+                )
+            if (
+                self.file_name_template.startswith("/")
+                or ".." in self.file_name_template.split("/")
+                or any(ord(char) < 32 for char in self.file_name_template)
+            ):
+                raise ValueError("file_name_template contains an unsafe path segment")
+            return self
+        if not self.mappings:
+            raise ValueError("Select at least one topic-to-table mapping")
+        if self.topics:
+            raise ValueError("Database deliveries use table mappings, not topics")
         if self.auto_evolve and not self.auto_create:
             raise ValueError("Auto evolve requires auto create for the installed JDBC plugin")
         topics = [mapping.topic for mapping in self.mappings]

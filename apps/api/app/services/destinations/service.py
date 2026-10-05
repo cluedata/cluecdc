@@ -10,6 +10,7 @@ from app.alerts.monitoring import observe_connector, observe_database_connection
 from app.core.errors import DomainError, redact
 from app.models.entities import (
     ConnectCluster,
+    Connection,
     Connector,
     Destination,
     KafkaCluster,
@@ -17,18 +18,18 @@ from app.models.entities import (
     PipelineDestination,
     PipelineEvent,
     PipelineTable,
-    SecretReference,
-    Source,
     SourceTable,
     now,
 )
 from app.providers import get_provider
 from app.providers.types import analyze_columns
 from app.repositories.metadata import audit, get, serialize
+from app.schemas.connections import ConnectionInput
 from app.schemas.requests import DeliveryInput, DestinationInput
+from app.services import connections as connection_service
 from app.services.debezium import derive_actual_state
 from app.services.destinations.adapter import DestinationAdapter
-from app.services.destinations.config import JDBC_CLASS, DestinationConfigBuilder
+from app.services.destinations.providers import delivery_provider
 from app.services.secrets import secret_provider
 
 log = structlog.get_logger()
@@ -36,9 +37,9 @@ log = structlog.get_logger()
 
 async def locked(session: AsyncSession, identifier: uuid.UUID) -> Destination:
     destination = await session.scalar(
-        select(Destination).where(Destination.id == identifier).with_for_update()
+        select(Connection).where(Connection.id == identifier).with_for_update()
     )
-    if destination is None:
+    if destination is None or "DESTINATION" not in destination.capabilities_json:
         raise DomainError("NOT_FOUND", "Destination was not found", 404)
     return destination
 
@@ -46,14 +47,19 @@ async def locked(session: AsyncSession, identifier: uuid.UUID) -> Destination:
 async def create(session: AsyncSession, data: DestinationInput, actor: str) -> Destination:
     if not data.password or not data.password.get_secret_value():
         raise DomainError("PASSWORD_REQUIRED", "A destination password is required", 422)
-    reference = await secret_provider(session).put_secret(
-        {"password": data.password.get_secret_value()}
+    return await connection_service.create(
+        session,
+        ConnectionInput(
+            name=data.name,
+            description=data.description,
+            category="DATABASE",
+            provider=data.type.upper(),
+            config=data.model_dump(exclude={"password", "name", "type", "description"}),
+            credentials={"password": data.password},
+            capabilities=["DESTINATION"],
+        ),
+        actor,
     )
-    destination = Destination(**data.model_dump(exclude={"password"}), secret_ref=reference)
-    session.add(destination)
-    await session.flush()
-    audit(session, actor, "destination.created", destination)
-    return destination
 
 
 async def deliveries(session: AsyncSession, identifier: uuid.UUID) -> list[PipelineDestination]:
@@ -81,12 +87,8 @@ async def all_deliveries(session: AsyncSession) -> list[PipelineDestination]:
     )
 
 
-async def delivery_by_id(
-    session: AsyncSession, identifier: uuid.UUID, *, lock: bool = False
-) -> PipelineDestination:
+async def delivery_by_id(session: AsyncSession, identifier: uuid.UUID) -> PipelineDestination:
     query = select(PipelineDestination).where(PipelineDestination.id == identifier)
-    if lock:
-        query = query.with_for_update()
     delivery = await session.scalar(query)
     if delivery is None:
         raise DomainError("NOT_FOUND", "Delivery was not found", 404)
@@ -107,23 +109,84 @@ def aggregate(states: list[str]) -> str:
     return "RUNNING" if "RUNNING" in states else "PAUSED"
 
 
+async def delivery_views(session: AsyncSession, values: list[PipelineDestination]) -> list[dict]:
+    """Hydrate a bounded delivery collection with a constant number of queries."""
+    if not values:
+        return []
+    destinations = {
+        item.id: item
+        for item in (
+            await session.scalars(
+                select(Connection).where(
+                    Connection.id.in_({item.destination_id for item in values})
+                )
+            )
+        ).all()
+    }
+    pipelines = {
+        item.id: item
+        for item in (
+            await session.scalars(
+                select(Pipeline).where(Pipeline.id.in_({item.pipeline_id for item in values}))
+            )
+        ).all()
+    }
+    connectors = {
+        item.id: item
+        for item in (
+            await session.scalars(
+                select(Connector).where(
+                    Connector.id.in_({item.connector_id for item in values if item.connector_id})
+                )
+            )
+        ).all()
+    }
+    clusters = {
+        item.id: item
+        for item in (
+            await session.scalars(
+                select(ConnectCluster).where(
+                    ConnectCluster.id.in_({item.connect_cluster_id for item in connectors.values()})
+                )
+            )
+        ).all()
+    }
+    return [
+        _delivery_view(
+            item,
+            destinations[item.destination_id],
+            pipelines[item.pipeline_id],
+            connectors.get(item.connector_id) if item.connector_id else None,
+            clusters,
+        )
+        for item in values
+    ]
+
+
 async def delivery_view(session: AsyncSession, delivery: PipelineDestination) -> dict:
+    return (await delivery_views(session, [delivery]))[0]
+
+
+def _delivery_view(
+    delivery: PipelineDestination,
+    destination: Connection,
+    pipeline: Pipeline,
+    runtime: Connector | None,
+    clusters: dict,
+) -> dict:
     if not delivery.destination_id:
         raise DomainError("INVALID_DELIVERY", "Database delivery is missing its destination", 500)
     result = serialize(delivery)
-    result["destination"] = serialize(await get(session, Destination, delivery.destination_id))
-    pipeline = await get(session, Pipeline, delivery.pipeline_id)
-    result["pipeline_name"] = pipeline.name
-    result["connector"] = (
-        serialize(await get(session, Connector, delivery.connector_id))
-        if delivery.connector_id
-        else None
+    result["destination"] = (
+        connection_service.database_view(destination)
+        if destination.category == "DATABASE"
+        else connection_service.view(destination)
     )
+    result["pipeline_name"] = pipeline.name
+    result["connector"] = serialize(runtime) if runtime else None
     connector = result["connector"]
     result["connect_cluster"] = (
-        serialize(await get(session, ConnectCluster, connector["connect_cluster_id"]))
-        if connector
-        else None
+        serialize(clusters[connector["connect_cluster_id"]]) if connector else None
     )
     result["pipeline"] = serialize(pipeline)
     result["topics"] = [mapping["topic"] for mapping in delivery.topic_mapping_json]
@@ -141,35 +204,73 @@ async def delivery_view(session: AsyncSession, delivery: PipelineDestination) ->
     return result
 
 
+async def details(session: AsyncSession, values: list[Connection]) -> list[dict]:
+    if not values:
+        return []
+    links = list(
+        (
+            await session.scalars(
+                select(PipelineDestination)
+                .where(PipelineDestination.destination_id.in_([item.id for item in values]))
+                .order_by(PipelineDestination.created_at)
+            )
+        ).all()
+    )
+    views = await delivery_views(session, links)
+    grouped: dict[uuid.UUID, list[dict]] = {}
+    for link, value in zip(links, views, strict=True):
+        grouped.setdefault(link.destination_id, []).append(value)
+    return [_destination_detail(item, grouped.get(item.id, [])) for item in values]
+
+
 async def detail(session: AsyncSession, destination: Destination) -> dict:
-    result = serialize(destination)
-    links = await deliveries(session, destination.id)
+    return (await details(session, [destination]))[0]
+
+
+def _destination_detail(destination: Connection, links: list[dict]) -> dict:
+    result = (
+        connection_service.database_view(destination)
+        if destination.category == "DATABASE"
+        else connection_service.view(destination)
+    )
     result.update(
-        connected_pipelines=len({link.pipeline_id for link in links}),
+        connected_pipelines=len({link["pipeline_id"] for link in links}),
         delivery_count=len(links),
-        desired_state=aggregate([link.desired_state for link in links]),
-        actual_state=aggregate([link.actual_state for link in links]),
+        desired_state=aggregate([link["desired_state"] for link in links]),
+        actual_state=aggregate([link["actual_state"] for link in links]),
         last_delivery=None,
         records_per_second=None,
         delivery_lag=None,
         metrics_notice="Delivery metrics and last successful write require a sink metrics provider",
-        deliveries=[await delivery_view(session, link) for link in links],
+        deliveries=links,
     )
     return result
 
 
 async def adapter(session: AsyncSession, destination: Destination) -> DestinationAdapter:
+    if destination.category != "DATABASE":
+        raise DomainError(
+            "DATABASE_DESTINATION_REQUIRED", "A database destination is required", 422
+        )
+    if destination.secret_ref is None:
+        raise DomainError(
+            "CONNECTION_CREDENTIALS_REQUIRED", "Destination credentials are missing", 422
+        )
     secret = await secret_provider(session).get_secret(destination.secret_ref)
     return get_provider(destination.type).destination_adapter(destination, secret["password"])
 
 
 async def test(session: AsyncSession, destination: Destination, actor: str) -> dict:
+    if destination.category == "OBJECT_STORAGE":
+        return await connection_service.test(session, destination, actor)
+    target = await adapter(session, destination)
+    await session.commit()
     try:
-        result = await (await adapter(session, destination)).test_connection()
+        result = await target.test_connection()
         destination.status = "HEALTHY"
     except DomainError as exc:
         destination.status = "UNHEALTHY"
-        destination.last_health_check_at = now()
+        destination.last_tested_at = now()
         await observe_database_connection(
             session,
             kind="destination",
@@ -182,7 +283,7 @@ async def test(session: AsyncSession, destination: Destination, actor: str) -> d
         audit(session, actor, "destination.connection_tested", destination)
         await session.commit()
         raise
-    destination.last_health_check_at = now()
+    destination.last_tested_at = now()
     await observe_database_connection(
         session,
         kind="destination",
@@ -221,31 +322,30 @@ async def test_unsaved(session: AsyncSession, data: DestinationInput) -> dict:
 async def update(
     session: AsyncSession, destination: Destination, data: DestinationInput, actor: str
 ) -> Destination:
-    connection_fields = ["host", "port", "database_name", "username", "ssl_enabled", "type"]
-    changed = any(
-        getattr(destination, key) != getattr(data, key) for key in connection_fields
-    ) or bool(data.password and data.password.get_secret_value())
+    new_config = data.model_dump(exclude={"password", "name", "type", "description"})
+    changed = destination.config_json != new_config or bool(
+        data.password and data.password.get_secret_value()
+    )
     if changed and await deliveries(session, destination.id):
         raise DomainError(
             "DESTINATION_IN_USE",
             "Remove deliveries before changing destination connection settings",
             409,
         )
-    before = serialize(destination)
-    for key, value in data.model_dump(exclude={"password"}).items():
-        setattr(destination, key, value)
-    if data.password and data.password.get_secret_value():
-        previous = await get(session, SecretReference, destination.secret_ref)
-        destination.secret_ref = await secret_provider(session).put_secret(
-            {"password": data.password.get_secret_value()}
-        )
-        await session.flush()
-        await session.delete(previous)
-    if changed:
-        destination.status = "UNKNOWN"
-        destination.last_health_check_at = None
-    audit(session, actor, "destination.updated", destination, before)
-    return destination
+    return await connection_service.update(
+        session,
+        destination,
+        ConnectionInput(
+            name=data.name,
+            description=data.description,
+            category="DATABASE",
+            provider=data.type.upper(),
+            config=new_config,
+            credentials={"password": data.password} if data.password else {},
+            capabilities=list(destination.capabilities_json),
+        ),
+        actor,
+    )
 
 
 async def delete(session: AsyncSession, destination: Destination, actor: str) -> dict:
@@ -253,7 +353,6 @@ async def delete(session: AsyncSession, destination: Destination, actor: str) ->
         raise DomainError(
             "DESTINATION_IN_USE", "Remove deliveries before deleting the destination", 409
         )
-    secret = await get(session, SecretReference, destination.secret_ref)
     for incident in (
         await session.scalars(
             select(PipelineEvent).where(
@@ -263,10 +362,15 @@ async def delete(session: AsyncSession, destination: Destination, actor: str) ->
         )
     ).all():
         incident.status = "RESOLVED"
-    audit(session, actor, "destination.deleted", destination)
-    await session.delete(destination)
-    await session.flush()
-    await session.delete(secret)
+    if set(destination.capabilities_json) != {"DESTINATION"}:
+        destination.capabilities_json = [
+            capability
+            for capability in destination.capabilities_json
+            if capability != "DESTINATION"
+        ]
+        audit(session, actor, "connection.destination_capability_removed", destination)
+    else:
+        await connection_service.delete(session, destination, actor)
     return {"deleted": True}
 
 
@@ -278,7 +382,7 @@ async def record_error(
     connector_id: uuid.UUID | None = None,
     category: str = "DESTINATION",
 ) -> None:
-    if not await session.get(Destination, identifier):
+    if not await session.get(Connection, identifier):
         return
     if pipeline_id and not await session.get(Pipeline, pipeline_id):
         pipeline_id = None
@@ -307,7 +411,14 @@ async def record_error(
 
 async def build(
     session: AsyncSession, destination: Destination, data: DeliveryInput, name: str
-) -> tuple[dict, ConnectCluster, dict, DestinationAdapter]:
+) -> tuple[dict, ConnectCluster, dict, DestinationAdapter | None]:
+    strategy = delivery_provider(destination)
+    if data.delivery_type != strategy.delivery_type:
+        raise DomainError(
+            "DELIVERY_TYPE_MISMATCH",
+            f"{destination.provider} requires {strategy.delivery_type} delivery options",
+            422,
+        )
     pipeline = await get(session, Pipeline, data.pipeline_id)
     if not pipeline.connector_id:
         raise DomainError(
@@ -323,15 +434,17 @@ async def build(
             422,
         )
     client = KafkaConnectClient(cluster.base_url)
+    await session.commit()
     plugins = await client.plugins()
     if not any(
-        plugin["class"] == JDBC_CLASS and plugin.get("type") == "sink" for plugin in plugins
+        plugin["class"] == strategy.connector_class and plugin.get("type") == "sink"
+        for plugin in plugins
     ):
         raise DomainError(
             "SINK_PLUGIN_MISSING",
             "Required sink connector plugin is not installed on this Kafka Connect cluster",
             422,
-            {"connector_class": JDBC_CLASS},
+            {"connector_class": strategy.connector_class},
         )
     selected = {
         table.topic_name: table
@@ -350,18 +463,70 @@ async def build(
         ).all()
     }
     kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    secret_values = await connection_service.credentials(session, destination)
+    await session.commit()
     known_topics = {topic["name"] for topic in await KafkaExplorer().topics(kafka)}
-    kafka.status = "HEALTHY"
+    if not strategy.needs_relational_metadata:
+        pipeline_topics = set(selected)
+        missing_pipeline = set(data.topics) - pipeline_topics
+        if missing_pipeline:
+            raise DomainError(
+                "TOPIC_NOT_IN_PIPELINE",
+                "Selected topic does not belong to the capture pipeline",
+                422,
+                {"topics": sorted(missing_pipeline)},
+            )
+        missing_runtime = set(data.topics) - known_topics
+        if missing_runtime:
+            raise DomainError(
+                "TOPIC_NOT_FOUND",
+                "One or more capture topics are missing",
+                422,
+                {"topics": sorted(missing_runtime)},
+            )
+        from app.services.object_storage import test_connection as test_object_storage
+
+        await test_object_storage(destination, secret_values)
+        metadata = {
+            "event_format": "debezium-envelope",
+            "version": 1,
+            "delete_semantics": "Delete envelopes are retained; tombstones are not a substitute",
+            "topics": list(data.topics),
+        }
+        config = strategy.build_config(
+            destination,
+            data,
+            metadata,
+            name,
+            has_session_token=bool(secret_values.get("session_token")),
+        )
+        await client.validate(config, secrets=list(secret_values.values()))
+        return config, cluster, metadata, None
     metadata = {}
     other_links = await deliveries(session, destination.id)
+    runtimes = {
+        item.id: item
+        for item in (
+            await session.scalars(
+                select(Connector).where(
+                    Connector.id.in_(
+                        [link.connector_id for link in other_links if link.connector_id]
+                    )
+                )
+            )
+        ).all()
+    }
     occupied: set[tuple[str, str]] = set()
     for link in other_links:
-        runtime = await get(session, Connector, link.connector_id) if link.connector_id else None
+        if link.delivery_type != "DATABASE":
+            continue
+        runtime = runtimes.get(link.connector_id) if link.connector_id else None
         if runtime and runtime.name == name:
             continue
         occupied.update(
             (mapping["schema_name"], mapping["table_name"]) for mapping in link.topic_mapping_json
         )
+    source_database = await get(session, Connection, pipeline.source_id)
     for mapping in data.mappings:
         if (mapping.schema_name, mapping.table_name) in occupied:
             raise DomainError(
@@ -392,7 +557,6 @@ async def build(
                 "Discover source columns and primary keys before configuring delivery",
                 422,
             )
-        source_database = await get(session, Source, pipeline.source_id)
         columns = analyze_columns(source.columns_json, source_database.type, destination.type)
         incompatible = [column for column in columns if column["compatibility"] == "INCOMPATIBLE"]
         if incompatible:
@@ -409,9 +573,10 @@ async def build(
             "table_name": mapping.table_name,
         }
     target = await adapter(session, destination)
+    await session.commit()
     await target.test_connection()
     await target.validate(data, metadata)
-    config = DestinationConfigBuilder().build(destination, data, metadata, name)
+    config = strategy.build_config(destination, data, metadata, name)
     await client.validate(config)
     return config, cluster, metadata, target
 
@@ -424,9 +589,27 @@ async def preview(session: AsyncSession, destination: Destination, data: Deliver
         "config": redact(config),
         "mappings": [mapping.model_dump() for mapping in data.mappings],
         "connect_cluster_id": cluster.id,
-        "connector_class": JDBC_CLASS,
+        "connector_class": delivery_provider(destination).connector_class,
         "compatibility": metadata,
     }
+
+
+def stored_configuration(data: DeliveryInput) -> dict:
+    common = {"pipeline_id", "connect_cluster_id", "name", "delivery_type", "tasks_max"}
+    object_storage = {
+        "output_format",
+        "compression",
+        "file_max_records",
+        "flush_interval_ms",
+        "file_name_template",
+        "error_policy",
+    }
+    fields = (
+        common | object_storage
+        if data.delivery_type == "OBJECT_STORAGE"
+        else set(DeliveryInput.model_fields) - object_storage - {"mappings", "topics"}
+    )
+    return data.model_dump(mode="json", include=fields)
 
 
 async def deploy(
@@ -444,7 +627,8 @@ async def deploy(
             "DELIVERY_EXISTS", "A delivery with this name already exists on the destination", 409
         )
     config, cluster, metadata, target = await build(session, destination, data, name)
-    await target.prepare(data, metadata)
+    if target is not None:
+        await target.prepare(data, metadata)
     client = KafkaConnectClient(cluster.base_url)
     await client.create(name, config)
     try:
@@ -452,7 +636,7 @@ async def deploy(
             name=name,
             connector_type="sink",
             connect_cluster_id=cluster.id,
-            connector_class=JDBC_CLASS,
+            connector_class=delivery_provider(destination).connector_class,
             config_json=redact(config),
             desired_state="RUNNING",
             actual_state="UNKNOWN",
@@ -465,16 +649,21 @@ async def deploy(
             destination_id=destination.id,
             connector_id=connector.id,
             name=data.name,
-            delivery_mode=data.write_mode,
-            topic_mapping_json=[mapping.model_dump() for mapping in data.mappings],
-            configuration_json=data.model_dump(mode="json", exclude={"mappings"}),
+            delivery_type=data.delivery_type,
+            delivery_mode=data.write_mode if data.delivery_type == "DATABASE" else "jsonl",
+            topic_mapping_json=(
+                [mapping.model_dump() for mapping in data.mappings]
+                if data.delivery_type == "DATABASE"
+                else [{"topic": topic} for topic in data.topics]
+            ),
+            configuration_json=stored_configuration(data),
             desired_state="RUNNING",
             actual_state="UNKNOWN",
         )
         session.add(delivery)
         await session.flush()
         destination.status = "HEALTHY"
-        destination.last_health_check_at = now()
+        destination.last_tested_at = now()
         audit(session, actor, "destination.deployed", destination)
         audit(session, actor, "delivery.created", delivery)
         await session.commit()
@@ -494,6 +683,7 @@ async def reconcile(session: AsyncSession, delivery: PipelineDestination) -> dic
     connector = await get(session, Connector, delivery.connector_id)
     cluster = await get(session, ConnectCluster, connector.connect_cluster_id)
     previous = delivery.actual_state
+    await session.commit()
     try:
         status = await KafkaConnectClient(cluster.base_url).status(connector.name)
         state = derive_actual_state(status)
@@ -562,22 +752,6 @@ async def reconcile(session: AsyncSession, delivery: PipelineDestination) -> dic
     }
 
 
-async def locked_delivery(
-    session: AsyncSession, destination_id: uuid.UUID, delivery_id: uuid.UUID
-) -> PipelineDestination:
-    delivery = await session.scalar(
-        select(PipelineDestination)
-        .where(
-            PipelineDestination.id == delivery_id,
-            PipelineDestination.destination_id == destination_id,
-        )
-        .with_for_update()
-    )
-    if delivery is None:
-        raise DomainError("NOT_FOUND", "Delivery was not found on this destination", 404)
-    return delivery
-
-
 async def operate(
     session: AsyncSession,
     destination: Destination,
@@ -590,6 +764,7 @@ async def operate(
         raise DomainError("NOT_DEPLOYED", "Delivery has no connector", 409)
     connector = await get(session, Connector, delivery.connector_id)
     cluster = await get(session, ConnectCluster, connector.connect_cluster_id)
+    await session.commit()
     try:
         await KafkaConnectClient(cluster.base_url).operate(connector.name, operation, task)
     except DomainError as error:
@@ -652,20 +827,42 @@ async def update_mapping(
             "Remove and redeploy to move a delivery to another Connect cluster",
             422,
         )
-    await target.prepare(data, metadata)
+    if target is not None:
+        await target.prepare(data, metadata)
     # Reconstruct the previous secret reference for compensating runtime update.
-    previous_config = {
-        **connector.config_json,
-        "connection.password": f"${{cluecdc:{destination.secret_ref}:password}}",
-    }
+    previous_config = dict(connector.config_json)
+    if delivery.delivery_type == "DATABASE":
+        previous_config["connection.password"] = f"${{cluecdc:{destination.secret_ref}:password}}"
+    else:
+        if "cluecdc.session.token" in previous_config:
+            previous_config["aws.credentials.provider"] = (
+                "io.cluecdc.connect.ClueSessionCredentialsProvider"
+            )
+            for config_key, secret_key in {
+                "cluecdc.access.key": "access_key",
+                "cluecdc.secret.key": "secret_key",
+                "cluecdc.session.token": "session_token",
+            }.items():
+                previous_config[config_key] = f"${{cluecdc:{destination.secret_ref}:{secret_key}}}"
+        else:
+            previous_config["aws.access.key.id"] = (
+                f"${{cluecdc:{destination.secret_ref}:access_key}}"
+            )
+            previous_config["aws.secret.access.key"] = (
+                f"${{cluecdc:{destination.secret_ref}:secret_key}}"
+            )
     client = KafkaConnectClient(cluster.base_url)
     before = serialize(delivery)
     await client.update(connector.name, config)
     try:
         connector.config_json = redact(config)
-        delivery.topic_mapping_json = [mapping.model_dump() for mapping in data.mappings]
-        delivery.configuration_json = data.model_dump(mode="json", exclude={"mappings"})
-        delivery.delivery_mode = data.write_mode
+        delivery.topic_mapping_json = (
+            [mapping.model_dump() for mapping in data.mappings]
+            if data.delivery_type == "DATABASE"
+            else [{"topic": topic} for topic in data.topics]
+        )
+        delivery.configuration_json = stored_configuration(data)
+        delivery.delivery_mode = data.write_mode if data.delivery_type == "DATABASE" else "jsonl"
         delivery.name = data.name
         audit(session, actor, "destination.mapping_updated", destination)
         audit(session, actor, "delivery.mapping_updated", delivery, before)

@@ -13,7 +13,17 @@ def redact(value: Any, secrets: list[str] | None = None) -> Any:
     if isinstance(value, dict):
         return {
             k: "[REDACTED]"
-            if any(word in k.lower() for word in ("password", "credential", "token", "secret"))
+            if any(
+                word in k.lower()
+                for word in (
+                    "password",
+                    "credential",
+                    "token",
+                    "secret",
+                    "access_key",
+                    "access.key",
+                )
+            )
             else redact(v, secrets)
             for k, v in value.items()
         }

@@ -112,6 +112,7 @@ nav:
       - PostgreSQL Source: connectors/postgresql.md
       - PostgreSQL Destination: connectors/postgresql-destination.md
       - MySQL: connectors/mysql.md
+      - AWS S3 and MinIO: connectors/object-storage.md
       - Kafka: connections/kafka.md
       - Kafka Connect: connections/kafka-connect.md
   - Pipelines:
@@ -143,6 +144,8 @@ nav:
       - Backend and Frontend: development/backend-frontend.md
       - Signal Console UI: signal-console.md
       - Testing: development/testing.md
+      - Metadata Migrations: development/migrations.md
+      - Control-plane Refactor Audit: development/control-plane-refactor-audit.md
       - Ecommerce Workload: development/commerce-workload.md
       - Adding a Connector: development/adding-connector.md
       - Contributing: development/contributing.md

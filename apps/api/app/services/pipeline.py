@@ -43,6 +43,8 @@ def aggregate_pipeline_state(capture_state: str, delivery_states: list[str]) -> 
 
 async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, ConnectCluster]:
     source = await get(session, Source, data.source_id)
+    if source.category != "DATABASE" or "SOURCE" not in source.capabilities_json:
+        raise DomainError("SOURCE_CONNECTION_REQUIRED", "Select a database source connection", 422)
     cluster = await get(session, ConnectCluster, data.connect_cluster_id)
     kafka = await get(session, KafkaCluster, data.kafka_cluster_id)
     if cluster.kafka_cluster_id != data.kafka_cluster_id:
@@ -92,6 +94,7 @@ async def validate_tables_live(
 ) -> dict[tuple[str, str], dict]:
     source = await get(session, Source, data.source_id)
     database = await source_adapter(session, source)
+    await session.commit()
     results = {}
     for table in data.tables:
         readiness = await database.inspect_table(table.schema_name, table.table_name)
@@ -196,6 +199,7 @@ async def prepare_topics(session: AsyncSession, pipeline: Pipeline, actor: str) 
         await session.scalars(select(PipelineTable).where(PipelineTable.pipeline_id == pipeline.id))
     ).all()
     cluster = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    await session.commit()
     result = await KafkaExplorer().ensure_topics(cluster, [table.topic_name for table in tables])
     cluster.status = "HEALTHY"
     audit(session, actor, "pipeline.topics_prepared", pipeline)
@@ -204,7 +208,7 @@ async def prepare_topics(session: AsyncSession, pipeline: Pipeline, actor: str) 
 
 async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> dict:
     structlog.contextvars.bind_contextvars(pipeline_id=str(pipeline_id))
-    pipeline = await locked(session, pipeline_id)
+    pipeline = await get(session, Pipeline, pipeline_id)
     if pipeline.connector_id:
         raise DomainError(
             "ALREADY_DEPLOYED", "Pipeline already has a connector; use resume or restart", 409
@@ -222,12 +226,18 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
         kafka.bootstrap_servers,
     )
     client = KafkaConnectClient(cluster.base_url)
+    # Close the metadata transaction before any Kafka/Connect network calls.
+    await session.commit()
     await client.validate(config)
     await KafkaExplorer().ensure_topics(kafka, [notification_topic(pipeline.topic_prefix)])
     await prepare_topics(session, pipeline, actor)
+    await session.commit()
     # POST preserves externally owned connectors; never overwrite on collision.
     await client.create(name, config)
     try:
+        pipeline = await locked(session, pipeline_id)
+        if pipeline.connector_id:
+            raise DomainError("ALREADY_DEPLOYED", "Another request deployed this pipeline", 409)
         connector = Connector(
             name=name,
             connect_cluster_id=cluster.id,
@@ -270,6 +280,7 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
     connector = await get(session, Connector, pipeline.connector_id)
     cluster = await get(session, ConnectCluster, pipeline.connect_cluster_id)
     previous = pipeline.actual_state
+    await session.commit()
     try:
         status = await KafkaConnectClient(cluster.base_url).status(connector.name)
         capture_state = derive_actual_state(status)
@@ -323,6 +334,7 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         table.snapshot_status in {"PENDING", "RUNNING"} for table in tables
     ):
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        await session.commit()
         try:
             notifications = await KafkaExplorer().notifications(
                 kafka, notification_topic(pipeline.topic_prefix)
@@ -414,7 +426,7 @@ async def operate(
     task: int | None = None,
 ) -> dict:
     structlog.contextvars.bind_contextvars(pipeline_id=str(pipeline_id))
-    pipeline = await locked(session, pipeline_id)
+    pipeline = await get(session, Pipeline, pipeline_id)
     if operation == "delete" and await session.scalar(
         select(PipelineDestination.id)
         .where(PipelineDestination.pipeline_id == pipeline_id)
@@ -434,12 +446,17 @@ async def operate(
     connector = await get(session, Connector, pipeline.connector_id)
     cluster = await get(session, ConnectCluster, pipeline.connect_cluster_id)
     client = KafkaConnectClient(cluster.base_url)
+    connector_name = connector.name
+    connector_id = connector.id
+    await session.commit()
     if operation == "delete":
         try:
-            await client.operate(connector.name, "delete")
+            await client.operate(connector_name, "delete")
         except DomainError as exc:
             if exc.code != "CONNECTOR_NOT_FOUND":
                 raise
+        pipeline = await locked(session, pipeline_id)
+        connector = await get(session, Connector, connector_id)
         for incident in (
             await session.scalars(
                 select(PipelineEvent).where(
@@ -454,7 +471,9 @@ async def operate(
         await session.flush()
         await session.delete(connector)
         return {"deleted": True}
-    await client.operate(connector.name, operation, task)
+    await client.operate(connector_name, operation, task)
+    pipeline = await locked(session, pipeline_id)
+    connector = await get(session, Connector, connector_id)
     if operation in {"pause", "resume"}:
         pipeline.desired_state = connector.desired_state = (
             "PAUSED" if operation == "pause" else "RUNNING"
@@ -466,5 +485,7 @@ async def operate(
         "restart-task": "task_restarted",
     }[operation]
     audit(session, actor, f"pipeline.{action}", pipeline)
+    await session.commit()
+    pipeline = await get(session, Pipeline, pipeline_id)
     status = await reconcile(session, pipeline)
     return {"desired_state": pipeline.desired_state, **status}

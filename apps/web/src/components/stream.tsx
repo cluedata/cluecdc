@@ -7,23 +7,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  ArrowRight,
-  Eye,
   Loader2,
   Radio,
   RefreshCw,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import type {
-  CDCEvent,
-  EventSample,
-  KafkaCluster,
-  Pipeline,
-  Topic,
-} from "@cluecdc/contracts";
+import type { KafkaCluster, Topic } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
-import { ApiError, api, date, number } from "@/lib/api";
+import { ApiError, api, number } from "@/lib/api";
 import {
   DataTable,
   Empty,
@@ -32,309 +24,51 @@ import {
   JsonView,
   Loading,
   PageHeader,
-  Status,
   Tabs,
 } from "./common";
 
-import { DetailDrawer, Tooltip } from "./operational";
+import { Tooltip } from "./operational";
 
 export function EventsExplorer({
   initialCluster = "",
   initialTopic = "",
-  allowedTopics,
+  allowedTopics = [],
 }: {
   initialCluster?: string;
   initialTopic?: string;
   allowedTopics?: string[];
 }) {
-  const [cluster, setCluster] = useState(initialCluster);
-  const [topic, setTopic] = useState(initialTopic);
-  const [pipeline, setPipeline] = useState("");
-  const [operation, setOperation] = useState("");
-  const [partition, setPartition] = useState("");
-  const [offset, setOffset] = useState("");
-  const [table, setTable] = useState("");
-  const [key, setKey] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [selected, setSelected] = useState<CDCEvent | null>(null);
-  const [view, setView] = useState("Formatted");
-  const clusters = useQuery({
-    queryKey: ["kafka-clusters"],
-    queryFn: () => api<KafkaCluster[]>("/kafka/clusters"),
-  });
-  const pipelines = useQuery({
-    queryKey: ["pipelines"],
-    queryFn: () => api<Pipeline[]>("/pipelines"),
-  });
-  const topics = useQuery({
-    queryKey: ["topics", cluster],
-    queryFn: () => api<Topic[]>(`/kafka/topics?cluster_id=${cluster}`),
-    enabled: !!cluster && !allowedTopics,
-  });
-  const sample = useMutation({
-    mutationFn: () => {
-      const q = new URLSearchParams({
-        cluster_id: cluster,
-        topic,
-        limit: "100",
-        ...(operation ? { operation } : {}),
-        ...(partition ? { partition } : {}),
-        ...(offset ? { offset } : {}),
-        ...(table ? { table } : {}),
-        ...(key ? { key } : {}),
-        ...(start ? { start_ms: String(new Date(start).getTime()) } : {}),
-        ...(end ? { end_ms: String(new Date(end).getTime()) } : {}),
-      });
-      return api<EventSample>(`/events?${q}`);
-    },
-  });
-  const names = allowedTopics || topics.data?.map((t) => t.name) || [];
-  const filteredNames = pipeline
-    ? names.filter((n) =>
-        n.startsWith(
-          `${pipelines.data?.find((p) => p.id === pipeline)?.topic_prefix}.`,
-        ),
-      )
-    : names;
   return (
-    <>
-      <section className="panel">
-        <div className="section-heading">
-          <h2>Event explorer</h2>
-          <span className="muted">Bounded, read-only Kafka samples</span>
-        </div>
-        <div className="event-filters">
-          <Field label="Kafka cluster">
-            <select
-              value={cluster}
-              onChange={(e) => {
-                setCluster(e.target.value);
-                setTopic("");
-                sample.reset();
-              }}
-              disabled={!!initialCluster}
-            >
-              <option value="">Select cluster</option>
-              {clusters.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Pipeline">
-            <select
-              value={pipeline}
-              onChange={(e) => setPipeline(e.target.value)}
-            >
-              <option value="">All pipelines</option>
-              {pipelines.data
-                ?.filter((p) => p.kafka_cluster_id === cluster)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Topic">
-            <select
-              value={topic}
-              onChange={(e) => {
-                setTopic(e.target.value);
-                sample.reset();
-              }}
-            >
-              <option value="">Select topic</option>
-              {filteredNames.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Operation">
-            <select
-              value={operation}
-              onChange={(e) => setOperation(e.target.value)}
-            >
-              <option value="">All operations</option>
-              {["CREATE", "UPDATE", "DELETE", "READ"].map((op) => (
-                <option key={op}>{op}</option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <details className="advanced">
-          <summary>Advanced filters</summary>
-          <div className="event-filters">
-            <Field label="Table">
-              <Input
-                value={table}
-                onChange={(e) => setTable(e.target.value)}
-                placeholder="customers"
-              />
-            </Field>
-            <Field label="Partition">
-              <Input
-                type="number"
-                min={0}
-                value={partition}
-                onChange={(e) => setPartition(e.target.value)}
-              />
-            </Field>
-            <Field label="Minimum offset">
-              <Input
-                type="number"
-                min={0}
-                value={offset}
-                onChange={(e) => setOffset(e.target.value)}
-              />
-            </Field>
-            <Field label="Primary key contains">
-              <Input value={key} onChange={(e) => setKey(e.target.value)} />
-            </Field>
-            <Field label="From">
-              <Input
-                type="datetime-local"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </Field>
-            <Field label="Until">
-              <Input
-                type="datetime-local"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </Field>
-          </div>
-        </details>
-        <div className="toolbar">
-          <Button
-            disabled={!cluster || !topic || sample.isPending}
-            onClick={() => sample.mutate()}
-          >
-            {sample.isPending ? (
-              <Loader2 size={15} className="spin" />
-            ) : (
-              <RefreshCw size={15} />
-            )}
-            Fetch recent events
-          </Button>
-          <span className="muted">
-            At most 1,000 records scanned · 2 MB · no offset commits
-          </span>
-        </div>
-        {clusters.isError && <ErrorPanel error={clusters.error} />}{" "}
-        {topics.isError && <ErrorPanel error={topics.error} />}{" "}
-        {sample.isError && <ErrorPanel error={sample.error} />}
-      </section>
-      {sample.data ? (
-        <>
-          <div className="info-strip">
-            <Eye size={17} />
-            {sample.data.notice} · {sample.data.scanned} scanned
-          </div>
-          <DataTable
-            onRowClick={(e) => setSelected(e)}
-            data={sample.data.events}
-            columns={[
-              {
-                accessorKey: "timestamp",
-                header: "Timestamp",
-                cell: ({ row }) => date(row.original.timestamp),
-              },
-              {
-                accessorKey: "operation",
-                header: "Operation",
-                cell: ({ row }) => <Status value={row.original.operation} />,
-              },
-              { accessorKey: "partition", header: "Partition" },
-              { accessorKey: "offset", header: "Offset" },
-              {
-                accessorKey: "key",
-                header: "Key",
-                cell: ({ row }) => (
-                  <code>{JSON.stringify(row.original.key)}</code>
-                ),
-              },
-              {
-                id: "open",
-                header: "Details",
-                cell: ({ row }) => (
-                  <Button
-                    variant="ghost"
-                    onClick={() => setSelected(row.original)}
-                  >
-                    Inspect
-                    <ArrowRight size={14} />
-                  </Button>
-                ),
-              },
-            ]}
-          />
-        </>
-      ) : (
-        !sample.isPending && (
-          <Empty
-            title="Inspect the change stream"
-            description="Choose a Kafka topic and fetch a bounded sample of recent events."
-          />
-        )
+    <section className="panel">
+      <h2>CDC payloads stay in the data plane</h2>
+      <p>
+        ClueCDC does not read or return CDC records. Inspect Kafka directly or
+        read destination objects to verify before/after values.
+      </p>
+      {initialCluster && (
+        <Link
+          className="text-link"
+          href={
+            initialTopic
+              ? `/kafka/topics/${encodeURIComponent(initialTopic)}?cluster=${initialCluster}`
+              : `/kafka/topics?cluster=${initialCluster}`
+          }
+        >
+          View topic metadata
+        </Link>
       )}
-      <DetailDrawer
-        open={!!selected}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
-        title={
-          selected
-            ? `${selected.operation} · partition ${selected.partition} · offset ${selected.offset}`
-            : "Event"
-        }
-        description={selected ? date(selected.timestamp) : "CDC event details"}
-      >
-        {selected && (
-          <>
-            <Tabs
-              tabs={["Formatted", "Raw JSON"]}
-              active={view}
-              onChange={setView}
-            />
-            {view === "Raw JSON" ? (
-              <JsonView value={selected.raw} />
-            ) : (
-              <>
-                <h3>Primary key</h3>
-                <JsonView value={selected.key} />
-                <div className="before-after">
-                  <div>
-                    <h3>Before</h3>
-                    <JsonView value={selected.before} />
-                  </div>
-                  <div>
-                    <h3>After</h3>
-                    <JsonView value={selected.after} />
-                  </div>
-                </div>
-                <h3>Changed fields</h3>
-                <JsonView value={selected.changed_fields} />
-                <h3>Source metadata</h3>
-                <JsonView value={selected.source} />
-              </>
-            )}
-          </>
-        )}
-      </DetailDrawer>
-    </>
+      {allowedTopics.length > 0 && (
+        <p className="muted">{allowedTopics.length} captured topics</p>
+      )}
+    </section>
   );
 }
 export function EventsPage() {
   return (
     <>
       <PageHeader
-        title="CDC events"
-        description="Inspect source changes, before and after values, and Kafka record metadata."
+        title="CDC data plane"
+        description="Inspect records directly in Kafka or your destination, not through the control-plane API."
         eyebrow="DATA / EVENTS"
       />
       <EventsExplorer />
@@ -406,7 +140,7 @@ export function TopicsPage({
       )}
       <PageHeader
         title={name || "Kafka topics"}
-        description="Explore live Kafka metadata and bounded message samples."
+        description="Explore live Kafka metadata without reading CDC payloads."
         eyebrow="STREAM / KAFKA"
       >
         {name && data && canDelete && (

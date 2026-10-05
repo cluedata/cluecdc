@@ -4,10 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY apps/api/pyproject.toml ./
 COPY apps/api/app ./app
-RUN if [ "$INSTALL_DEV" = "true" ]; then \
-      pip wheel --no-cache-dir --wheel-dir /wheels '.[dev]'; \
+RUN --mount=type=cache,target=/root/.cache/pip if [ "$INSTALL_DEV" = "true" ]; then \
+      pip wheel --wheel-dir /wheels '.[dev]'; \
     else \
-      pip wheel --no-cache-dir --wheel-dir /wheels .; \
+      pip wheel --wheel-dir /wheels .; \
     fi
 
 FROM python:3.12-slim AS runtime

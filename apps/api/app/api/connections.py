@@ -34,6 +34,22 @@ async def connection_providers(user: Read):
             "name": "MySQL",
             "description": "MySQL CDC source and JDBC destination",
         },
+        {
+            "provider": "AWS_S3",
+            "category": "OBJECT_STORAGE",
+            "name": "AWS S3",
+            "description": "AWS object storage sink destination",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "OBJECT_STORAGE",
+        },
+        {
+            "provider": "MINIO",
+            "category": "OBJECT_STORAGE",
+            "name": "MinIO",
+            "description": "S3-compatible object storage sink destination",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "OBJECT_STORAGE",
+        },
     ]
 
 
@@ -47,12 +63,18 @@ async def connections(
     query = select(Connection).order_by(Connection.created_at.desc()).limit(500)
     if category:
         query = query.where(Connection.category == category.upper())
+    items = [
+        item
+        for item in (await db.scalars(query)).all()
+        if not capability or capability.upper() in item.capabilities_json
+    ]
+    dependency_map = await connection_service.dependencies_for_connections(
+        db, [item.id for item in items]
+    )
     values = []
-    for item in (await db.scalars(query)).all():
-        if capability and capability.upper() not in item.capabilities_json:
-            continue
+    for item in items:
         value = connection_service.view(item)
-        used_by = await connection_service.dependencies(db, item)
+        used_by = dependency_map.get(item.id, [])
         value["used_by"] = used_by
         value["used_by_count"] = len({(entry["type"], entry["id"]) for entry in used_by})
         values.append(value)

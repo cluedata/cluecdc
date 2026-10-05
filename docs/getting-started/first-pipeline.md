@@ -60,7 +60,7 @@ docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres 
   "INSERT INTO public.customers (email, name) VALUES ('ada-new@example.test', 'Ada Lovelace');"
 ```
 
-Inspect the pipeline **Events** tab, then query the destination:
+Inspect topic metadata and connector state, then query the destination directly:
 
 ```bash
 docker compose -f compose.yaml -f compose.test.yaml exec -T destination-postgres \

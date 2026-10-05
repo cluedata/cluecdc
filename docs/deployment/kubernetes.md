@@ -1,6 +1,8 @@
 # Kubernetes
 
-The `deploy/kubernetes` Kustomize base deploys the ClueCDC web/API, metadata PostgreSQL, and a two-worker Kafka Connect distributed cluster. It expects an external Kafka cluster and prebuilt ClueCDC images. This keeps broker lifecycle outside the application manifest.
+The `deploy/kubernetes` Kustomize base deploys the ClueCDC web/API, a separate
+ClueCDC background worker, metadata PostgreSQL, and a two-worker Kafka Connect
+distributed cluster. It expects an external Kafka cluster and prebuilt images.
 
 ## Prepare secrets
 
@@ -22,6 +24,7 @@ Review `configmap.yaml` for Kafka bootstrap servers, public origins, image regis
 kubectl apply -k deploy/kubernetes
 kubectl -n cluecdc rollout status statefulset/cluecdc-metadata
 kubectl -n cluecdc rollout status deployment/cluecdc-api
+kubectl -n cluecdc rollout status deployment/cluecdc-worker
 kubectl -n cluecdc rollout status deployment/cluecdc-web
 kubectl -n cluecdc rollout status deployment/kafka-connect
 ```
@@ -32,7 +35,7 @@ kubectl -n cluecdc rollout status deployment/kafka-connect
 - An API init container applies Alembic migrations before API startup.
 - Liveness/readiness probes and conservative resources are set for each workload.
 - Connect uses distributed mode with three replicated internal topics; Kafka must have at least three brokers or the replication factors must be reduced deliberately.
-- Web and Connect can scale horizontally. Keep the API at one replica while its in-process reconciliation/notification worker is enabled; see [Scaling](scaling.md).
+- Web, API, ClueCDC workers and Connect can scale independently. Run migrations as a coordinated release step before increasing replicas; see [Scaling](scaling.md).
 - The base exposes ClusterIP services only. Add an authenticated TLS ingress or gateway in an environment overlay.
 
 The manifests are a maintainable baseline, not a full production platform. Kafka, backups, certificates, ingress, network policy, monitoring, and external secret synchronization remain operator responsibilities.

@@ -1,4 +1,9 @@
 services:
+  cluecdc-api:
+    depends_on:
+      minio-bootstrap:
+        condition: service_completed_successfully
+
   cdc-source-postgres:
     image: postgres:17.9
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
@@ -72,6 +77,41 @@ services:
       timeout: 5s
       retries: 30
 
+  minio:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/minio-test.Dockerfile
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-cluecdc-test-access}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-cluecdc-test-secret-key}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  minio-bootstrap:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-cluecdc-test-access}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-cluecdc-test-secret-key}
+    entrypoint: ["python", "/fixture/bootstrap.py"]
+    volumes:
+      - ./infrastructure/minio/bootstrap.py:/fixture/bootstrap.py:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      minio:
+        condition: service_healthy
+
   commerce-generator:
     profiles: ["tools"]
     build:
@@ -104,3 +144,4 @@ volumes:
   source-mysql:
   destination-postgres:
   destination-mysql:
+  minio-data:

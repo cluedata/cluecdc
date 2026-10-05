@@ -10,3 +10,13 @@ Open Font License 1.1. Full license texts are stored beside the font files:
 
 Third-party containers and packages retain their own copyright and license
 notices. They are dependencies and are not relicensed by the ClueCDC license.
+
+The Connect image includes Aiven Open S3 Connector 3.4.2 (Apache License 2.0),
+with upstream license and notices retained from its release archive:
+https://github.com/Aiven-Open/s3-connector
+
+The optional test-only MinIO image builds upstream release
+RELEASE.2025-09-07T16-13-09Z (GNU Affero General Public License v3.0).
+Its source and license are referenced in the test Dockerfile:
+https://github.com/minio/minio/tree/RELEASE.2025-09-07T16-13-09Z
+MinIO is not included in the default stack or ClueCDC runtime images.

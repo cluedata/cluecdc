@@ -232,25 +232,6 @@ export interface ConsumerGroupReport {
   clusters: ConsumerGroupClusterReport[];
   groups: ConsumerGroup[];
 }
-export interface CDCEvent {
-  topic: string;
-  partition: number;
-  offset: number;
-  timestamp: number;
-  operation: string;
-  key: Json;
-  before: Json;
-  after: Json;
-  changed_fields: string[];
-  source: Json;
-  raw: Json;
-}
-export interface EventSample {
-  events: CDCEvent[];
-  scanned: number;
-  scan_limit: number;
-  notice: string;
-}
 export interface Audit extends Entity {
   actor: string;
   action: string;
@@ -388,6 +369,11 @@ export interface TopicMapping {
   table_name: string;
 }
 export interface DeliveryConfiguration {
+  delivery_type?: "DATABASE" | "OBJECT_STORAGE";
+  compression?: "gzip" | "none";
+  file_max_records?: number;
+  flush_interval_ms?: number;
+  file_name_template?: string;
   pipeline_id: string;
   connect_cluster_id?: string;
   name: string;
@@ -403,6 +389,7 @@ export interface DeliveryConfiguration {
   tasks_max: number;
 }
 export interface Delivery extends Entity {
+  delivery_type?: "DATABASE" | "OBJECT_STORAGE";
   destination_id: string;
   pipeline_id: string;
   pipeline_name: string;
@@ -477,8 +464,8 @@ export interface ConnectorPlugin {
   version: string;
 }
 
-export type ConnectionCategory = "DATABASE";
-export type ConnectionProvider = "POSTGRESQL" | "MYSQL";
+export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
+export type ConnectionProvider = "POSTGRESQL" | "MYSQL" | "AWS_S3" | "MINIO";
 export interface Connection extends Entity {
   name: string;
   type: ConnectionProvider;

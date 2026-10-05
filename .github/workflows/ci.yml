@@ -15,6 +15,18 @@ jobs:
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
+    services:
+      worker-test-postgres:
+        image: postgres:17.9
+        env:
+          POSTGRES_DB: worker_test
+          POSTGRES_USER: worker_test
+          POSTGRES_PASSWORD: worker-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U worker_test -d worker_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,8 +113,10 @@ jobs:
       - run: docker compose down
       - name: Start integration fixtures
         run: docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait --wait-timeout 240
+      - run: python -m pip install -e "apps/api[dev]"
       - run: python scripts/demo.py --api-url http://localhost:3000/api/v1
       - run: python scripts/demo-destination.py --skip-capture-demo
+      - run: python scripts/demo-object-storage.py
       - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
       - run: npm run test:e2e -w @cluecdc/web
       - run: python scripts/verify-secrets.py

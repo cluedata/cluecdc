@@ -72,6 +72,35 @@ services:
       timeout: 5s
       retries: 30
 
+  cluecdc-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      args:
+        INSTALL_DEV: "false"
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker_health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      AUTH_MODE: ${AUTH_MODE:-developer}
+      AUTH_TOKENS_JSON: ${AUTH_TOKENS_JSON:-{}}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      DATABASE_URL: postgresql+asyncpg://cluecdc:${METADATA_PASSWORD}@metadata-db:5432/cluecdc
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+    depends_on:
+      cluecdc-api:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+
   kafka-connect:
     build:
       context: .

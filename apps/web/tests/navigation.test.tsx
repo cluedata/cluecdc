@@ -57,7 +57,12 @@ describe("main navigation", () => {
       within(infrastructure)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Clusters", "Topics", "Consumer Groups", "Connect Clusters"]);
+    ).toEqual([
+      "Kafka Clusters",
+      "Topics",
+      "Consumer Groups",
+      "Connect Clusters",
+    ]);
     expect(
       within(infrastructure).getByRole("link", {
         name: "Connect Clusters",

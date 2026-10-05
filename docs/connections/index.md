@@ -1,9 +1,14 @@
 # Connections
 
-ClueCDC currently supports PostgreSQL and MySQL databases as sources and
-destinations, plus Apache Kafka clusters and Kafka Connect clusters. Only
-providers backed by working adapters and connector builders are exposed.
+ClueCDC supports PostgreSQL and MySQL as sources and destinations, and AWS S3
+and MinIO as object-storage destinations. Kafka and Kafka Connect clusters are
+registered infrastructure resources. [Object storage](../connectors/object-storage.md)
+uses the Aiven S3 sink and JSONL files.
 
-Credentials are write-only: the API encrypts database and object-store secrets in metadata and returns references, never plaintext. Kafka Connect resolves a narrowly scoped secret reference through the internal API at runtime.
+`Connection` is the only persisted endpoint model. Sources and destinations are
+capability-filtered views of that resource; pipelines and deliveries refer to
+the same connection UUID. Credentials are write-only: public APIs return masked
+credential status. Kafka Connect receives references resolved through a private
+machine-authenticated API; plaintext credentials remain encrypted in metadata.
 
 Test every connection from the ClueCDC runtime network. `localhost` inside a container means that container, not the host.

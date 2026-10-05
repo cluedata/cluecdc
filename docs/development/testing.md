@@ -18,13 +18,27 @@ python scripts/check-repository.py
 
 API unit tests use temporary SQLite and mocked external clients where isolation is intentional. Web unit tests use Vitest and Testing Library.
 
+`WORKER_TEST_DATABASE_URL` enables a real PostgreSQL concurrency test: two
+workers race for one job and only one claim succeeds. Each test creates and
+removes its own UUID-named schema. CI provides a dedicated PostgreSQL service.
+Lease recovery, backoff, terminal failure, result persistence and cancellation
+also have unit coverage. Collection tests assert SQL query counts stay constant
+as the number of resources grows.
+
 ## Live integration
 
 Start the integration stack with
 `docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait`, run
-`scripts/demo.py` and `scripts/demo-destination.py`, then run Playwright. These
+`scripts/demo.py`, `scripts/demo-destination.py`, and
+`scripts/demo-object-storage.py`, then run Playwright. These
 checks use the real source, Debezium, Kafka, Connect, destination, API proxy,
 and browser path. Test artifacts are ignored and must be sanitized before
 sharing.
+
+The object-storage check mutates the real PostgreSQL source, waits for Debezium
+and the Aiven sink, decompresses generated MinIO objects and checks c/u/d event
+content, record keys, before/after values, timestamps and source metadata. It
+needs no AWS account. Its sanitized report is
+`artifacts/object-storage-verification.json`.
 
 Documentation is validated with `mkdocs build --strict`.

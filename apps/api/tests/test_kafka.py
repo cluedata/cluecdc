@@ -1,4 +1,3 @@
-import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -128,22 +127,15 @@ def admin_metadata(monkeypatch):
     monkeypatch.setattr(KafkaExplorer, "topics", metadata)
 
 
-async def test_bounded_recent_sample_never_commits(monkeypatch):
+async def test_api_never_exposes_cdc_payloads(client, monkeypatch):
     consumer = Consumer()
-
-    def factory(**kwargs):
-        consumer.options = kwargs
-        return consumer
-
-    monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", factory)
-    result = await KafkaExplorer().events(cluster(), "commerce.public.customers", limit=50)
-    assert result["scanned"] == 1000
-    assert len(result["events"]) == 50
-    assert min(e["offset"] for e in result["events"]) >= 4000
-    assert result["events"][0]["changed_fields"] == ["name"]
-    assert consumer.options["group_id"] is None
-    assert consumer.options["enable_auto_commit"] is False
-    consumer.stop.assert_awaited_once()
+    monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", lambda **kwargs: consumer)
+    response = await client.get("/api/v1/events?cluster_id=invalid&topic=customers")
+    assert response.status_code == 410
+    assert response.json()["error"]["code"] == "CDC_PAYLOAD_API_REMOVED"
+    assert consumer.assigned == []
+    consumer.start.assert_not_awaited()
+    assert not hasattr(KafkaExplorer, "events")
 
 
 async def test_consumer_group_report_uses_committed_and_end_offsets(monkeypatch):
@@ -222,23 +214,6 @@ async def test_consumer_group_api_reports_registered_clusters(client, monkeypatc
     ]
     assert report["groups"][0]["cluster_id"] == cluster_id
     assert report["groups"][0]["offsets"][0]["lag"] == 2
-
-
-async def test_unknown_topic_does_not_get_created_or_masked_by_cleanup(monkeypatch):
-    consumer = Consumer()
-    consumer.stop = AsyncMock(side_effect=asyncio.CancelledError())
-    monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", lambda **kw: consumer)
-    with pytest.raises(DomainError) as exc:
-        await KafkaExplorer().events(cluster(), "unknown")
-    assert exc.value.code == "TOPIC_NOT_FOUND"
-    assert consumer.assigned == []
-
-
-async def test_invalid_partition_rejected(monkeypatch):
-    monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", Consumer)
-    with pytest.raises(DomainError) as exc:
-        await KafkaExplorer().events(cluster(), "commerce.public.customers", partition=10)
-    assert exc.value.code == "PARTITION_NOT_FOUND"
 
 
 async def test_notifications_tolerate_an_empty_consumer_warmup_poll(monkeypatch):

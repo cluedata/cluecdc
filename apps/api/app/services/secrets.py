@@ -13,6 +13,7 @@ from app.repositories.metadata import get
 class SecretProvider(Protocol):
     async def put_secret(self, value: dict[str, Any]) -> UUID: ...
     async def get_secret(self, ref: UUID) -> dict[str, Any]: ...
+    async def update_secret(self, ref: UUID, value: dict[str, Any]) -> None: ...
 
 
 class EncryptedDatabaseSecretProvider:
@@ -32,6 +33,11 @@ class EncryptedDatabaseSecretProvider:
     async def get_secret(self, ref: UUID) -> dict:
         secret = await get(self.session, SecretReference, ref)
         return json.loads(self.fernet.decrypt(secret.ciphertext.encode()))
+
+    async def update_secret(self, ref: UUID, value: dict) -> None:
+        secret = await get(self.session, SecretReference, ref)
+        secret.ciphertext = self.fernet.encrypt(json.dumps(value).encode()).decode()
+        await self.session.flush()
 
 
 def secret_provider(session: AsyncSession) -> SecretProvider:

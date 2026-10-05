@@ -11,6 +11,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:3000/api/v1")
 parser.add_argument("--connect-url", default="http://localhost:8083")
+parser.add_argument("--compose-project")
 args = parser.parse_args()
 env = dict(
     line.split("=", 1)
@@ -27,10 +28,23 @@ secret_values = [
         "METADATA_PASSWORD",
         "SECRET_ENCRYPTION_KEY",
         "CONNECT_SECRET_TOKEN",
+        "MINIO_ACCESS_KEY",
+        "MINIO_SECRET_KEY",
     ]
+    if key in env
 ]
 if os.getenv("CLUECDC_TOKEN"):
     secret_values.append(os.environ["CLUECDC_TOKEN"])
+secret_values.extend(
+    [
+        os.getenv(
+            "MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "cluecdc-test-access")
+        ),
+        os.getenv(
+            "MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "cluecdc-test-secret-key")
+        ),
+    ]
+)
 
 
 def checked(url):
@@ -74,9 +88,22 @@ for destination in destinations:
             runtime_config = checked(
                 connect_base + "/connectors/" + connector["name"] + "/config"
             )
-            assert runtime_config["connection.password"].startswith("${cluecdc:"), (
-                "Sink did not persist a secret reference"
+            fields = (
+                ["connection.password"]
+                if delivery.get("delivery_type", "DATABASE") == "DATABASE"
+                else [
+                    "cluecdc.access.key",
+                    "cluecdc.secret.key",
+                    "cluecdc.session.token",
+                ]
+                if "cluecdc.session.token" in runtime_config
+                else ["aws.access.key.id", "aws.secret.access.key"]
             )
+            assert all(
+                runtime_config[field].startswith("${cluecdc:") for field in fields
+            ), "Sink did not persist secret references"
+checked(base + "/connections")
+checked(base + "/deliveries")
 checked(base + "/operations/errors")
 checked(base + "/monitoring/overview")
 checked(base + "/audit?limit=500")
@@ -85,6 +112,7 @@ logs = subprocess.run(
     [
         "docker",
         "compose",
+        *(["-p", args.compose_project] if args.compose_project else []),
         "-f",
         "compose.yaml",
         "-f",
@@ -92,6 +120,7 @@ logs = subprocess.run(
         "logs",
         "--no-color",
         "cluecdc-api",
+        "cluecdc-worker",
         "kafka-connect",
         "cluecdc-web",
         "destination-postgres",

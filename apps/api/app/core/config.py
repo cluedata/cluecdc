@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Literal
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     auth_mode: Literal["developer", "token"] = "developer"
     # JSON mapping SHA256(token) -> {actor, role}; raw tokens are never stored.
     auth_tokens_json: str = "{}"
-    worker_enabled: bool = True
     reconcile_interval_seconds: int = 10
+    worker_concurrency: int = Field(default=4, ge=1, le=32)
+    job_lease_seconds: int = Field(default=300, ge=30, le=3600)
+    job_max_attempts: int = Field(default=3, ge=1, le=20)
     cors_origins: list[str] = []
     integration_timeout_seconds: float = 10
     log_level: Literal["debug", "info", "warn", "warning", "error"] = "info"

@@ -6,13 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.monitoring import observe_database_connection
-from app.models.entities import SchemaVersion, Source, SourceTable, now
+from app.models.entities import Connection, SchemaVersion, Source, SourceTable, now
 from app.providers import get_provider
 from app.repositories.metadata import audit, get
 from app.services.secrets import secret_provider
 
 
 async def adapter(session: AsyncSession, source: Source):
+    if source.secret_ref is None:
+        from app.core.errors import DomainError
+
+        raise DomainError("CONNECTION_CREDENTIALS_REQUIRED", "Source credentials are missing", 422)
     credentials = await secret_provider(session).get_secret(source.secret_ref)
     return get_provider(source.type).source_adapter(source, credentials["password"])
 
@@ -58,15 +62,23 @@ def schema_diff(previous: dict, current: dict) -> list[dict]:
 
 
 async def health(session: AsyncSession, source_id: UUID, actor: str) -> dict:
-    source = await get(session, Source, source_id)
+    source = await get(session, Connection, source_id)
+    if "SOURCE" not in source.capabilities_json:
+        from app.core.errors import DomainError
+
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     from app.core.errors import DomainError
 
+    source_adapter = await adapter(session, source)
+    await session.commit()
     try:
-        result = await (await adapter(session, source)).readiness()
+        result = await source_adapter.readiness()
+        source = await get(session, Connection, source_id)
         source.status = "HEALTHY" if result.get("status") != "failed" else "UNHEALTHY"
     except DomainError as error:
+        source = await get(session, Connection, source_id)
         source.status = "UNHEALTHY"
-        source.last_health_check_at = now()
+        source.last_tested_at = now()
         await observe_database_connection(
             session,
             kind="source",
@@ -79,7 +91,7 @@ async def health(session: AsyncSession, source_id: UUID, actor: str) -> dict:
         audit(session, actor, "source.health_failed", source)
         await session.commit()
         raise
-    source.last_health_check_at = now()
+    source.last_tested_at = now()
     await observe_database_connection(
         session,
         kind="source",
@@ -94,19 +106,37 @@ async def health(session: AsyncSession, source_id: UUID, actor: str) -> dict:
 
 
 async def discover(session: AsyncSession, source_id: UUID, actor: str) -> dict:
-    # Row lock serializes discovery/schema-version writes for this source.
-    source = await session.scalar(select(Source).where(Source.id == source_id).with_for_update())
-    if source is None:
+    source = await session.get(Connection, source_id)
+    if source is None or "SOURCE" not in source.capabilities_json:
         from app.core.errors import DomainError
 
         raise DomainError("NOT_FOUND", "Source was not found", 404)
-    tables = await (await adapter(session, source)).discover()
+    source_adapter = await adapter(session, source)
+    await session.commit()
+    tables = await source_adapter.discover()
+    # The lock is acquired only after the external call and protects the short metadata merge.
+    source = await session.scalar(
+        select(Connection).where(Connection.id == source_id).with_for_update()
+    )
+    if source is None or "SOURCE" not in source.capabilities_json:
+        from app.core.errors import DomainError
+
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     existing = {
         (t.schema_name, t.table_name): t
         for t in (
             await session.scalars(select(SourceTable).where(SourceTable.source_id == source_id))
         ).all()
     }
+    previous_versions: dict[tuple[str, str], SchemaVersion] = {}
+    for version in (
+        await session.scalars(
+            select(SchemaVersion)
+            .where(SchemaVersion.source_id == source_id)
+            .order_by(SchemaVersion.version.desc())
+        )
+    ).all():
+        previous_versions.setdefault((version.schema_name, version.table_name), version)
     for data in tables:
         key = (data["schema_name"], data["table_name"])
         entity = existing.pop(key, None)
@@ -118,16 +148,7 @@ async def discover(session: AsyncSession, source_id: UUID, actor: str) -> dict:
                 setattr(entity, k, v)
         schema = {"columns": data["columns_json"], "primary_key": data["primary_key_columns"]}
         digest = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
-        previous = await session.scalar(
-            select(SchemaVersion)
-            .where(
-                SchemaVersion.source_id == source_id,
-                SchemaVersion.schema_name == key[0],
-                SchemaVersion.table_name == key[1],
-            )
-            .order_by(SchemaVersion.version.desc())
-            .limit(1)
-        )
+        previous = previous_versions.get(key)
         if previous is None or previous.schema_hash != digest:
             session.add(
                 SchemaVersion(
@@ -143,6 +164,6 @@ async def discover(session: AsyncSession, source_id: UUID, actor: str) -> dict:
     for dropped in existing.values():
         await session.delete(dropped)
     source.status = "HEALTHY"
-    source.last_health_check_at = now()
+    source.last_tested_at = now()
     audit(session, actor, "source.discovered", source)
     return {"tables_discovered": len(tables), "limit": 500}

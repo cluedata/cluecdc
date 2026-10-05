@@ -2,7 +2,8 @@
 
 ClueCDC is a control plane around a Kafka Connect CDC data plane. Its API stores
 configuration and operational state, calls management APIs, and performs bounded
-metadata queries. CDC records never pass through the ClueCDC backend.
+metadata queries. CDC records never pass through the backend. Topic inspection
+returns broker metadata only; payload verification reads Kafka or storage directly.
 
 ## Control plane
 
@@ -11,6 +12,7 @@ flowchart TB
     User[User]
     UI[ClueCDC Web UI]
     API[ClueCDC API]
+    Worker[ClueCDC Worker]
     DB[(Metadata PostgreSQL)]
     Kafka[Apache Kafka Admin APIs]
     Connect[Kafka Connect REST API]
@@ -22,6 +24,9 @@ flowchart TB
     API --> Kafka
     API --> Connect
     API --> Sources
+    Worker --> DB
+    Worker --> Connect
+    Worker --> Kafka
 ```
 
 The control plane owns:
@@ -45,15 +50,19 @@ flowchart LR
     subgraph ConnectCluster[Kafka Connect]
         DBZ[Debezium Source Connector]
         Sink[JDBC Sink Connector]
+        S3Sink[Aiven S3 Sink Connector]
     end
 
     Kafka[(Apache Kafka CDC Topics)]
     Destination[(Destination Database)]
+    Objects[(AWS S3 / MinIO)]
 
     Source --> DBZ
     DBZ --> Kafka
     Kafka --> Sink
     Sink --> Destination
+    Kafka --> S3Sink
+    S3Sink --> Objects
 ```
 
 Debezium is a Kafka Connect source connector, not a separate ClueCDC or
@@ -68,6 +77,8 @@ connector tasks among workers.
 | --- | --- | --- | --- | --- | --- |
 | PostgreSQL | Debezium | JDBC sink | Yes | Yes | Supported |
 | MySQL | Debezium | JDBC sink | Yes | Yes | Supported |
+| AWS S3 | No | Aiven S3 sink | Yes | Raw CDC export | Supported |
+| MinIO | No | Aiven S3 sink | Yes | Raw CDC export | Supported |
 
 This matrix is based on provider adapters, connector configuration builders, and
 tests in the source tree. Providers without those runtime paths are not exposed
@@ -77,20 +88,19 @@ in the UI or documentation.
 
 ```mermaid
 erDiagram
-  CONNECTION ||--o| SOURCE : enables_capture
-  CONNECTION ||--o| DESTINATION : enables_delivery
-  SOURCE ||--o{ PIPELINE : captured_by
+  CONNECTION ||--o{ PIPELINE : enables_capture
   KAFKA_CLUSTER ||--o{ PIPELINE : transports
   CONNECT_CLUSTER ||--o{ CONNECTOR : runs
   PIPELINE ||--|| CONNECTOR : owns_capture
   PIPELINE ||--o{ PIPELINE_DESTINATION : delivers
-  DESTINATION ||--o{ PIPELINE_DESTINATION : receives
+  CONNECTION ||--o{ PIPELINE_DESTINATION : receives
   PIPELINE_DESTINATION ||--|| CONNECTOR : owns_sink
 ```
 
-- A **Connection** is a reusable PostgreSQL or MySQL endpoint.
+- A **Connection** is a reusable database or object-storage endpoint with
+  source/destination capabilities, not a persisted mirror entity.
 - A **Pipeline** owns a Debezium source connector and selected source tables.
-- A **Delivery** associates a pipeline with a destination and owns a JDBC sink
+- A **Delivery** associates a pipeline with a destination and owns a JDBC or S3 sink
   connector.
 - A **Connector** is ClueCDC metadata for a concrete Kafka Connect resource.
 - Topics are discovered and managed through Kafka; deleting a pipeline does not
@@ -99,7 +109,8 @@ erDiagram
 ## Local and production topology
 
 Local Compose intentionally uses one metadata database, broker, Connect worker,
-API, and web process. It is a development topology, not simulated HA.
+API, independent control-plane worker and web process. It is a development
+topology, not simulated HA.
 
 Production should use replicated Kafka, multiple distributed Connect workers,
 managed or highly available PostgreSQL metadata, multiple stateless API/web

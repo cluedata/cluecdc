@@ -515,14 +515,18 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
     // publish the task failure without treating RUNNING as a successful write.
     await expect
       .poll(async () => {
-        const response = await request.get(
-          `/api/v1/events?cluster_id=${pipeline.kafka_cluster_id}&topic=${encodeURIComponent(customerTopic)}&operation=CREATE&limit=200`,
+        const result = execFileSync(
+          "python",
+          [
+            resolve(root, "scripts/kafka_records.py"),
+            "--topic",
+            customerTopic,
+            "--contains",
+            `Blocked ${token}`,
+          ],
+          { cwd: root, encoding: "utf8" },
         );
-        const sample = await response.json();
-        return sample.events.some(
-          (event: { after?: { name?: string } }) =>
-            event.after?.name === `Blocked ${token}`,
-        );
+        return JSON.parse(result).matched;
       })
       .toBe(true);
     sql(

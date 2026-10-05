@@ -39,26 +39,13 @@ class SecretReference(Entity, Base):
     provider: Mapped[str] = mapped_column(String, default="encrypted-database")
 
 
-class Source(Entity, Base):
-    __tablename__ = "sources"
-    name: Mapped[str] = mapped_column(String(120), unique=True)
-    type: Mapped[str] = mapped_column(String(30))
-    environment: Mapped[str] = mapped_column(String(30))
-    host: Mapped[str] = mapped_column(String(255))
-    port: Mapped[int] = mapped_column(Integer)
-    database_name: Mapped[str] = mapped_column(String(128))
-    username: Mapped[str] = mapped_column(String(128))
-    secret_ref: Mapped[uuid.UUID] = mapped_column(ForeignKey("secret_references.id"))
-    ssl_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    provider_options: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String, default="UNKNOWN", index=True)
-    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class SourceTable(Entity, Base):
     __tablename__ = "source_tables"
-    __table_args__ = (UniqueConstraint("source_id", "schema_name", "table_name"),)
-    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    __table_args__ = (UniqueConstraint("source_connection_id", "schema_name", "table_name"),)
+    # The Python alias remains source_id until the v1 compatibility API is retired.
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        "source_connection_id", ForeignKey("connections.id", ondelete="CASCADE")
+    )
     schema_name: Mapped[str] = mapped_column(String(128))
     table_name: Mapped[str] = mapped_column(String(128))
     primary_key_columns: Mapped[list] = mapped_column(JSON, default=list)
@@ -104,7 +91,9 @@ class Connector(Entity, Base):
 class Pipeline(Entity, Base):
     __tablename__ = "pipelines"
     name: Mapped[str] = mapped_column(String(120), unique=True)
-    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        "source_connection_id", ForeignKey("connections.id"), index=True
+    )
     kafka_cluster_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kafka_clusters.id"))
     connect_cluster_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("connect_clusters.id"))
     connector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connectors.id"))
@@ -160,36 +149,18 @@ class PipelineOperation(Entity, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class Destination(Entity, Base):
-    __tablename__ = "destinations"
-    name: Mapped[str] = mapped_column(String(120), unique=True)
-    description: Mapped[str] = mapped_column(String(1000), default="")
-    type: Mapped[str] = mapped_column(String(30), default="postgresql")
-    environment: Mapped[str] = mapped_column(String(30), default="DEV")
-    host: Mapped[str] = mapped_column(String(255))
-    port: Mapped[int] = mapped_column(Integer, default=5432)
-    database_name: Mapped[str] = mapped_column(String(128))
-    username: Mapped[str] = mapped_column(String(128))
-    secret_ref: Mapped[uuid.UUID] = mapped_column(ForeignKey("secret_references.id"))
-    ssl_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    provider_options: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String, default="UNKNOWN", index=True)
-    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class Connection(Entity, Base):
-    """Canonical reusable external-system connection.
-
-    The legacy ``sources`` and ``destinations`` rows are compatibility adapters for the
-    capture and JDBC delivery runtimes.  Their identifiers match this record and they do
-    not represent a second user-managed resource.
-    """
+    """The only persisted representation of an external system."""
 
     __tablename__ = "connections"
     __table_args__ = (
         CheckConstraint(
-            "category = 'DATABASE'",
+            "category IN ('DATABASE','OBJECT_STORAGE')",
             name="ck_connections_category",
+        ),
+        CheckConstraint(
+            "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO')",
+            name="ck_connections_provider",
         ),
     )
     name: Mapped[str] = mapped_column(String(120), unique=True)
@@ -206,14 +177,84 @@ class Connection(Entity, Base):
     last_test_status: Mapped[str | None] = mapped_column(String(20))
     last_test_message: Mapped[str | None] = mapped_column(String(1000))
 
+    def __init__(self, **kwargs: Any):
+        """Accept the old database endpoint shape only as an in-memory adapter.
+
+        This keeps provider unit tests and v1 DTO construction simple without reviving
+        the removed ``sources`` or ``destinations`` tables.
+        """
+        legacy_keys = {
+            "type",
+            "environment",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_enabled",
+            "provider_options",
+            "last_health_check_at",
+        }
+        if legacy_keys & kwargs.keys():
+            database_type = str(kwargs.pop("type", "postgresql"))
+            kwargs.setdefault("category", "DATABASE")
+            kwargs.setdefault("provider", database_type.upper())
+            kwargs.setdefault("capabilities_json", ["SOURCE", "DESTINATION"])
+            config = dict(kwargs.pop("config_json", {}))
+            for key in legacy_keys - {"type", "last_health_check_at"}:
+                if key in kwargs:
+                    config[key] = kwargs.pop(key)
+            kwargs["config_json"] = config
+            if "last_health_check_at" in kwargs:
+                kwargs["last_tested_at"] = kwargs.pop("last_health_check_at")
+        super().__init__(**kwargs)
+
+    @property
+    def type(self) -> str:
+        return self.provider.lower()
+
+    @property
+    def environment(self) -> str:
+        return str(self.config_json.get("environment", "DEV"))
+
+    @property
+    def host(self) -> str:
+        return str(self.config_json.get("host", ""))
+
+    @property
+    def port(self) -> int:
+        return int(self.config_json.get("port", 0))
+
+    @property
+    def database_name(self) -> str:
+        return str(self.config_json.get("database_name", ""))
+
+    @property
+    def username(self) -> str:
+        return str(self.config_json.get("username", ""))
+
+    @property
+    def ssl_enabled(self) -> bool:
+        return bool(self.config_json.get("ssl_enabled", False))
+
+    @property
+    def provider_options(self) -> dict:
+        return dict(self.config_json.get("provider_options", {}))
+
+    @property
+    def last_health_check_at(self) -> datetime | None:
+        return self.last_tested_at
+
 
 class PipelineDestination(Entity, Base):
     __tablename__ = "pipeline_destinations"
-    __table_args__ = (UniqueConstraint("destination_id", "name"),)
+    __table_args__ = (UniqueConstraint("destination_connection_id", "name"),)
     pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id"), index=True)
-    destination_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("destinations.id"), index=True)
+    destination_id: Mapped[uuid.UUID] = mapped_column(
+        "destination_connection_id", ForeignKey("connections.id"), index=True
+    )
     connector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connectors.id"), unique=True)
     name: Mapped[str] = mapped_column(String(120))
+    delivery_type: Mapped[str] = mapped_column(String(30), default="DATABASE")
     delivery_mode: Mapped[str] = mapped_column(String, default="upsert")
     topic_mapping_json: Mapped[list] = mapped_column(JSON, default=list)
     configuration_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -224,10 +265,12 @@ class PipelineDestination(Entity, Base):
 class SchemaVersion(Entity, Base):
     __tablename__ = "schema_versions"
     __table_args__ = (
-        UniqueConstraint("source_id", "schema_name", "table_name", "version"),
-        Index("ix_schema_lookup", "source_id", "schema_name", "table_name"),
+        UniqueConstraint("source_connection_id", "schema_name", "table_name", "version"),
+        Index("ix_schema_lookup", "source_connection_id", "schema_name", "table_name"),
     )
-    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        "source_connection_id", ForeignKey("connections.id", ondelete="CASCADE")
+    )
     schema_name: Mapped[str] = mapped_column(String)
     table_name: Mapped[str] = mapped_column(String)
     version: Mapped[int] = mapped_column(Integer)
@@ -244,7 +287,9 @@ class PipelineEvent(Entity, Base):
         ForeignKey("pipelines.id", ondelete="SET NULL"), index=True
     )
     destination_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("destinations.id", ondelete="SET NULL"), index=True
+        "destination_connection_id",
+        ForeignKey("connections.id", ondelete="SET NULL"),
+        index=True,
     )
     delivery_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("pipeline_destinations.id", ondelete="SET NULL"), index=True
@@ -361,6 +406,8 @@ class NotificationDelivery(Entity, Base):
     kind: Mapped[str] = mapped_column(String(20), default="firing")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    claimed_by: Mapped[str | None] = mapped_column(String(160))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(1000))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -387,9 +434,19 @@ class KafkaTopic(Entity, Base):
 
 class Job(Entity, Base):
     __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_claim", "status", "next_attempt_at", "lease_expires_at"),)
     kind: Mapped[str] = mapped_column(String)
     resource_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     actor: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="PENDING", index=True)
     result_json: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String)
+    claimed_by: Mapped[str | None] = mapped_column(String(120), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# Import compatibility only. Both names resolve to the same mapped class/table.
+Source = Connection
+Destination = Connection

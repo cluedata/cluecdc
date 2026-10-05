@@ -6,6 +6,7 @@ resources:
   - configmap.yaml
   - metadata.yaml
   - api.yaml
+  - worker.yaml
   - web.yaml
   - connect.yaml
 labels:

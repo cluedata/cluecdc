@@ -16,8 +16,8 @@ from app.core.errors import DomainError
 from app.models.entities import (
     AuditLog,
     ConnectCluster,
+    Connection,
     Connector,
-    Destination,
     Job,
     KafkaCluster,
     Pipeline,
@@ -26,13 +26,12 @@ from app.models.entities import (
     PipelineOperation,
     PipelineTable,
     SchemaVersion,
-    SecretReference,
-    Source,
     SourceTable,
 )
 from app.providers import provider_metadata, provider_metadata_for
 from app.providers.server_ids import assign_mysql_server_id
 from app.repositories.metadata import audit, get, listing, serialize
+from app.schemas.connections import ConnectionInput
 from app.schemas.requests import (
     AddPipelineTablesInput,
     ConnectInput,
@@ -43,15 +42,14 @@ from app.schemas.requests import (
     ResyncPipelineTableInput,
     SourceInput,
 )
+from app.services import connections as connection_service
 from app.services import pipeline as pipeline_service
 from app.services import pipeline_tables as pipeline_table_service
 from app.services import source as source_service
 from app.services.destinations import service as destination_service
-from app.services.secrets import secret_provider
 
 router = APIRouter(prefix="/api/v1")
 DB = Annotated[AsyncSession, Depends(session_dependency)]
-event_slots = asyncio.Semaphore(4)
 
 
 @router.get("/database-providers")
@@ -72,17 +70,37 @@ async def session_info(user: Annotated[Principal, Depends(principal)]):
 
 @router.get("/sources")
 async def sources(db: DB, user: Annotated[Principal, Depends(require("sources.read"))]):
-    results = await listing(db, Source)
-    for source in results:
-        counts = (
+    connections = [
+        item
+        for item in (
+            await db.scalars(
+                select(Connection)
+                .where(Connection.category == "DATABASE")
+                .order_by(Connection.created_at.desc())
+                .limit(500)
+            )
+        ).all()
+        if "SOURCE" in item.capabilities_json
+    ]
+    counts = {
+        row[0]: (row[1], row[2] or 0)
+        for row in (
             await db.execute(
                 select(
+                    SourceTable.source_id,
                     func.count(),
-                    func.sum(SourceTable.cdc_ready.cast(__import__("sqlalchemy").Integer)),
-                ).where(SourceTable.source_id == source["id"])
+                    func.sum(case((SourceTable.cdc_ready.is_(True), 1), else_=0)),
+                )
+                .where(SourceTable.source_id.in_([item.id for item in connections]))
+                .group_by(SourceTable.source_id)
             )
-        ).one()
-        source.update(tables=counts[0], cdc_ready_tables=counts[1] or 0)
+        ).all()
+    }
+    results = []
+    for item in connections:
+        value = connection_service.database_view(item)
+        value["tables"], value["cdc_ready_tables"] = counts.get(item.id, (0, 0))
+        results.append(value)
     return results
 
 
@@ -92,28 +110,37 @@ async def create_source(
 ):
     if data.password is None or not data.password.get_secret_value():
         raise DomainError("PASSWORD_REQUIRED", "A source password is required", 422)
-    secret_ref = await secret_provider(db).put_secret(
-        {"password": data.password.get_secret_value()}
+    source = await connection_service.create(
+        db,
+        ConnectionInput(
+            name=data.name,
+            category="DATABASE",
+            provider=data.type.upper(),
+            config=data.model_dump(exclude={"password", "name", "type"}),
+            credentials={"password": data.password},
+            capabilities=["SOURCE"],
+        ),
+        user.actor,
     )
-    source = Source(**data.model_dump(exclude={"password"}), secret_ref=secret_ref)
-    db.add(source)
-    await db.flush()
     if source.type == "mysql":
-        options = dict(source.provider_options)
+        options = dict(source.config_json.get("provider_options", {}))
         options["server_id"] = await assign_mysql_server_id(
             db, source.id, options.get("server_id"), exclude_source_id=source.id
         )
-        source.provider_options = options
+        source.config_json = {**source.config_json, "provider_options": options}
     audit(db, user.actor, "source.created", source)
     await db.commit()
-    return serialize(source)
+    return connection_service.database_view(source)
 
 
 @router.get("/sources/{identifier}")
 async def source_detail(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.read"))]
 ):
-    result = serialize(await get(db, Source, identifier))
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
+    result = connection_service.database_view(source)
     counts = (
         await db.execute(
             select(
@@ -138,55 +165,63 @@ async def update_source(
     db: DB,
     user: Annotated[Principal, Depends(require("sources.write"))],
 ):
-    source = await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     if await db.scalar(select(Pipeline.id).where(Pipeline.source_id == identifier).limit(1)):
         raise DomainError(
             "SOURCE_IN_USE",
             "Delete associated pipelines before changing connection configuration",
             409,
         )
-    before = serialize(source)
-    previous_options = dict(source.provider_options)
-    for k, v in data.model_dump(exclude={"password"}).items():
-        setattr(source, k, v)
+    previous_options = dict(source.config_json.get("provider_options", {}))
+    values = data.model_dump(exclude={"password", "name", "type"})
     if source.type == "mysql":
-        options = dict(source.provider_options)
+        options = dict(values.get("provider_options", {}))
         options["server_id"] = await assign_mysql_server_id(
             db,
             source.id,
             options.get("server_id") or previous_options.get("server_id"),
             exclude_source_id=source.id,
         )
-        source.provider_options = options
-    if data.password and data.password.get_secret_value():
-        old = await get(db, SecretReference, source.secret_ref)
-        source.secret_ref = await secret_provider(db).put_secret(
-            {"password": data.password.get_secret_value()}
-        )
-        await db.delete(old)
-    source.status = "UNKNOWN"
-    source.last_health_check_at = None
+        values["provider_options"] = options
+    source = await connection_service.update(
+        db,
+        source,
+        ConnectionInput(
+            name=data.name,
+            category="DATABASE",
+            provider=data.type.upper(),
+            config=values,
+            credentials={"password": data.password} if data.password else {},
+            capabilities=list(source.capabilities_json),
+        ),
+        user.actor,
+    )
     # A changed connection must be discovered again before its tables are eligible.
     await db.execute(delete(SourceTable).where(SourceTable.source_id == identifier))
-    audit(db, user.actor, "source.updated", source, before)
     await db.commit()
-    return serialize(source)
+    return connection_service.database_view(source)
 
 
 @router.delete("/sources/{identifier}")
 async def delete_source(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.write"))]
 ):
-    source = await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     if await db.scalar(select(Pipeline.id).where(Pipeline.source_id == identifier).limit(1)):
         raise DomainError(
             "SOURCE_IN_USE", "Delete associated pipelines before deleting this source", 409
         )
-    secret = await get(db, SecretReference, source.secret_ref)
-    audit(db, user.actor, "source.deleted", source)
-    await db.delete(source)
-    await db.flush()
-    await db.delete(secret)
+    if set(source.capabilities_json) != {"SOURCE"}:
+        source.capabilities_json = [
+            capability for capability in source.capabilities_json if capability != "SOURCE"
+        ]
+        audit(db, user.actor, "connection.source_capability_removed", source)
+    else:
+        await connection_service.delete(db, source, user.actor)
     await db.commit()
     return {"deleted": True}
 
@@ -201,7 +236,9 @@ async def test_source(
 
 
 async def enqueue(db: AsyncSession, kind: str, identifier: UUID, actor: str):
-    await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     existing = await db.scalar(
         select(Job)
         .where(
@@ -244,7 +281,9 @@ async def job_status(
 async def readiness(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.read"))]
 ):
-    source = await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     return await (await source_service.adapter(db, source)).readiness()
 
 
@@ -259,7 +298,9 @@ async def tables(
     has_primary_key: bool | None = None,
     min_size: int | None = None,
 ):
-    await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     query = select(SourceTable).where(SourceTable.source_id == identifier)
     if schema:
         query = query.where(SourceTable.schema_name == schema)
@@ -285,7 +326,9 @@ async def table_readiness(
     db: DB,
     user: Annotated[Principal, Depends(require("sources.read"))],
 ):
-    source = await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     table = await get(db, SourceTable, table_id)
     if table.source_id != source.id:
         raise DomainError("NOT_FOUND", "Source table was not found", 404)
@@ -300,7 +343,9 @@ async def namespaces(
     db: DB,
     user: Annotated[Principal, Depends(require("sources.read"))],
 ):
-    source = await get(db, Source, identifier)
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
     values = (
         await db.scalars(
             select(SourceTable.schema_name)
@@ -443,11 +488,24 @@ async def delete_connect(
 @router.get("/connect/connectors")
 async def connectors(db: DB, user: Annotated[Principal, Depends(require("connect.read"))]):
     results = await listing(db, Connector)
+    identifiers = [result["id"] for result in results]
+    pipelines_by_connector = {
+        item.connector_id: item
+        for item in (
+            await db.scalars(select(Pipeline).where(Pipeline.connector_id.in_(identifiers)))
+        ).all()
+    }
+    deliveries_by_connector = {
+        item.connector_id: item
+        for item in (
+            await db.scalars(
+                select(PipelineDestination).where(PipelineDestination.connector_id.in_(identifiers))
+            )
+        ).all()
+    }
     for result in results:
-        pipeline = await db.scalar(select(Pipeline).where(Pipeline.connector_id == result["id"]))
-        delivery = await db.scalar(
-            select(PipelineDestination).where(PipelineDestination.connector_id == result["id"])
-        )
+        pipeline = pipelines_by_connector.get(result["id"])
+        delivery = deliveries_by_connector.get(result["id"])
         result["related_resource"] = (
             {"name": pipeline.name, "href": f"/pipelines/{pipeline.id}"} if pipeline else None
         )
@@ -462,10 +520,9 @@ async def connectors(db: DB, user: Annotated[Principal, Depends(require("connect
 @router.get("/deliveries")
 async def deliveries(db: DB, user: Annotated[Principal, Depends(require("destinations.read"))]):
     """Expose managed sink connectors as first-class delivery resources."""
-    return [
-        await destination_service.delivery_view(db, delivery)
-        for delivery in await destination_service.all_deliveries(db)
-    ]
+    return await destination_service.delivery_views(
+        db, await destination_service.all_deliveries(db)
+    )
 
 
 @router.get("/deliveries/{identifier}")
@@ -484,7 +541,7 @@ async def delivery_status(
     db: DB,
     user: Annotated[Principal, Depends(require("destinations.read"))],
 ):
-    delivery = await destination_service.delivery_by_id(db, identifier, lock=True)
+    delivery = await destination_service.delivery_by_id(db, identifier)
     result = await destination_service.reconcile(db, delivery)
     await db.commit()
     return result
@@ -498,8 +555,7 @@ async def update_delivery_mappings(
     user: Annotated[Principal, Depends(require("destinations.operate"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
-    destination = await destination_service.locked(db, delivery.destination_id)
-    delivery = await destination_service.locked_delivery(db, destination.id, identifier)
+    destination = await get(db, Connection, delivery.destination_id)
     return await destination_service.update_mapping(db, destination, delivery, data, user.actor)
 
 
@@ -514,8 +570,7 @@ async def operate_delivery(
     if operation not in {"pause", "resume", "restart", "restart-task"}:
         raise DomainError("INVALID_OPERATION", "Unsupported delivery operation", 404)
     delivery = await destination_service.delivery_by_id(db, identifier)
-    destination = await destination_service.locked(db, delivery.destination_id)
-    delivery = await destination_service.locked_delivery(db, destination.id, identifier)
+    destination = await get(db, Connection, delivery.destination_id)
     return await destination_service.operate(db, destination, delivery, operation, user.actor, task)
 
 
@@ -526,8 +581,7 @@ async def delete_delivery(
     user: Annotated[Principal, Depends(require("destinations.operate"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
-    destination = await destination_service.locked(db, delivery.destination_id)
-    delivery = await destination_service.locked_delivery(db, destination.id, identifier)
+    destination = await get(db, Connection, delivery.destination_id)
     return await destination_service.operate(db, destination, delivery, "delete", user.actor)
 
 
@@ -560,22 +614,48 @@ async def pipelines(
     if source_id:
         query = query.where(Pipeline.source_id == source_id)
     results = [serialize(p) for p in (await db.scalars(query)).all()]
-    for p in results:
-        pipeline_tables = (
-            await db.scalars(select(PipelineTable).where(PipelineTable.pipeline_id == p["id"]))
+    identifiers = [item["id"] for item in results]
+    tables_by_pipeline: dict[UUID, list[PipelineTable]] = {}
+    for table in (
+        await db.scalars(select(PipelineTable).where(PipelineTable.pipeline_id.in_(identifiers)))
+    ).all():
+        tables_by_pipeline.setdefault(table.pipeline_id, []).append(table)
+    links_by_pipeline: dict[UUID, list[PipelineDestination]] = {}
+    for link in (
+        await db.scalars(
+            select(PipelineDestination).where(PipelineDestination.pipeline_id.in_(identifiers))
+        )
+    ).all():
+        links_by_pipeline.setdefault(link.pipeline_id, []).append(link)
+    connection_ids = {item["source_id"] for item in results} | {
+        link.destination_id for links in links_by_pipeline.values() for link in links
+    }
+    connections_by_id = {
+        item.id: item
+        for item in (
+            await db.scalars(select(Connection).where(Connection.id.in_(connection_ids)))
         ).all()
+    }
+    kafka_by_id = {
+        item.id: item
+        for item in (
+            await db.scalars(
+                select(KafkaCluster).where(
+                    KafkaCluster.id.in_({item["kafka_cluster_id"] for item in results})
+                )
+            )
+        ).all()
+    }
+    for p in results:
+        pipeline_tables = tables_by_pipeline.get(p["id"], [])
         p["tables"] = len(pipeline_tables)
         p["topics"] = [table.topic_name for table in pipeline_tables]
         p["throughput"] = p["cdc_lag"] = p["last_event"] = None
-        source = await get(db, Source, p["source_id"])
+        source = connections_by_id[p["source_id"]]
         p["source_name"] = source.name
-        kafka = await get(db, KafkaCluster, p["kafka_cluster_id"])
+        kafka = kafka_by_id[p["kafka_cluster_id"]]
         p["kafka_name"] = kafka.name
-        links = (
-            await db.scalars(
-                select(PipelineDestination).where(PipelineDestination.pipeline_id == p["id"])
-            )
-        ).all()
+        links = links_by_pipeline.get(p["id"], [])
         p["destinations"] = len({link.destination_id for link in links})
         p["delivery_state"] = (
             destination_service.aggregate([link.actual_state for link in links])
@@ -584,7 +664,7 @@ async def pipelines(
         )
         summaries = []
         for link in links:
-            target = await get(db, Destination, link.destination_id)
+            target = connections_by_id[link.destination_id]
             summaries.append(
                 {
                     "id": link.id,
@@ -642,7 +722,7 @@ async def pipeline_detail(
 ):
     p = await get(db, Pipeline, identifier)
     result = serialize(p)
-    result["source"] = serialize(await get(db, Source, p.source_id))
+    result["source"] = connection_service.database_view(await get(db, Connection, p.source_id))
     result["kafka_cluster"] = serialize(await get(db, KafkaCluster, p.kafka_cluster_id))
     result["connect_cluster"] = serialize(await get(db, ConnectCluster, p.connect_cluster_id))
     result["connector"] = (
@@ -802,7 +882,7 @@ async def retry_operation(
 async def pipeline_status(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]
 ):
-    p = await pipeline_service.locked(db, identifier)
+    p = await get(db, Pipeline, identifier)
     result = await pipeline_service.reconcile(db, p)
     await db.commit()
     return {"desired_state": p.desired_state, **result}
@@ -819,7 +899,7 @@ async def deploy_pipeline(
 async def prepare_pipeline_topics(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("pipelines.operate"))]
 ):
-    pipeline = await pipeline_service.locked(db, identifier)
+    pipeline = await get(db, Pipeline, identifier)
     result = await pipeline_service.prepare_topics(db, pipeline, user.actor)
     await db.commit()
     return result
@@ -1024,29 +1104,12 @@ async def delete_topic(
 
 
 @router.get("/events")
-async def events(
-    cluster_id: UUID,
-    topic: str,
-    db: DB,
-    user: Annotated[Principal, Depends(require("kafka.read"))],
-    limit: int = Query(default=50, ge=1, le=200),
-    partition: int | None = Query(default=None, ge=0),
-    offset: int | None = Query(default=None, ge=0),
-    operation: str | None = None,
-    table: str | None = None,
-    key: str | None = None,
-    start_ms: int | None = None,
-    end_ms: int | None = None,
-):
-    if len(topic) > 249 or len(key or "") > 1000:
-        raise DomainError("INVALID_FILTER", "Topic or key filter exceeds the allowed length", 422)
-    cluster = await get(db, KafkaCluster, cluster_id)
-    if event_slots.locked():
-        raise DomainError("EXPLORER_BUSY", "Event exploration is busy; retry shortly", 429)
-    async with event_slots:
-        return await KafkaExplorer().events(
-            cluster, topic, limit, partition, offset, operation, table, key, start_ms, end_ms
-        )
+async def events_removed(user: Annotated[Principal, Depends(require("kafka.read"))]):
+    raise DomainError(
+        "CDC_PAYLOAD_API_REMOVED",
+        "CDC records bypass the control plane; inspect Kafka or destination objects directly",
+        410,
+    )
 
 
 @router.get("/data/schemas")
@@ -1139,47 +1202,50 @@ async def error_status(
 
 @router.get("/monitoring/overview")
 async def monitoring(db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]):
-    result: dict = {}
-    for key, model in [
-        ("sources", Source),
-        ("pipelines", Pipeline),
-        ("deliveries", PipelineDestination),
-        ("kafka_clusters", KafkaCluster),
-        ("connect_clusters", ConnectCluster),
-        ("destinations", Destination),
-    ]:
-        result[key] = await db.scalar(select(func.count()).select_from(model))
-    for state in ["RUNNING", "DEGRADED", "FAILED", "UNKNOWN", "PAUSED"]:
-        result[state.lower()] = await db.scalar(
-            select(func.count()).select_from(Pipeline).where(Pipeline.actual_state == state)
+    states = ["RUNNING", "DEGRADED", "FAILED", "UNKNOWN", "PAUSED"]
+    connections = (await db.scalars(select(Connection))).all()
+    sources = [item for item in connections if "SOURCE" in item.capabilities_json]
+    destinations = [item for item in connections if "DESTINATION" in item.capabilities_json]
+    pipeline_counts: dict[str, int] = {
+        state: count
+        for state, count in (
+            await db.execute(
+                select(Pipeline.actual_state, func.count()).group_by(Pipeline.actual_state)
+            )
+        ).all()
+    }
+    delivery_rows = (
+        await db.execute(
+            select(PipelineDestination.destination_id, PipelineDestination.actual_state)
         )
-        result["delivery_" + state.lower()] = await db.scalar(
-            select(func.count())
-            .select_from(PipelineDestination)
-            .where(PipelineDestination.actual_state == state)
-        )
-        targets = (await db.scalars(select(Destination))).all()
-        result["destination_" + state.lower()] = sum(
-            [
-                destination_service.aggregate(
-                    [
-                        link.actual_state
-                        for link in await destination_service.deliveries(db, target.id)
-                    ]
-                )
-                == state
-                for target in targets
-            ]
-        )
+    ).all()
+    delivery_counts: dict[str, int] = {}
+    destination_states: dict[UUID, list[str]] = {}
+    for destination_id, state in delivery_rows:
+        delivery_counts[state] = delivery_counts.get(state, 0) + 1
+        destination_states.setdefault(destination_id, []).append(state)
+    aggregate_destinations = [
+        destination_service.aggregate(destination_states.get(item.id, [])) for item in destinations
+    ]
+    result: dict = {
+        "sources": len(sources),
+        "destinations": len(destinations),
+        "pipelines": sum(pipeline_counts.values()),
+        "deliveries": len(delivery_rows),
+        "kafka_clusters": await db.scalar(select(func.count()).select_from(KafkaCluster)),
+        "connect_clusters": await db.scalar(select(func.count()).select_from(ConnectCluster)),
+    }
+    for state in states:
+        result[state.lower()] = pipeline_counts.get(state, 0)
+        result["delivery_" + state.lower()] = delivery_counts.get(state, 0)
+        result["destination_" + state.lower()] = aggregate_destinations.count(state)
     result["healthy_kafka_clusters"] = await db.scalar(
         select(func.count()).select_from(KafkaCluster).where(KafkaCluster.status == "HEALTHY")
     )
     result["healthy_connect_clusters"] = await db.scalar(
         select(func.count()).select_from(ConnectCluster).where(ConnectCluster.status == "HEALTHY")
     )
-    result["healthy_sources"] = await db.scalar(
-        select(func.count()).select_from(Source).where(Source.status == "HEALTHY")
-    )
+    result["healthy_sources"] = sum(item.status == "HEALTHY" for item in sources)
     result["errors"] = await db.scalar(
         select(func.count()).select_from(PipelineEvent).where(PipelineEvent.status == "OPEN")
     )

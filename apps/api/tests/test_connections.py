@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from app.models.entities import Connection, Destination, Source
+from app.models.entities import Base, Connection, Destination, Source
 
 
 def database_payload() -> dict:
@@ -20,9 +20,7 @@ def database_payload() -> dict:
     }
 
 
-async def test_database_connection_is_canonical_and_materializes_runtime_adapters(
-    client, db_factory
-):
+async def test_database_connection_is_the_only_persisted_endpoint(client, db_factory):
     response = await client.post("/api/v1/connections", json=database_payload())
     assert response.status_code == 201
     value = response.json()
@@ -39,8 +37,10 @@ async def test_database_connection_is_canonical_and_materializes_runtime_adapter
         identifier = UUID(value["id"])
         source = await db.get(Source, identifier)
         destination = await db.get(Destination, identifier)
-        assert source is not None and destination is not None
-        assert source.id == destination.id
+        assert source is destination
+        assert source is not None
+        assert "sources" not in Base.metadata.tables
+        assert "destinations" not in Base.metadata.tables
 
     updated_payload = database_payload() | {
         "name": "Commerce PostgreSQL Updated",
@@ -61,7 +61,7 @@ async def test_database_connection_is_canonical_and_materializes_runtime_adapter
         assert await db.get(Connection, identifier) is None
 
 
-async def test_provider_catalog_only_exposes_working_database_providers(client):
+async def test_provider_catalog_exposes_database_and_object_storage_providers(client):
     providers = (await client.get("/api/v1/connection-providers")).json()
-    assert {item["provider"] for item in providers} == {"POSTGRESQL", "MYSQL"}
-    assert {item["category"] for item in providers} == {"DATABASE"}
+    assert {item["provider"] for item in providers} == {"POSTGRESQL", "MYSQL", "AWS_S3", "MINIO"}
+    assert {item["category"] for item in providers} == {"DATABASE", "OBJECT_STORAGE"}

@@ -41,14 +41,14 @@ DECLARE
   created timestamp with time zone;
 BEGIN
   SELECT id INTO postgres_source_id
-  FROM sources
-  WHERE type = 'postgresql'
+  FROM connections
+  WHERE provider = 'POSTGRESQL' AND capabilities_json::jsonb ? 'SOURCE'
   ORDER BY created_at
   LIMIT 1;
 
   SELECT id INTO mysql_source_id
-  FROM sources
-  WHERE type = 'mysql'
+  FROM connections
+  WHERE provider = 'MYSQL' AND capabilities_json::jsonb ? 'SOURCE'
   ORDER BY created_at
   LIMIT 1;
 
@@ -56,14 +56,14 @@ BEGIN
   SELECT id INTO connect_id FROM connect_clusters ORDER BY created_at LIMIT 1;
 
   SELECT id INTO postgres_destination_id
-  FROM destinations
-  WHERE type = 'postgresql'
+  FROM connections
+  WHERE provider = 'POSTGRESQL' AND capabilities_json::jsonb ? 'DESTINATION'
   ORDER BY created_at
   LIMIT 1;
 
   SELECT id INTO mysql_destination_id
-  FROM destinations
-  WHERE type = 'mysql'
+  FROM connections
+  WHERE provider = 'MYSQL' AND capabilities_json::jsonb ? 'DESTINATION'
   ORDER BY created_at
   LIMIT 1;
 
@@ -112,7 +112,7 @@ BEGIN
     INSERT INTO pipelines (
       id,
       name,
-      source_id,
+      source_connection_id,
       kafka_cluster_id,
       connect_cluster_id,
       connector_id,
@@ -155,6 +155,10 @@ BEGIN
       primary_key_columns,
       destination_schema,
       destination_table,
+      initial_data_strategy,
+      delete_strategy,
+      schema_status,
+      destination_status,
       snapshot_status,
       cdc_status,
       snapshot_estimated_rows,
@@ -170,13 +174,17 @@ BEGIN
       source_table.primary_key_columns,
       source_table.schema_name,
       source_table.table_name,
+      'BACKFILL',
+      'DELETE',
+      'IN_SYNC',
+      'HEALTHY',
       CASE WHEN i % 4 = 1 THEN 'NOT_REQUIRED' ELSE 'COMPLETED' END,
       CASE WHEN pipeline_state = 'RUNNING' THEN 'STREAMING' ELSE pipeline_state END,
       source_table.estimated_rows,
       created,
       created
     FROM source_tables AS source_table
-    WHERE source_table.source_id = selected_source_id
+    WHERE source_table.source_connection_id = selected_source_id
       AND source_table.cdc_ready = true
     ORDER BY md5(source_table.schema_name || '.' || source_table.table_name || i::text)
     LIMIT table_limit;
@@ -187,9 +195,10 @@ BEGIN
       INSERT INTO pipeline_destinations (
         id,
         pipeline_id,
-        destination_id,
+        destination_connection_id,
         connector_id,
         name,
+        delivery_type,
         delivery_mode,
         topic_mapping_json,
         configuration_json,
@@ -203,6 +212,7 @@ BEGIN
         CASE WHEN i % 2 = 0 THEN mysql_destination_id ELSE postgres_destination_id END,
         NULL,
         'UI Load delivery ' || lpad(i::text, 3, '0') || ' primary',
+        'DATABASE',
         CASE WHEN i % 3 = 0 THEN 'append' ELSE 'upsert' END,
         '[]'::json,
         '{}'::json,
@@ -216,9 +226,10 @@ BEGIN
         INSERT INTO pipeline_destinations (
           id,
           pipeline_id,
-          destination_id,
+          destination_connection_id,
           connector_id,
           name,
+          delivery_type,
           delivery_mode,
           topic_mapping_json,
           configuration_json,
@@ -232,6 +243,7 @@ BEGIN
           CASE WHEN i % 2 = 0 THEN postgres_destination_id ELSE mysql_destination_id END,
           NULL,
           'UI Load delivery ' || lpad(i::text, 3, '0') || ' secondary',
+          'DATABASE',
           'upsert',
           '[]'::json,
           '{}'::json,

@@ -14,7 +14,9 @@ invalid. The web server validates its private API origin at request time.
 | `AUTH_TOKENS_JSON`            | Token mode     | SHA-256 token hash to actor/role JSON mapping          |
 | `CORS_ORIGINS`                | No             | JSON array of explicitly allowed web origins           |
 | `LOG_LEVEL`                   | No             | `debug`, `info`, `warn`/`warning`, or `error`          |
-| `WORKER_ENABLED`              | No             | Enables durable jobs and reconciliation                |
+| `WORKER_CONCURRENCY`          | No             | Bounded worker concurrency, 1–32 (default 4)            |
+| `JOB_LEASE_SECONDS`           | No             | Renewable job lease, 30–3600 seconds (default 300)      |
+| `JOB_MAX_ATTEMPTS`            | No             | Maximum failed/expired job attempts (default 3)        |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
 | `API_INTERNAL_URL`            | Web production | Private origin of the ClueCDC API                      |

@@ -58,7 +58,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     id: "infrastructure",
     label: "Infrastructure",
     items: [
-      { label: "Clusters", href: "/kafka/clusters", icon: Radio },
+      { label: "Kafka Clusters", href: "/kafka/clusters", icon: Radio },
       { label: "Topics", href: "/kafka/topics", icon: Table2 },
       {
         label: "Consumer Groups",

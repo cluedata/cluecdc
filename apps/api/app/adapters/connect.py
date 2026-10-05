@@ -124,13 +124,13 @@ class KafkaConnectClient:
     async def config(self, name: str):
         return redact(await self.request("GET", self.path(name) + "/config"))
 
-    async def validate(self, config: dict):
+    async def validate(self, config: dict, secrets: List[str] | None = None):
         password = config.get("database.password") or config.get("connection.password", "")
         data = await self.request(
             "PUT",
             "/connector-plugins/" + quote(config["connector.class"], safe="") + "/config/validate",
             config,
-            [password],
+            [password, *(secrets or [])],
         )
         if not isinstance(data, dict) or "error_count" not in data:
             raise DomainError(

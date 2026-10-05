@@ -305,7 +305,7 @@ for _, schema, _ in destinations:
     )
 actions = {row["action"] for row in api("/audit?resource_id=" + target["id"])}
 assert {
-    "destination.created",
+    "connection.created",
     "destination.connection_tested",
     "destination.deployed",
     "destination.paused",

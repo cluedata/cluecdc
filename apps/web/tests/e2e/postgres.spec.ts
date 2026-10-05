@@ -143,30 +143,16 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
       },
     );
     await page.getByRole("tab", { name: "Events", exact: true }).click();
-    await expect(async () => {
-      await page.getByRole("button", { name: "Fetch recent events" }).click();
-      await expect(
-        page.getByRole("cell", { name: "update", exact: true }).first(),
-      ).toBeVisible();
-    }).toPass({ timeout: 60000 });
-    const update = page
-      .getByRole("row")
-      .filter({ has: page.getByRole("cell", { name: "update", exact: true }) })
-      .first();
-    await update.getByRole("button", { name: "Inspect" }).click();
     await expect(
-      page.getByRole("heading", { name: "Before", exact: true }),
+      page.getByRole("heading", {
+        name: "CDC payloads stay in the data plane",
+      }),
     ).toBeVisible();
+    await page.getByRole("link", { name: "View topic metadata" }).click();
     await expect(
-      page.getByRole("heading", { name: "After", exact: true }),
+      page.getByRole("heading", { name: "Topic metadata", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("dialog")).toContainText('"name"');
-    await page.getByRole("button", { name: "Close dialog" }).click();
-    mkdirSync(resolve(root, "artifacts"), { recursive: true });
-    await page.screenshot({
-      path: resolve(root, "artifacts/events.png"),
-      fullPage: true,
-    });
+    await page.goBack();
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Resume", exact: true }),
@@ -263,45 +249,20 @@ test("desktop overview displays real pipeline health", async ({ page }) => {
   });
 });
 
-test("demo event explorer displays before and after values", async ({
+test("legacy events route never fetches CDC payloads", async ({
   page,
   request,
 }) => {
-  const response = await request.get("/api/v1/pipelines");
-  expect(response.status()).toBe(200);
-  const pipelines = (await response.json()) as {
-    id: string;
-    name: string;
-    topic_prefix: string;
-  }[];
-  const pipeline = pipelines.find((p) => p.name === "Commerce capture");
-  expect(pipeline).toBeDefined();
-  const customerTopic = `${pipeline!.topic_prefix}.public.customers`;
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`/pipelines/${pipeline!.id}`);
-  await expect(
-    page.getByRole("heading", { name: "Commerce capture", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Events", exact: true }).click();
-  await page.getByLabel("Topic", { exact: true }).selectOption(customerTopic);
-  await page.getByRole("button", { name: "Fetch recent events" }).click();
-  const update = page
-    .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: "update", exact: true }) })
-    .first();
-  await expect(update).toBeVisible();
-  await page.evaluate(() => window.scrollTo(0, 0));
-  mkdirSync(resolve(root, "artifacts"), { recursive: true });
-  await page.screenshot({
-    path: resolve(root, "artifacts/events.png"),
-    fullPage: true,
+  const response = await request.get("/api/v1/events?topic=customers");
+  expect(response.status()).toBe(410);
+  const payloadRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v1/events"))
+      payloadRequests.push(request.url());
   });
-  await update.getByRole("button", { name: "Inspect" }).click();
+  await page.goto("/events");
   await expect(
-    page.getByRole("heading", { name: "Before", exact: true }),
+    page.getByRole("heading", { name: "CDC payloads stay in the data plane" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "After", exact: true }),
-  ).toBeVisible();
-  await page.screenshot({ path: resolve(root, "artifacts/before-after.png") });
+  expect(payloadRequests).toEqual([]);
 });

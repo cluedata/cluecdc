@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import Principal, require
 from app.core.database import session_dependency
 from app.core.errors import DomainError
-from app.models.entities import Destination, PipelineDestination
+from app.models.entities import Connection, PipelineDestination
 from app.repositories.metadata import get
 from app.schemas.requests import DeliveryInput, DestinationInput
 from app.services.destinations import service
@@ -31,9 +31,11 @@ async def failure(
 @router.get("")
 async def listing(db: DB, user: Read):
     values = (
-        await db.scalars(select(Destination).order_by(Destination.created_at.desc()).limit(500))
+        await db.scalars(select(Connection).order_by(Connection.created_at.desc()).limit(500))
     ).all()
-    return [await service.detail(db, value) for value in values]
+    return await service.details(
+        db, [value for value in values if "DESTINATION" in value.capabilities_json]
+    )
 
 
 @router.post("/test-connection")
@@ -50,7 +52,10 @@ async def create(data: DestinationInput, db: DB, user: Write):
 
 @router.get("/{identifier}")
 async def detail(identifier: UUID, db: DB, user: Read):
-    return await service.detail(db, await get(db, Destination, identifier))
+    value = await get(db, Connection, identifier)
+    if "DESTINATION" not in value.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
+    return await service.detail(db, value)
 
 
 @router.put("/{identifier}")
@@ -70,7 +75,10 @@ async def delete(identifier: UUID, db: DB, user: Write):
 @router.post("/{identifier}/test")
 async def test(identifier: UUID, db: DB, user: Write):
     try:
-        result = await service.test(db, await service.locked(db, identifier), user.actor)
+        value = await get(db, Connection, identifier)
+        if "DESTINATION" not in value.capabilities_json:
+            raise DomainError("NOT_FOUND", "Destination was not found", 404)
+        result = await service.test(db, value, user.actor)
         await db.commit()
         return result
     except DomainError as error:
@@ -80,13 +88,19 @@ async def test(identifier: UUID, db: DB, user: Write):
 
 @router.post("/{identifier}/preview")
 async def preview(identifier: UUID, data: DeliveryInput, db: DB, user: Write):
-    return await service.preview(db, await get(db, Destination, identifier), data)
+    value = await get(db, Connection, identifier)
+    if "DESTINATION" not in value.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
+    return await service.preview(db, value, data)
 
 
 @router.post("/{identifier}/deploy", status_code=201)
 async def deploy(identifier: UUID, data: DeliveryInput, db: DB, user: Operate):
     try:
-        return await service.deploy(db, await service.locked(db, identifier), data, user.actor)
+        value = await get(db, Connection, identifier)
+        if "DESTINATION" not in value.capabilities_json:
+            raise DomainError("NOT_FOUND", "Destination was not found", 404)
+        return await service.deploy(db, value, data, user.actor)
     except DomainError as error:
         await failure(db, identifier, error, data.pipeline_id)
         raise
@@ -94,7 +108,9 @@ async def deploy(identifier: UUID, data: DeliveryInput, db: DB, user: Operate):
 
 @router.get("/{identifier}/mappings")
 async def mappings(identifier: UUID, db: DB, user: Read):
-    await get(db, Destination, identifier)
+    value = await get(db, Connection, identifier)
+    if "DESTINATION" not in value.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
     return [
         {
             "delivery_id": link.id,
@@ -109,14 +125,14 @@ async def mappings(identifier: UUID, db: DB, user: Read):
 
 @router.get("/{identifier}/status")
 async def status(identifier: UUID, db: DB, user: Read):
-    await service.locked(db, identifier)
-    # Acquire every delivery lock before observations can flush shared cluster state.
+    value = await get(db, Connection, identifier)
+    if "DESTINATION" not in value.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
     links = (
         await db.scalars(
             select(PipelineDestination)
             .where(PipelineDestination.destination_id == identifier)
             .order_by(PipelineDestination.created_at, PipelineDestination.id)
-            .with_for_update()
         )
     ).all()
     states = [await service.reconcile(db, link) for link in links]
@@ -133,8 +149,10 @@ async def update_mappings(
     identifier: UUID, delivery_id: UUID, data: DeliveryInput, db: DB, user: Operate
 ):
     try:
-        destination = await service.locked(db, identifier)
-        link = await service.locked_delivery(db, identifier, delivery_id)
+        destination = await get(db, Connection, identifier)
+        link = await service.delivery_by_id(db, delivery_id)
+        if link.destination_id != identifier:
+            raise DomainError("NOT_FOUND", "Delivery was not found on this destination", 404)
         return await service.update_mapping(db, destination, link, data, user.actor)
     except DomainError as error:
         await failure(db, identifier, error)
@@ -143,8 +161,10 @@ async def update_mappings(
 
 @router.delete("/{identifier}/deliveries/{delivery_id}")
 async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Operate):
-    destination = await service.locked(db, identifier)
-    link = await service.locked_delivery(db, identifier, delivery_id)
+    destination = await get(db, Connection, identifier)
+    link = await service.delivery_by_id(db, delivery_id)
+    if link.destination_id != identifier:
+        raise DomainError("NOT_FOUND", "Delivery was not found on this destination", 404)
     return await service.operate(db, destination, link, "delete", user.actor)
 
 
@@ -152,8 +172,10 @@ async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Ope
 async def restart_task(identifier: UUID, delivery_id: UUID, task_id: int, db: DB, user: Operate):
     if task_id < 0:
         raise DomainError("INVALID_TASK", "Task ID must be non-negative", 422)
-    destination = await service.locked(db, identifier)
-    link = await service.locked_delivery(db, identifier, delivery_id)
+    destination = await get(db, Connection, identifier)
+    link = await service.delivery_by_id(db, delivery_id)
+    if link.destination_id != identifier:
+        raise DomainError("NOT_FOUND", "Delivery was not found on this destination", 404)
     return await service.operate(db, destination, link, "restart-task", user.actor, task_id)
 
 
@@ -167,19 +189,20 @@ async def operate(
 ):
     if operation not in {"pause", "resume", "restart"}:
         raise DomainError("INVALID_OPERATION", "Use pause, resume, or restart", 422)
-    destination = await service.locked(db, identifier)
+    destination = await get(db, Connection, identifier)
     links = (
-        [await service.locked_delivery(db, identifier, delivery_id)]
+        [await service.delivery_by_id(db, delivery_id)]
         if delivery_id
         else await service.deliveries(db, identifier)
     )
     if not links:
         raise DomainError("NOT_DEPLOYED", "Add and deploy a delivery first", 409)
+    if any(link.destination_id != identifier for link in links):
+        raise DomainError("NOT_FOUND", "Delivery was not found on this destination", 404)
     completed = []
     for link in links:
         try:
-            destination = await service.locked(db, identifier)
-            link = await service.locked_delivery(db, identifier, link.id)
+            destination = await get(db, Connection, identifier)
             completed.append(await service.operate(db, destination, link, operation, user.actor))
         except DomainError as error:
             await failure(db, identifier, error, link.pipeline_id)

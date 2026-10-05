@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluecdc-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluecdc-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluecdc-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: worker
+          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          command: ["python", "-m", "app.worker"]
+          readinessProbe:
+            exec: { command: ["python", "-m", "app.worker_health"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["python", "-m", "app.worker_health"] }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          envFrom:
+            - configMapRef: { name: cluecdc-config }
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: database-url } }
+            - name: SECRET_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: secret-encryption-key } }
+            - name: CONNECT_SECRET_TOKEN
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: connect-secret-token } }
+            - name: AUTH_TOKENS_JSON
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: auth-tokens-json } }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }

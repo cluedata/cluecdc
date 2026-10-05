@@ -9,7 +9,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from urllib.parse import urlencode
+
+from kafka_records import sample_records
 
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -175,14 +176,11 @@ def current_events(sample):
 
 
 sample = wait_for(
-    lambda: request(
-        "/events?"
-        + urlencode({"cluster_id": kafka["id"], "topic": customer_topic, "limit": 200})
-    ),
+    lambda: sample_records(customer_topic),
     lambda s: {"CREATE", "UPDATE", "DELETE"}.issubset(
         {e["operation"] for e in current_events(s)}
     ),
-    "this run's CDC events",
+    "this run's CDC events read directly from Kafka",
 )
 update = next(e for e in current_events(sample) if e["operation"] == "UPDATE")
 assert update["before"] and update["after"] and "name" in update["changed_fields"]

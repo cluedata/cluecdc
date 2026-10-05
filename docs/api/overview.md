@@ -23,7 +23,7 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | Lifecycle                | GET /pipelines/{uuid}/status; POST /deploy, /pause, /resume, /restart, /restart-task?task=0                          |
 | Connectors               | GET /connect/connectors; GET /connect/connectors/{name}/status?cluster_id=uuid                                       |
 | Topics                   | GET /kafka/topics?cluster_id=uuid; GET /kafka/topics/{name}?cluster_id=uuid                                          |
-| Events                   | GET /events?cluster_id=uuid&topic=prefix.schema.table                                                                |
+| Legacy events            | GET /events returns 410; inspect CDC payloads directly in Kafka/storage                                              |
 | Operations               | GET /monitoring/overview, /operations/errors, /audit                                                                 |
 | Incident lifecycle       | PATCH /operations/errors/{uuid}?status=OPEN\|ACKNOWLEDGED\|RESOLVED                                                  |
 | Schema versions          | GET /data/schemas?source_id=uuid                                                                                     |

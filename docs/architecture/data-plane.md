@@ -4,7 +4,11 @@ PostgreSQL WAL is decoded with `pgoutput`. Debezium performs the configured snap
 
 Each topic prefix maps deterministically to one connector name and a SHA256-derived PostgreSQL slot/publication name. Table names are escaped as exact regular expressions in `table.include.list`. Publication creation is filtered to the selected tables; this MVP requires selected-table ownership and stable primary keys. Deleting a pipeline removes its connector but preserves topics, slots, and publications.
 
-Topic inspection uses Kafka admin metadata. Event inspection creates a consumer without a group, disables commits, assigns partitions explicitly, captures end offsets, and samples a recent bounded window. Bounds: 200 returned events, 1,000 scanned records, 32 partitions, 2 MB of scanned payload/key bytes, four-second polling window, twelve-second total timeout. Filters operate inside that window. Concurrent requests are limited by an API semaphore. No historical scan or permanent buffering exists.
+Topic inspection uses Kafka admin metadata only. The former `/events` payload
+endpoint returns HTTP 410: CDC records must not pass through the control-plane
+API. Inspect records directly in Kafka or destination objects. Test-only direct
+Kafka verification is bounded and never commits offsets; the worker's bounded
+consumer reads Debezium snapshot control notifications, not table CDC records.
 
 State derives from Connect: connector FAILED → FAILED; connector RUNNING plus a failed task → DEGRADED; connector PAUSED → PAUSED; RUNNING with all observed tasks running → RUNNING; no tasks, malformed response, missing connector, or unreachable worker → UNKNOWN. Desired state is never overwritten from these observations.
 

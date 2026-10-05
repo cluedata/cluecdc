@@ -6,8 +6,9 @@ The default `compose.yaml` is the smallest practical ClueCDC runtime:
 | --- | --- | --- |
 | `metadata-db` | ClueCDC application metadata only | Runtime |
 | `kafka` | Single local KRaft broker | Runtime |
-| `kafka-connect` | Debezium source and JDBC sink connectors | Runtime |
-| `cluecdc-api` | Control-plane API and reconciliation worker | Runtime |
+| `kafka-connect` | Debezium source, JDBC sink and Aiven S3 sink connectors | Runtime |
+| `cluecdc-api` | Control-plane HTTP API | Runtime |
+| `cluecdc-worker` | Leased jobs, reconciliation, snapshots and alert dispatch | Runtime |
 | `cluecdc-web` | Web UI and same-origin API proxy | Runtime |
 
 ```bash
@@ -33,7 +34,7 @@ you need through its own UI.
 
 ## Integration and E2E fixtures
 
-Source and destination PostgreSQL/MySQL containers exist only in
+Source and destination PostgreSQL/MySQL containers and MinIO exist only in
 `compose.test.yaml`:
 
 ```bash
@@ -48,6 +49,14 @@ docker compose -f compose.yaml -f compose.test.yaml --profile tools up -d
 
 These fixture credentials are test-only and live in `.env.test.example`.
 They are not required to open or operate ClueCDC.
+
+MinIO is built from the checksum-verified upstream release
+`RELEASE.2025-09-07T16-13-09Z`; its public registry images are no longer available.
+It remains an AGPL-3.0 test dependency, separate from the default application
+runtime. A one-shot bootstrap creates `cluecdc-cdc` before the test API starts.
+
+Run `python scripts/demo-object-storage.py` after installing `apps/api[dev]`
+to verify real PostgreSQL insert, update and delete envelopes in MinIO objects.
 
 ## Storage and health
 

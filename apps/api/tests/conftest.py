@@ -2,7 +2,6 @@ import os
 
 os.environ["ENVIRONMENT"] = "test"
 os.environ["AUTH_MODE"] = "developer"
-os.environ["WORKER_ENABLED"] = "false"
 os.environ["CONNECT_SECRET_TOKEN"] = "test-service-token-with-at-least-32-characters"
 os.environ["SECRET_ENCRYPTION_KEY"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"

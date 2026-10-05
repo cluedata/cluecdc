@@ -12,6 +12,7 @@ dependencies = [
   "aiomysql==0.3.2",
   "httpx==0.28.1", "cryptography==50.0.1", "aiokafka==0.13.0",
   "confluent-kafka==2.15.1",
+  "boto3==1.43.108",
   "structlog==25.5.0", "prometheus-client==0.24.1",
 ]
 

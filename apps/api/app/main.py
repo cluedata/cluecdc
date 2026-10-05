@@ -1,6 +1,3 @@
-import asyncio
-import contextlib
-import logging
 import secrets
 import time
 import traceback
@@ -27,30 +24,13 @@ from app.api.routes import router
 from app.core.config import get_settings
 from app.core.database import Session, engine, session_dependency
 from app.core.errors import DomainError
+from app.core.logging import configure_logging
 from app.services.secrets import secret_provider
-from app.workers.worker import worker_loop
 
 settings = get_settings()
 
 
-def add_service(_, __, event_dict):
-    event_dict.setdefault("service", "cluecdc-api")
-    return event_dict
-
-
-structlog.configure(
-    wrapper_class=structlog.make_filtering_bound_logger(
-        getattr(logging, settings.log_level.upper())
-    ),
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        add_service,
-        structlog.processors.EventRenamer("message"),
-        structlog.processors.JSONRenderer(),
-    ],
-)
+configure_logging("cluecdc-api")
 log = structlog.get_logger(component="http")
 REQUESTS = Counter("cluecdc_http_requests_total", "HTTP requests", ["method", "status"])
 
@@ -64,12 +44,7 @@ except PackageNotFoundError:
 async def lifespan(app: FastAPI):
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
-    task = asyncio.create_task(worker_loop()) if get_settings().worker_enabled else None
     yield
-    if task:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
     await engine.dispose()
 
 

@@ -31,7 +31,7 @@ flowchart LR
   Source[(Source Database)] --> DBZ
   DBZ --> Topics[(Apache Kafka CDC Topics)]
   Topics --> Sink
-  Sink --> Destination[(Destination Database)]
+  Sink --> Destination[(Database or Object Storage)]
 ```
 
 Debezium runs as a Kafka Connect source connector. Local Compose uses one Connect
@@ -44,10 +44,13 @@ horizontally scaled Connect worker clusters for isolation and capacity.
 | --- | --- | --- | --- | --- |
 | PostgreSQL | Yes | Yes | Yes | Supported |
 | MySQL | Yes | Yes | Yes | Supported |
+| AWS S3 | No | Yes | Yes | JSONL archive |
+| MinIO | No | Yes | Yes | JSONL archive |
 
 The Connect image contains the Debezium PostgreSQL and MySQL source connectors
-and Debezium JDBC sink connector. Other database or storage providers are not
-exposed as supported.
+and Debezium JDBC sink connector, plus the Apache-2.0 Aiven S3 sink pinned to
+3.4.2 with a verified artifact checksum. [Object storage deliveries](docs/connectors/object-storage.md)
+preserve CDC envelopes, including delete events, in gzip JSONL files.
 
 ## Quick start
 
@@ -63,8 +66,12 @@ docker compose up -d --build
 Open [http://localhost:3000](http://localhost:3000). The API reference is at
 [http://localhost:8000/docs](http://localhost:8000/docs).
 
-The default stack starts exactly five services: metadata PostgreSQL, one KRaft
-Kafka broker, one Kafka Connect worker, the ClueCDC API, and the web UI.
+The default stack starts six services: metadata PostgreSQL, one KRaft Kafka
+broker, Kafka Connect, the HTTP API, a separate ClueCDC background worker, and
+the web UI. Source/destination databases and MinIO are integration fixtures only.
+
+The metadata schema uses a fresh baseline. Existing prototype databases require
+an explicit backup and recreation; see the [migration decision](docs/development/migrations.md).
 
 Optional developer tooling:
 
