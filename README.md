@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-mark.svg" width="112" alt="ClueCDC logo">
+  <img src="docs/assets/homepage.png" alt="ClueCDC">
 </p>
 
 # ClueCDC
