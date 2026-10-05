@@ -1,5 +1,17 @@
 # Testing
 
+## GitHub Actions
+
+Automatic CI on pushes to `main`/`master` and pull requests currently runs only
+the documentation job (`mkdocs build --strict`). Application quality checks,
+dependency/security audits, container builds and live smoke tests are skipped.
+To run them explicitly, select **Actions → CI → Run workflow** and enable
+`run_full_ci`; it defaults to false, including for manual runs.
+
+The separate Documentation workflow continues to build and deploy GitHub Pages
+on documentation changes pushed to `main`, or when manually triggered.
+Documentation-only CI does not verify application correctness or security.
+
 ## Fast checks
 
 ```bash
@@ -20,7 +32,7 @@ API unit tests use temporary SQLite and mocked external clients where isolation 
 
 `WORKER_TEST_DATABASE_URL` enables a real PostgreSQL concurrency test: two
 workers race for one job and only one claim succeeds. Each test creates and
-removes its own UUID-named schema. CI provides a dedicated PostgreSQL service.
+removes its own UUID-named schema. Opt-in full CI provides a dedicated PostgreSQL service.
 Lease recovery, backoff, terminal failure, result persistence and cancellation
 also have unit coverage. Collection tests assert SQL query counts stay constant
 as the number of resources grows.

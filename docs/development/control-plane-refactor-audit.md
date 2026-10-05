@@ -55,7 +55,8 @@ On 2026-10-05, the full `npm audit --audit-level=high` reports the unpatched
 fast-glob dependency chain. The [upstream advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
 lists no patched version; npm's forced fix downgrades the Next ESLint integration
 to an incompatible older major. No forced downgrade or audit allowlist was
-applied. The existing full dependency-audit CI gate remains enabled and will
-fail until a compatible fix is available or maintainers explicitly decide a
+applied. The full dependency-audit check remains available in manually opted-in
+full CI; automatic documentation-only CI does not run it. The check will fail
+until a compatible fix is available or maintainers explicitly decide a
 documented policy. Runtime and development dependency exposure must be assessed
 separately; do not treat functional verification as a clean vulnerability audit.

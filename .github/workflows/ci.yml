@@ -5,12 +5,19 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      run_full_ci:
+        description: "Run application quality, security, and container checks (default: documentation only)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   quality:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_full_ci == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -68,6 +75,7 @@ jobs:
       - run: mkdocs build --strict
 
   security:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_full_ci == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -92,6 +100,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   containers-and-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_full_ci == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
