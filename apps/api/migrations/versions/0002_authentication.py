@@ -23,9 +23,8 @@ def upgrade():
         sa.CheckConstraint("role IN ('ADMIN', 'OPS', 'VIEWER')", name="ck_users_role"),
         sa.CheckConstraint("status IN ('INVITED', 'ACTIVE', 'DISABLED')", name="ck_users_status"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("email"),
     )
-    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=False)
+    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
     op.create_index(op.f("ix_users_status"), "users", ["status"], unique=False)
     op.create_table(
         "invites",
@@ -41,12 +40,11 @@ def upgrade():
         sa.CheckConstraint("role IN ('ADMIN', 'OPS', 'VIEWER')", name="ck_invites_role"),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("token_hash"),
     )
     op.create_index(op.f("ix_invites_created_by"), "invites", ["created_by"], unique=False)
     op.create_index(op.f("ix_invites_email"), "invites", ["email"], unique=False)
     op.create_index(op.f("ix_invites_expires_at"), "invites", ["expires_at"], unique=False)
-    op.create_index(op.f("ix_invites_token_hash"), "invites", ["token_hash"], unique=False)
+    op.create_index(op.f("ix_invites_token_hash"), "invites", ["token_hash"], unique=True)
     op.create_table(
         "auth_sessions",
         sa.Column("token_hash", sa.String(length=64), nullable=False),
@@ -57,13 +55,12 @@ def upgrade():
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("token_hash"),
     )
     op.create_index(
         op.f("ix_auth_sessions_expires_at"), "auth_sessions", ["expires_at"], unique=False
     )
     op.create_index(
-        op.f("ix_auth_sessions_token_hash"), "auth_sessions", ["token_hash"], unique=False
+        op.f("ix_auth_sessions_token_hash"), "auth_sessions", ["token_hash"], unique=True
     )
     op.create_index(op.f("ix_auth_sessions_user_id"), "auth_sessions", ["user_id"], unique=False)
 
