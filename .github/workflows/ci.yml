@@ -119,7 +119,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci
-      - run: python scripts/bootstrap.py
+      - name: Bootstrap CI environment
+        run: |
+          cp .env.example .env
+          cat .env.test.example >> .env
+          python scripts/bootstrap.py
       - run: docker build -t cluecdc-web:test .
       - run: docker build --build-arg INSTALL_DEV=false -f infrastructure/docker/api.Dockerfile -t cluecdc-api:test .
       - name: Smoke test core runtime
