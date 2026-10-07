@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# The MySQL entrypoint sources non-executable *.sh files. Keep strict shell
+# options inside a subshell so they do not leak into the entrypoint process.
+(
 set -euo pipefail
 mysql --protocol=socket -uroot -p"${MYSQL_ROOT_PASSWORD}" <<SQL
 CREATE USER IF NOT EXISTS 'cdc_mysql'@'%' IDENTIFIED BY '${MYSQL_CDC_PASSWORD}';
@@ -47,3 +51,4 @@ INSERT INTO order_items(order_id,sku,quantity,price)
 SELECT id, CONCAT('SKU-',id), (id % 5) + 1, total FROM orders;
 FLUSH PRIVILEGES;
 SQL
+)
