@@ -27,6 +27,7 @@ secret_values = [
         "DESTINATION_ADMIN_PASSWORD",
         "METADATA_PASSWORD",
         "SECRET_ENCRYPTION_KEY",
+        "SESSION_SECRET",
         "CONNECT_SECRET_TOKEN",
         "MINIO_ACCESS_KEY",
         "MINIO_SECRET_KEY",

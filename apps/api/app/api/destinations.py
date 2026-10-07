@@ -18,6 +18,7 @@ DB = Annotated[AsyncSession, Depends(session_dependency)]
 Read = Annotated[Principal, Depends(require("destinations.read"))]
 Write = Annotated[Principal, Depends(require("destinations.write"))]
 Operate = Annotated[Principal, Depends(require("destinations.operate"))]
+Admin = Annotated[Principal, Depends(require("destinations.admin"))]
 
 
 async def failure(
@@ -66,7 +67,7 @@ async def update(identifier: UUID, data: DestinationInput, db: DB, user: Write):
 
 
 @router.delete("/{identifier}")
-async def delete(identifier: UUID, db: DB, user: Write):
+async def delete(identifier: UUID, db: DB, user: Admin):
     result = await service.delete(db, await service.locked(db, identifier), user.actor)
     await db.commit()
     return result
@@ -160,7 +161,7 @@ async def update_mappings(
 
 
 @router.delete("/{identifier}/deliveries/{delivery_id}")
-async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Operate):
+async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Admin):
     destination = await get(db, Connection, identifier)
     link = await service.delivery_by_id(db, delivery_id)
     if link.destination_id != identifier:

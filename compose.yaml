@@ -54,8 +54,12 @@ services:
     restart: unless-stopped
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      AUTH_MODE: ${AUTH_MODE:-developer}
+      AUTH_MODE: ${AUTH_MODE:-session}
       AUTH_TOKENS_JSON: ${AUTH_TOKENS_JSON:-{}}
+      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+      INVITE_TTL_SECONDS: ${INVITE_TTL_SECONDS:-86400}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTEGRATION_TIMEOUT_SECONDS: ${INTEGRATION_TIMEOUT_SECONDS:-10}
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env or run python scripts/bootstrap.py}
@@ -89,8 +93,12 @@ services:
     stop_grace_period: 30s
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      AUTH_MODE: ${AUTH_MODE:-developer}
+      AUTH_MODE: ${AUTH_MODE:-session}
       AUTH_TOKENS_JSON: ${AUTH_TOKENS_JSON:-{}}
+      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+      INVITE_TTL_SECONDS: ${INVITE_TTL_SECONDS:-86400}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env or run python scripts/bootstrap.py}
       CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env or run python scripts/bootstrap.py}

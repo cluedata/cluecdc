@@ -61,6 +61,7 @@ async def database_providers(user: Annotated[Principal, Depends(require("sources
 async def session_info(user: Annotated[Principal, Depends(principal)]):
     return {
         "actor": user.actor,
+        "email": user.actor,
         "role": user.role,
         "auth_mode": get_settings().auth_mode,
         "environment": get_settings().environment,
@@ -206,7 +207,7 @@ async def update_source(
 
 @router.delete("/sources/{identifier}")
 async def delete_source(
-    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.write"))]
+    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.admin"))]
 ):
     source = await get(db, Connection, identifier)
     if "SOURCE" not in source.capabilities_json:
@@ -578,7 +579,7 @@ async def operate_delivery(
 async def delete_delivery(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.operate"))],
+    user: Annotated[Principal, Depends(require("destinations.admin"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
     destination = await get(db, Connection, delivery.destination_id)
@@ -922,7 +923,7 @@ async def operate_pipeline(
 
 @router.delete("/pipelines/{identifier}")
 async def delete_pipeline(
-    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("pipelines.write"))]
+    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("pipelines.admin"))]
 ):
     result = await pipeline_service.operate(db, identifier, "delete", user.actor)
     await db.commit()

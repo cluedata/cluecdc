@@ -12,7 +12,10 @@ includes a Next.js interface, a FastAPI API, PostgreSQL metadata, Alembic
 migrations, a reconciliation worker, structured logs, application metrics,
 audit records, and notification channels.
 
-ClueCDC does not bundle production identity, managed Kafka, automatic TLS/ACL provisioning, schema registry, or a historical metrics backend. Token authentication is available; the default developer mode is local-only.
+ClueCDC includes local email/password authentication, invitation-based user
+provisioning, and role-based access control. It does not bundle external identity
+providers, managed Kafka, automatic TLS/ACL provisioning, schema registry, or a
+historical metrics backend. The compatibility developer mode is local/test-only.
 
 ## Where to go next
 

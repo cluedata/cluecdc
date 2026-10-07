@@ -165,6 +165,6 @@ async def test_delete_api_audits_normalized_failure(client, db_factory, monkeypa
 
 
 def test_topic_delete_permission_is_admin_only():
-    assert "kafka.topic.delete" in PERMISSIONS["PlatformAdmin"]
-    assert "kafka.topic.delete" not in PERMISSIONS["DataEngineer"]
+    assert PERMISSIONS["Admin"] == {"*"}
+    assert "kafka.topic.delete" not in PERMISSIONS["Ops"]
     assert "kafka.topic.delete" not in PERMISSIONS["Viewer"]

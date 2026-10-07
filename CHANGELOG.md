@@ -6,6 +6,18 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Added local email/password authentication with Argon2id, server-side HttpOnly
+  sessions, expiring single-use invite links, and first-Admin CLI bootstrap.
+- Added built-in Admin, Ops, and Viewer authorization, user management screens,
+  a current-user menu, authentication audit events, and security documentation.
+
+### Changed
+
+- Made session authentication the production mode and restricted destructive
+  infrastructure and identity operations to Admins.
+
 ## [0.1.0]
 
 ### Added

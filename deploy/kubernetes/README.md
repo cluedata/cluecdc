@@ -10,7 +10,7 @@ Required Secret name: `cluecdc-secrets`. Required keys:
 - `database-url`
 - `secret-encryption-key`
 - `connect-secret-token`
-- `auth-tokens-json`
+- `session-secret` (at least 32 random characters)
 
 Create environment overlays for images, ingress, storage class, Kafka addresses,
 TLS, network policies, external secrets, and resource sizing.

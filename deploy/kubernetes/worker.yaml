@@ -36,8 +36,8 @@ spec:
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: secret-encryption-key } }
             - name: CONNECT_SECRET_TOKEN
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: connect-secret-token } }
-            - name: AUTH_TOKENS_JSON
-              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: auth-tokens-json } }
+            - name: SESSION_SECRET
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: session-secret } }
           resources:
             requests: { cpu: 200m, memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }

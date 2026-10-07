@@ -14,9 +14,13 @@ class Settings(BaseSettings):
     database_url: str
     secret_encryption_key: SecretStr
     connect_secret_token: SecretStr
-    auth_mode: Literal["developer", "token"] = "developer"
+    auth_mode: Literal["developer", "token", "session"] = "session"
     # JSON mapping SHA256(token) -> {actor, role}; raw tokens are never stored.
     auth_tokens_json: str = "{}"
+    session_secret: SecretStr = SecretStr("development-session-secret-change-me-0001")
+    session_ttl_seconds: int = Field(default=28800, ge=300, le=2592000)
+    invite_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
+    public_url: str = "http://localhost:3000"
     reconcile_interval_seconds: int = 10
     worker_concurrency: int = Field(default=4, ge=1, le=32)
     job_lease_seconds: int = Field(default=300, ge=30, le=3600)
@@ -31,14 +35,22 @@ class Settings(BaseSettings):
         Fernet(encryption_key.encode())
         if len(self.connect_secret_token.get_secret_value()) < 32:
             raise ValueError("Connect secret service token must be at least 32 characters")
-        if self.environment == "production" and self.auth_mode != "token":
-            raise ValueError("Production requires token authentication")
+        session_secret = self.session_secret.get_secret_value()
         if self.environment == "production" and (
             encryption_key == "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
             or self.connect_secret_token.get_secret_value()
             == "local-connect-token-change-before-production-0001"
         ):
             raise ValueError("Production must not use the example development secrets")
+        if self.environment == "production" and self.auth_mode != "session":
+            raise ValueError("Production requires session authentication")
+        if self.environment == "production" and (
+            len(session_secret) < 32
+            or session_secret == "development-session-secret-change-me-0001"
+        ):
+            raise ValueError("Production requires a strong, unique SESSION_SECRET")
+        if self.environment == "production" and not self.public_url.startswith("https://"):
+            raise ValueError("Production PUBLIC_URL must use HTTPS")
         tokens = json.loads(self.auth_tokens_json)
         if not isinstance(tokens, dict):
             raise ValueError("AUTH_TOKENS_JSON must be a JSON object")
@@ -49,7 +61,7 @@ class Settings(BaseSettings):
                 not isinstance(principal, dict)
                 or not isinstance(principal.get("actor"), str)
                 or not principal["actor"].strip()
-                or principal.get("role") not in {"Viewer", "DataEngineer", "PlatformAdmin", "Admin"}
+                or principal.get("role") not in {"Viewer", "Ops", "Admin"}
             ):
                 raise ValueError("AUTH_TOKENS_JSON values require a non-empty actor and valid role")
         if self.auth_mode == "token" and not tokens:

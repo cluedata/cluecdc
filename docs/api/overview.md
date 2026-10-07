@@ -28,6 +28,9 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | Incident lifecycle       | PATCH /operations/errors/{uuid}?status=OPEN\|ACKNOWLEDGED\|RESOLVED                                                  |
 | Schema versions          | GET /data/schemas?source_id=uuid                                                                                     |
 | Session                  | GET /session                                                                                                         |
+| Authentication           | POST /auth/login, /auth/logout; GET /auth/session                                                                    |
+| Users (Admin)            | GET /users; POST /users/invite; PATCH /users/{uuid}/role; POST /disable, /enable                                     |
+| Invites                  | GET /invites/{token}; POST /invites/{token}/accept                                                                   |
 
 Connection credentials are write-only. Responses expose a configured flag and
 mask, never secret values. Public connection providers are limited to the
@@ -43,4 +46,6 @@ Audit supports `meaningful=true` to exclude routine state observations/jobs from
 
 Event filters: limit 1–200; partition >=0; offset >=0; operation CREATE/UPDATE/DELETE/READ; table; primary-key substring `key`; epoch-millisecond start_ms/end_ms. Offset/time/key filters never extend the recent bounded scan window. Unknown/unavailable metrics are JSON null. Connector traces are withheld; task identity/state remains inspectable.
 
-The machine-only `/internal/secrets/{uuid}` is outside API v1, excluded from OpenAPI, and requires its own service credential. Ordinary Admin/Viewer tokens cannot use it. It is intentionally never routed by the web proxy.
+The machine-only `/internal/secrets/{uuid}` is outside API v1, excluded from
+OpenAPI, and requires its own service credential. Ordinary user sessions cannot
+use it. It is intentionally never routed by the web proxy.

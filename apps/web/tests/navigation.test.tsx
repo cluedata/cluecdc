@@ -5,9 +5,13 @@ import { Shell } from "../src/components/shell";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/connect/clusters",
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
 vi.mock("../src/lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    code = "REQUEST_FAILED";
+  },
   api: vi.fn(async (path: string) => {
     if (path === "/session") {
       return {
@@ -15,10 +19,12 @@ vi.mock("../src/lib/api", () => ({
         role: "Admin",
         environment: "test",
         auth_mode: "developer",
+        permissions: ["*"],
       };
     }
     return [];
   }),
+  relativeTime: vi.fn(() => "now"),
 }));
 
 describe("main navigation", () => {

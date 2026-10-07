@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/v1", tags=["Connections"])
 DB = Annotated[AsyncSession, Depends(session_dependency)]
 Read = Annotated[Principal, Depends(require("destinations.read"))]
 Write = Annotated[Principal, Depends(require("destinations.write"))]
+Admin = Annotated[Principal, Depends(require("destinations.admin"))]
 
 
 @router.get("/connection-providers")
@@ -111,7 +112,7 @@ async def update_connection(identifier: UUID, data: ConnectionInput, db: DB, use
 
 
 @router.delete("/connections/{identifier}")
-async def delete_connection(identifier: UUID, db: DB, user: Write):
+async def delete_connection(identifier: UUID, db: DB, user: Admin):
     result = await connection_service.delete(db, await get(db, Connection, identifier), user.actor)
     await db.commit()
     return result

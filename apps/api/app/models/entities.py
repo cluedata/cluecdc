@@ -33,6 +33,41 @@ class Entity:
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
+class User(Entity, Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('ADMIN', 'OPS', 'VIEWER')", name="ck_users_role"),
+        CheckConstraint("status IN ('INVITED', 'ACTIVE', 'DISABLED')", name="ck_users_status"),
+    )
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(512))
+    role: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="INVITED", index=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Invite(Entity, Base):
+    __tablename__ = "invites"
+    __table_args__ = (
+        CheckConstraint("role IN ('ADMIN', 'OPS', 'VIEWER')", name="ck_invites_role"),
+    )
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+
+
+class AuthSession(Entity, Base):
+    __tablename__ = "auth_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class SecretReference(Entity, Base):
     __tablename__ = "secret_references"
     ciphertext: Mapped[str] = mapped_column(String)

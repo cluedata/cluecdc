@@ -124,6 +124,7 @@ nav:
       - Snapshots and Resnapshots: pipelines/snapshots.md
       - Error Recovery: pipelines/error-recovery.md
   - Operations:
+      - User Management: operations/user-management.md
       - Monitoring: operations/monitoring.md
       - Alerts: alerting.md
       - Kafka Topics: operations/kafka-topics.md
@@ -138,6 +139,9 @@ nav:
       - Scaling: deployment/scaling.md
       - Production Considerations: deployment/production.md
       - Security: deployment/security.md
+  - Security:
+      - Authentication: security/authentication.md
+      - Roles and Permissions: security/roles.md
   - Development:
       - Architecture: development/architecture.md
       - Local Development: development/setup.md

@@ -9,6 +9,7 @@ import {
 } from "@/components/common";
 import { FilterBar, InventoryStrip } from "@/components/operational";
 import { api } from "@/lib/api";
+import { useAuthorization } from "@/lib/auth";
 import type { Pipeline, Source } from "@cluecdc/contracts";
 import { Button, Input } from "@cluecdc/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -19,6 +20,7 @@ import { useState } from "react";
 import { pipelineColumns } from "./shared";
 
 export function PipelinesPage() {
+  const { can } = useAuthorization();
   const [sourceFilter, setSourceFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const params = useSearchParams();
@@ -58,12 +60,14 @@ export function PipelinesPage() {
         description="Browse every capture pipeline. Open a row to inspect its flow, tables, runtime, and operations."
         eyebrow="DATA FLOW"
       >
-        <Button asChild>
-          <Link href="/pipelines/new">
-            <Plus size={16} />
-            Create pipeline
-          </Link>
-        </Button>
+        {can("pipelines.write") && (
+          <Button asChild>
+            <Link href="/pipelines/new">
+              <Plus size={16} />
+              Create pipeline
+            </Link>
+          </Button>
+        )}
       </PageHeader>
       {query.data && (
         <InventoryStrip
@@ -157,8 +161,8 @@ export function PipelinesPage() {
         <Empty
           title="No pipelines yet"
           description="Create a pipeline to move data from your source database through Kafka to a destination."
-          href="/pipelines/new"
-          action="Create pipeline"
+          href={can("pipelines.write") ? "/pipelines/new" : undefined}
+          action={can("pipelines.write") ? "Create pipeline" : undefined}
         />
       )}
     </>

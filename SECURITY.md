@@ -24,7 +24,10 @@ agree on disclosure timing, and credit the reporter if requested.
 The supplied Compose stack is for loopback-only development, not an internet-
 facing production deployment. Production operators must:
 
-- use token authentication and unique encryption/service/database secrets;
+- use local session authentication with a unique `SESSION_SECRET` and unique
+  encryption/service/database secrets;
+- bootstrap a named Admin, disable departed users promptly, and assign Ops or
+  Viewer unless administrative access is required;
 - terminate TLS and keep API, Connect, brokers, and databases on private networks;
 - enable Kafka authentication/ACLs and secure Kafka Connect separately;
 - restrict source/destination roles to required databases and tables;
