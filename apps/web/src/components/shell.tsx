@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,20 +14,28 @@ import {
   FileJson,
   GitBranch,
   LayoutDashboard,
+  LogOut,
   Menu,
   Moon,
   Radio,
   Settings,
+  ShieldCheck,
   Sun,
   Table2,
   Workflow,
+  Users,
   Send,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AlertSummary } from "@cluecdc/contracts";
-import { api, relativeTime } from "@/lib/api";
-type NavItem = { label: string; href: string; icon: LucideIcon };
+import { api, ApiError, relativeTime } from "@/lib/api";
+type NavItem = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  adminOnly?: boolean;
+};
 const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "overview",
@@ -89,7 +97,16 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "system",
     label: "System",
-    items: [{ label: "Settings", href: "/settings", icon: Settings }],
+    items: [
+      { label: "Settings", href: "/settings", icon: Settings },
+      { label: "Users", href: "/settings/users", icon: Users, adminOnly: true },
+      {
+        label: "Security",
+        href: "/settings/security",
+        icon: ShieldCheck,
+        adminOnly: true,
+      },
+    ],
   },
 ];
 function SidebarItem({
@@ -119,24 +136,29 @@ function SidebarItem({
 }
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const router = useRouter();
+  const publicPage = path === "/login" || path.startsWith("/invite/");
   const [mobile, setMobile] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () =>
       api<{
         actor: string;
+        email: string;
         role: string;
         environment: string;
         auth_mode: string;
       }>("/session"),
     staleTime: 30000,
+    enabled: !publicPage,
   });
   const incidents = useQuery({
     queryKey: ["alert-summary"],
     queryFn: () => api<AlertSummary>("/alerts/summary"),
-    enabled: !session.isError,
+    enabled: !publicPage && session.isSuccess,
     refetchInterval: 30000,
   });
   const openCount = incidents.data?.active_count;
@@ -155,6 +177,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("keydown", handle);
     };
   }, []);
+  useEffect(() => {
+    if (
+      !publicPage &&
+      session.error instanceof ApiError &&
+      session.error.code === "UNAUTHENTICATED"
+    ) {
+      router.replace("/login");
+    }
+  }, [publicPage, router, session.error]);
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nextTheme;
@@ -170,6 +201,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     (item) => path === item.href || path.startsWith(item.href + "/"),
   );
   const close = () => setMobile(false);
+  if (publicPage) return <>{children}</>;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -209,14 +241,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 aria-labelledby={`nav-${group.id}`}
               >
                 <h2 id={`nav-${group.id}`}>{group.label}</h2>
-                {group.items.map((item) => (
-                  <SidebarItem
-                    key={item.href}
-                    item={item}
-                    path={path}
-                    onNavigate={close}
-                  />
-                ))}
+                {group.items
+                  .filter(
+                    (item) => !item.adminOnly || session.data?.role === "Admin",
+                  )
+                  .map((item) => (
+                    <SidebarItem
+                      key={item.href}
+                      item={item}
+                      path={path}
+                      onNavigate={close}
+                    />
+                  ))}
               </section>
             ))}
           </div>
@@ -337,13 +373,34 @@ export function Shell({ children }: { children: React.ReactNode }) {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <Link
-            href="/settings"
-            className="avatar topbar-avatar"
-            aria-label="User settings"
-          >
-            {session.data?.actor.slice(0, 2).toUpperCase() || "?"}
-          </Link>
+          <div className="user-menu">
+            <button
+              type="button"
+              className="avatar topbar-avatar"
+              aria-label="Current user menu"
+              aria-expanded={userOpen}
+              onClick={() => setUserOpen((value) => !value)}
+            >
+              {session.data?.actor.slice(0, 2).toUpperCase() || "?"}
+            </button>
+            {userOpen && (
+              <div className="user-menu-popover">
+                <strong>{session.data?.email || session.data?.actor}</strong>
+                <small>Role: {session.data?.role}</small>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await api("/auth/logout", { method: "POST" });
+                    setUserOpen(false);
+                    router.replace("/login");
+                    router.refresh();
+                  }}
+                >
+                  <LogOut size={15} /> Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </header>
         <main id="main-content" tabIndex={-1}>
           {children}

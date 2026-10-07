@@ -9,15 +9,11 @@ export class ApiError extends Error {
   }
 }
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const token =
-    typeof window !== "undefined"
-      ? sessionStorage.getItem("cluecdc-token")
-      : null;
   const response = await fetch(`/api/v1${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   });

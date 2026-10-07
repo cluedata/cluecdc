@@ -15,6 +15,7 @@ import { MetricCard } from "@/components/operational";
 import { EventsExplorer } from "@/components/stream";
 import { derivePipelineHealth } from "@/domain/data-flow";
 import { api, date, number, post } from "@/lib/api";
+import { useAuthorization } from "@/lib/auth";
 import type {
   Audit,
   PipelineDetail,
@@ -42,6 +43,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function PipelineDetailPage({ id }: { id: string }) {
+  const { can } = useAuthorization();
+  const canOperate = can("pipelines.operate");
+  const canAdmin = can("pipelines.admin");
   const router = useRouter();
   const client = useQueryClient();
   const [tab, setTab] = useState("Overview");
@@ -247,37 +251,38 @@ export function PipelineDetailPage({ id }: { id: string }) {
     {
       id: "actions",
       header: "Actions",
-      cell: ({ row }) => (
-        <div className="table-actions">
-          <Button
-            variant="outline"
-            disabled={row.original.snapshot_status === "RUNNING"}
-            onClick={() =>
-              setTableAction({ type: "resync", table: row.original })
-            }
-          >
-            Resync
-          </Button>
-          {row.original.snapshot_status === "RUNNING" && (
+      cell: ({ row }) =>
+        canOperate ? (
+          <div className="table-actions">
             <Button
               variant="outline"
+              disabled={row.original.snapshot_status === "RUNNING"}
               onClick={() =>
-                setTableAction({ type: "stop", table: row.original })
+                setTableAction({ type: "resync", table: row.original })
               }
             >
-              Stop snapshot
+              Resync
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            onClick={() =>
-              setTableAction({ type: "remove", table: row.original })
-            }
-          >
-            Remove
-          </Button>
-        </div>
-      ),
+            {row.original.snapshot_status === "RUNNING" && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setTableAction({ type: "stop", table: row.original })
+                }
+              >
+                Stop snapshot
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setTableAction({ type: "remove", table: row.original })
+              }
+            >
+              Remove
+            </Button>
+          </div>
+        ) : null,
     },
   ];
   return (
@@ -294,49 +299,52 @@ export function PipelineDetailPage({ id }: { id: string }) {
         <span title={health.reason}>
           <Status value={health.status} />
         </span>
-        {!p.connector_id ? (
+        {canOperate &&
+          (!p.connector_id ? (
+            <Button
+              onClick={() => operation.mutate("deploy")}
+              disabled={operation.isPending}
+            >
+              <Play size={16} />
+              Deploy
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                disabled={operation.isPending}
+                onClick={() =>
+                  operation.mutate(
+                    p.desired_state === "PAUSED" ? "resume" : "pause",
+                  )
+                }
+              >
+                {p.desired_state === "PAUSED" ? (
+                  <Play size={15} />
+                ) : (
+                  <Pause size={15} />
+                )}{" "}
+                {p.desired_state === "PAUSED" ? "Resume" : "Pause"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={operation.isPending}
+                onClick={() => operation.mutate("restart")}
+              >
+                <RefreshCw size={15} />
+                Restart
+              </Button>
+            </>
+          ))}
+        {canAdmin && (
           <Button
-            onClick={() => operation.mutate("deploy")}
-            disabled={operation.isPending}
+            variant="ghost"
+            aria-label="Delete pipeline"
+            onClick={() => setConfirm(true)}
           >
-            <Play size={16} />
-            Deploy
+            <Trash2 size={16} />
           </Button>
-        ) : (
-          <>
-            <Button
-              variant="outline"
-              disabled={operation.isPending}
-              onClick={() =>
-                operation.mutate(
-                  p.desired_state === "PAUSED" ? "resume" : "pause",
-                )
-              }
-            >
-              {p.desired_state === "PAUSED" ? (
-                <Play size={15} />
-              ) : (
-                <Pause size={15} />
-              )}{" "}
-              {p.desired_state === "PAUSED" ? "Resume" : "Pause"}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={operation.isPending}
-              onClick={() => operation.mutate("restart")}
-            >
-              <RefreshCw size={15} />
-              Restart
-            </Button>
-          </>
         )}
-        <Button
-          variant="ghost"
-          aria-label="Delete pipeline"
-          onClick={() => setConfirm(true)}
-        >
-          <Trash2 size={16} />
-        </Button>
       </PageHeader>
       {operation.isError && <ErrorPanel error={operation.error} />}{" "}
       {status.isError && <ErrorPanel error={status.error} />}{" "}
@@ -479,12 +487,14 @@ export function PipelineDetailPage({ id }: { id: string }) {
         <section className="section">
           <div className="section-heading">
             <h2>Deliveries</h2>
-            <Button asChild>
-              <Link href={`/deliveries/new?pipeline_id=${id}`}>
-                <Plus size={14} />
-                Add delivery
-              </Link>
-            </Button>
+            {canOperate && (
+              <Button asChild>
+                <Link href={`/deliveries/new?pipeline_id=${id}`}>
+                  <Plus size={14} />
+                  Add delivery
+                </Link>
+              </Button>
+            )}
           </div>
           {p.destinations?.length ? (
             <DataTable
@@ -534,8 +544,10 @@ export function PipelineDetailPage({ id }: { id: string }) {
             <Empty
               title="No deliveries configured"
               description="A delivery moves these Kafka topics to a destination."
-              href={`/deliveries/new?pipeline_id=${id}`}
-              action="Add delivery"
+              href={
+                canOperate ? `/deliveries/new?pipeline_id=${id}` : undefined
+              }
+              action={canOperate ? "Add delivery" : undefined}
             />
           )}
         </section>
@@ -547,13 +559,15 @@ export function PipelineDetailPage({ id }: { id: string }) {
               <h2>Pipeline tables</h2>
               <p>Table-level capture, snapshot, schema, and delivery health.</p>
             </div>
-            <Button
-              onClick={() => setAddTables(true)}
-              disabled={!p.connector_id}
-            >
-              <Plus size={15} />
-              Add tables
-            </Button>
+            {canOperate && (
+              <Button
+                onClick={() => setAddTables(true)}
+                disabled={!p.connector_id}
+              >
+                <Plus size={15} />
+                Add tables
+              </Button>
+            )}
           </div>
           <DataTable data={p.tables} columns={tableCols} />
         </section>
@@ -716,7 +730,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
                 id: "actions",
                 header: "Actions",
                 cell: ({ row }) =>
-                  row.original.status === "FAILED" ? (
+                  canOperate && row.original.status === "FAILED" ? (
                     <Button
                       variant="outline"
                       disabled={retryOperation.isPending}
@@ -748,13 +762,15 @@ export function PipelineDetailPage({ id }: { id: string }) {
               <strong>Task {t.id}</strong>
               <Status value={t.state} />
               <span className="muted">{t.worker_id}</span>
-              <Button
-                variant="outline"
-                disabled={operation.isPending}
-                onClick={() => operation.mutate(`restart-task?task=${t.id}`)}
-              >
-                Restart task
-              </Button>
+              {canOperate && (
+                <Button
+                  variant="outline"
+                  disabled={operation.isPending}
+                  onClick={() => operation.mutate(`restart-task?task=${t.id}`)}
+                >
+                  Restart task
+                </Button>
+              )}
             </div>
           ))}
         </section>
@@ -1078,7 +1094,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
         {tableOperation.isError && <ErrorPanel error={tableOperation.error} />}
       </Dialog>
       <Dialog
-        open={confirm}
+        open={canAdmin && confirm}
         onOpenChange={setConfirm}
         title="Delete this pipeline?"
         description="The connector and pipeline metadata will be removed. Kafka topics and PostgreSQL replication slots remain; an administrator can clean them up after confirming they are no longer needed."

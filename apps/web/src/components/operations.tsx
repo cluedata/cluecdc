@@ -1,7 +1,7 @@
 "use client";
 import { InventoryStrip } from "./operational";
 import Link from "next/link";
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
@@ -12,13 +12,12 @@ import type {
   Destination,
   Json,
 } from "@cluecdc/contracts";
-import { Button, Input } from "@cluecdc/ui";
+import { Button } from "@cluecdc/ui";
 import { api, date } from "@/lib/api";
 import {
   DataTable,
   Empty,
   ErrorPanel,
-  Field,
   JsonView,
   Loading,
   PageHeader,
@@ -580,13 +579,6 @@ export function SchemasPage({
 }
 
 export function SettingsPage() {
-  const hydrated = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-  const client = useQueryClient();
-  const [token, setToken] = useState("");
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () =>
@@ -610,7 +602,6 @@ export function SettingsPage() {
           {session.isError ? (
             <ErrorPanel error={session.error} />
           ) : (
-            hydrated &&
             session.data && (
               <dl className="facts">
                 <dt>Mode</dt>
@@ -624,38 +615,17 @@ export function SettingsPage() {
               </dl>
             )
           )}
-          <Field
-            label="Bearer token"
-            hint="For token authentication. Kept in this tab's session storage."
-          >
-            <Input
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-          </Field>
           <div className="toolbar">
-            <Button
-              onClick={() => {
-                sessionStorage.setItem("cluecdc-token", token);
-                setToken("");
-                client.clear();
-                toast.success("Session token saved");
-              }}
-            >
-              Use token
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                sessionStorage.removeItem("cluecdc-token");
-                client.clear();
-                toast.success("Token cleared");
-              }}
-            >
-              Sign out
-            </Button>
+            {session.data?.role === "Admin" && (
+              <>
+                <Button asChild>
+                  <Link href="/settings/users">Manage users</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/settings/security">Security policy</Link>
+                </Button>
+              </>
+            )}
           </div>
         </section>
         <section className="panel">
@@ -677,8 +647,8 @@ export function SettingsPage() {
             </dd>
           </dl>
           <p className="muted">
-            Production deployment and token setup instructions are in the
-            repository documentation.
+            Production deployment and authentication setup instructions are in
+            the repository documentation.
           </p>
         </section>
       </div>

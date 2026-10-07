@@ -29,7 +29,7 @@ async function proxy(
   );
   url.search = request.nextUrl.search;
   const headers = new Headers({ "Content-Type": "application/json" });
-  for (const name of ["authorization", "x-correlation-id"]) {
+  for (const name of ["authorization", "cookie", "x-correlation-id"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -55,12 +55,17 @@ async function proxy(
       cache: "no-store",
       signal: AbortSignal.timeout(45000),
     });
+    const responseHeaders = new Headers({
+      "Content-Type":
+        response.headers.get("Content-Type") || "application/json",
+      "X-Correlation-ID": response.headers.get("X-Correlation-ID") || "",
+      "Cache-Control": "no-store",
+    });
+    const setCookie = response.headers.get("set-cookie");
+    if (setCookie) responseHeaders.set("Set-Cookie", setCookie);
     return new Response(response.body, {
       status: response.status,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Correlation-ID": response.headers.get("X-Correlation-ID") || "",
-      },
+      headers: responseHeaders,
     });
   } catch {
     return Response.json(

@@ -12,7 +12,14 @@ def serialize(entity: Any) -> dict:
     return {
         col.key: getattr(entity, col.key)
         for col in inspect(entity).mapper.column_attrs
-        if col.key not in {"ciphertext", "secret_ref", "config_encrypted"}
+        if col.key
+        not in {
+            "ciphertext",
+            "secret_ref",
+            "config_encrypted",
+            "password_hash",
+            "token_hash",
+        }
     }
 
 
@@ -44,5 +51,29 @@ def audit(session: AsyncSession, actor: str, action: str, entity: Any, before: d
             resource_id=str(entity.id),
             before_json=before_safe,
             after_json=after,
+        )
+    )
+
+
+def audit_event(
+    session: AsyncSession,
+    actor: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    details: dict | None = None,
+) -> None:
+    """Record a security event without serializing secret-bearing request data."""
+    import json
+
+    safe = json.loads(json.dumps(redact(details or {}), default=str))
+    session.add(
+        AuditLog(
+            actor=actor,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            before_json=None,
+            after_json=safe,
         )
     )

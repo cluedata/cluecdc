@@ -1,3 +1,4 @@
+import re
 import secrets
 import time
 import traceback
@@ -18,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.api import router as alert_router
+from app.api.auth import router as auth_router
 from app.api.connections import router as connection_router
 from app.api.destinations import router as destination_router
 from app.api.routes import router
@@ -60,6 +62,7 @@ app.include_router(router)
 app.include_router(destination_router)
 app.include_router(connection_router)
 app.include_router(alert_router)
+app.include_router(auth_router)
 
 
 @app.get("/internal/secrets/{reference}", include_in_schema=False)
@@ -89,6 +92,7 @@ async def resolve_connect_secret(
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):
+    logged_path = re.sub(r"^(/api/v1/invites/)[^/]+", r"\1[token]", request.url.path)
     supplied = request.headers.get("X-Correlation-ID", "")
     correlation_id = (
         supplied
@@ -108,7 +112,7 @@ async def request_context(request: Request, call_next):
         log.error(
             "unhandled_request_error",
             method=request.method,
-            path=request.url.path,
+            path=logged_path,
             error_type=type(exc).__name__,
             frames=frames,
         )
@@ -128,7 +132,7 @@ async def request_context(request: Request, call_next):
     log.info(
         "http_request",
         method=request.method,
-        path=request.url.path,
+        path=logged_path,
         status=response.status_code,
         duration=round(time.monotonic() - started, 3),
     )

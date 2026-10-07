@@ -10,19 +10,21 @@ generated_keys = [
     "SECRET_ENCRYPTION_KEY",
     "CONNECT_SECRET_TOKEN",
     "METADATA_PASSWORD",
+    "SESSION_SECRET",
 ]
 
 example_values = {
     "SECRET_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     "CONNECT_SECRET_TOKEN": "local-connect-token-change-before-production-0001",
     "METADATA_PASSWORD": "cluecdc-metadata-local-only",
+    "SESSION_SECRET": "development-session-secret-change-me-0001",
 }
 
 
 def generate_password(key: str) -> str:
     if key == "SECRET_ENCRYPTION_KEY":
         return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
-    if key == "CONNECT_SECRET_TOKEN":
+    if key in {"CONNECT_SECRET_TOKEN", "SESSION_SECRET"}:
         return secrets.token_hex(32)
     return secrets.token_hex(16)
 
@@ -52,13 +54,17 @@ if path.exists():
 else:
     values = {
         "ENVIRONMENT": "development",
-        "AUTH_MODE": "developer",
+        "AUTH_MODE": "session",
         "AUTH_TOKENS_JSON": "{}",
         "SECRET_ENCRYPTION_KEY": base64.urlsafe_b64encode(
             secrets.token_bytes(32)
         ).decode(),
         "CONNECT_SECRET_TOKEN": secrets.token_hex(32),
         "METADATA_PASSWORD": secrets.token_hex(16),
+        "SESSION_SECRET": secrets.token_hex(32),
+        "SESSION_TTL_SECONDS": "28800",
+        "INVITE_TTL_SECONDS": "86400",
+        "PUBLIC_URL": "http://localhost:3000",
     }
     path.write_text("\n".join(f"{k}={v}" for k, v in values.items()) + "\n")
     print("Created .env with unique local secrets. Keep it private and back it up.")

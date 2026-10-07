@@ -316,7 +316,7 @@ async def list_rules(db: DB, user: Annotated[Principal, Depends(require("pipelin
 async def create_rule(
     data: RuleInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("settings.manage"))],
 ):
     rule = AlertRule(**data.model_dump(exclude={"channel_ids"}))
     db.add(rule)
@@ -339,7 +339,7 @@ async def update_rule(
     identifier: UUID,
     data: RuleInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("settings.manage"))],
 ):
     rule = await get(db, AlertRule, identifier)
     before = serialize(rule)
@@ -355,7 +355,7 @@ async def update_rule(
 async def delete_rule(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("settings.manage"))],
 ):
     rule = await get(db, AlertRule, identifier)
     audit(db, user.actor, "alert_rule.deleted", rule)

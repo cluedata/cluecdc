@@ -21,6 +21,16 @@ it("queues an incremental add-table operation from pipeline details", async () =
     "fetch",
     vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/session")) {
+        return Response.json({
+          actor: "admin@example.com",
+          email: "admin@example.com",
+          role: "Admin",
+          environment: "test",
+          auth_mode: "session",
+          permissions: ["*"],
+        });
+      }
       if (url.endsWith("/pipelines/pipeline-id/status")) {
         return Response.json({
           actual_state: "RUNNING",

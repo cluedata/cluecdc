@@ -38,8 +38,8 @@ worker; production may isolate or scale worker clusters independently.
 - Source readiness checks, schema discovery, and explicit table selection
 - Capture and delivery preview, deploy, pause, resume, restart, and removal
 - Independent JDBC or object-storage deliveries from one capture pipeline
-- Encrypted credentials, token authentication, structured logs, metrics, alerts,
-  and an audit trail
+- Encrypted credentials, invite-based local users, secure browser sessions,
+  three-role authorization, structured logs, metrics, alerts, and an audit trail
 - Docker Compose for local operation and a documented Kubernetes baseline
 
 ## Supported connectors
@@ -61,22 +61,22 @@ worker, and web UI.
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
 cp .env.example .env
+python scripts/bootstrap.py
 docker compose up -d --build --wait
+docker compose exec cluecdc-api python -m app.cli create-admin --email admin@example.com
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The API reference is at
+Open [http://localhost:3000/login](http://localhost:3000/login). The API reference is at
 [http://localhost:8000/docs](http://localhost:8000/docs).
 
-The copied values are safe only for loopback local development. Generate unique
-local secrets before retaining data:
-
-```bash
-python scripts/bootstrap.py
-```
+The bootstrap command replaces development examples with unique local secrets
+without overwriting custom values.
 
 Configuration is documented in [.env.example](.env.example) and the
 [operations guide](docs/operations/configuration.md). Critical secrets are
-required, and production mode rejects developer authentication and example keys.
+required, and production mode rejects non-session authentication and example
+keys. See [authentication](docs/security/authentication.md) and
+[user management](docs/operations/user-management.md).
 
 ## Deployment and documentation
 
