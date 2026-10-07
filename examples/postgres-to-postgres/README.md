@@ -18,4 +18,5 @@ python scripts/demo-destination.py --skip-capture-demo
 The source fixtures are `customers` and `orders`. The script verifies real
 insert, update, delete, pause/catch-up, and restart behavior and writes only
 sanitized results under ignored `artifacts/`. Full manual steps and credentials
-by environment-variable name are in the [user guide](../../user_guide.md).
+by environment-variable name are in the
+[first-pipeline guide](../../docs/getting-started/first-pipeline.md).

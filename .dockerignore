@@ -8,6 +8,10 @@
 **/__pycache__
 .venv
 artifacts
+.codex-tmp
+site
+coverage
+htmlcov
 docs
 examples
 *.log

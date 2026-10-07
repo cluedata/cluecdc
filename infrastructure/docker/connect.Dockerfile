@@ -1,3 +1,6 @@
+ARG VERSION=development
+ARG VCS_REF=unknown
+
 FROM quay.io/debezium/connect:3.3.1.Final AS upstream
 FROM debian:bookworm-slim AS connector-download
 ARG AIVEN_S3_VERSION=3.4.2
@@ -26,6 +29,14 @@ RUN javac --release 17 -Xlint:all -cp "libs/*:aiven-s3/*" -d classes *.java \
     && jar --create --file cluecdc-s3-credentials.jar \
        -C classes io/cluecdc/connect/ClueSessionCredentialsProvider.class
 FROM upstream
+ARG VERSION
+ARG VCS_REF
+LABEL org.opencontainers.image.title="ClueCDC Connect" \
+      org.opencontainers.image.description="Kafka Connect with ClueCDC connector extensions" \
+      org.opencontainers.image.source="https://github.com/cluedata/cluecdc" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /build/cluecdc-secrets.jar /kafka/libs/cluecdc-secrets.jar
 COPY --from=connector-download /plugins/aiven-s3/ /kafka/connect/aiven-s3/
 COPY --from=builder /build/cluecdc-s3-credentials.jar /kafka/connect/aiven-s3/cluecdc-s3-credentials.jar

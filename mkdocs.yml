@@ -151,6 +151,8 @@ nav:
       - Contributing: development/contributing.md
       - Pull Request Process: development/pull-requests.md
       - Releases: development/releases.md
+      - Release Checklist: RELEASE_CHECKLIST.md
+      - v0.1.0 Release Notes: releases/v0.1.0.md
       - Open-source Audit: development/open-source-audit.md
   - Troubleshooting:
       - Database Connections: troubleshooting/database-connections.md

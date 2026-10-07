@@ -1,3 +1,6 @@
+ARG VERSION=development
+ARG VCS_REF=unknown
+
 FROM python:3.12-slim AS builder
 ARG INSTALL_DEV=false
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
@@ -11,6 +14,14 @@ RUN --mount=type=cache,target=/root/.cache/pip if [ "$INSTALL_DEV" = "true" ]; t
     fi
 
 FROM python:3.12-slim AS runtime
+ARG VERSION
+ARG VCS_REF
+LABEL org.opencontainers.image.title="ClueCDC API" \
+      org.opencontainers.image.description="ClueCDC CDC control-plane API and worker" \
+      org.opencontainers.image.source="https://github.com/cluedata/cluecdc" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY --from=builder /wheels /wheels

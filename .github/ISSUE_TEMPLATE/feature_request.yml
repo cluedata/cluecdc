@@ -6,29 +6,25 @@ body:
   - type: textarea
     id: problem
     attributes:
-      {
-        label: Problem,
-        description: What operational problem should ClueCDC solve?,
-      }
-    validations: { required: true }
+      label: Problem
+      description: What operational problem should ClueCDC solve?
+    validations:
+      required: true
   - type: textarea
     id: proposal
-    attributes: { label: Proposed behavior }
-    validations: { required: true }
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
   - type: textarea
     id: alternatives
-    attributes: { label: Alternatives considered }
+    attributes:
+      label: Alternatives considered
   - type: textarea
     id: compatibility
     attributes:
-      {
-        label: Compatibility and operational impact,
-        description: Note API,
-        migration,
-        security,
-        connector,
-        or deployment impact.,
-      }
+      label: Compatibility and operational impact
+      description: Note API, migration, security, connector, or deployment impact.
   - type: checkboxes
     id: scope
     attributes:

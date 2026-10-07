@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
+    services:
+      worker-test-postgres:
+        image: postgres:17.9
+        env:
+          POSTGRES_DB: worker_test
+          POSTGRES_USER: worker_test
+          POSTGRES_PASSWORD: worker-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U worker_test -d worker_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python scripts/check-release-version.py --tag "${GITHUB_REF_NAME}"
+      - run: npm ci
+      - run: python -m pip install --upgrade pip==26.2.1
+      - run: python -m pip install -e "apps/api[dev]" -r requirements-docs.txt pip-audit==2.10.1
+      - run: python scripts/check-repository.py
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: python -m ruff check apps/api scripts
+      - run: python -m ruff format --check apps/api scripts
+      - run: python -m mypy --config-file apps/api/pyproject.toml apps/api/app
+      - run: mkdocs build --strict
+      - run: npm audit --omit=dev --audit-level=high
+      - run: python -m pip_audit --local --skip-editable
+      - name: Build source artifact
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          git archive --format=tar.gz --prefix="cluecdc-${version}/" --output="dist/cluecdc-${version}.tar.gz" HEAD
+      - name: Generate checksums
+        run: cd dist && sha256sum -- ./cluecdc-*.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+          if-no-files-found: error
+
+  containers:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: web
+            image: cluecdc-web
+            dockerfile: Dockerfile
+          - component: api
+            image: cluecdc-api
+            dockerfile: infrastructure/docker/api.Dockerfile
+          - component: connect
+            image: cluecdc-connect
+            dockerfile: infrastructure/docker/connect.Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=ClueCDC ${{ matrix.component }}
+            org.opencontainers.image.description=ClueCDC CDC control-plane ${{ matrix.component }} image
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  github-release:
+    needs: [validate, containers]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}" dist/*
+          --verify-tag
+          --title "ClueCDC ${GITHUB_REF_NAME}"
+          --notes-file "docs/releases/${GITHUB_REF_NAME}.md"

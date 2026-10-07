@@ -1,4 +1,5 @@
 import json
+import re
 from functools import lru_cache
 from typing import Literal
 
@@ -39,6 +40,18 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Production must not use the example development secrets")
         tokens = json.loads(self.auth_tokens_json)
+        if not isinstance(tokens, dict):
+            raise ValueError("AUTH_TOKENS_JSON must be a JSON object")
+        for token_hash, principal in tokens.items():
+            if not isinstance(token_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+                raise ValueError("AUTH_TOKENS_JSON keys must be lowercase SHA-256 hashes")
+            if (
+                not isinstance(principal, dict)
+                or not isinstance(principal.get("actor"), str)
+                or not principal["actor"].strip()
+                or principal.get("role") not in {"Viewer", "DataEngineer", "PlatformAdmin", "Admin"}
+            ):
+                raise ValueError("AUTH_TOKENS_JSON values require a non-empty actor and valid role")
         if self.auth_mode == "token" and not tokens:
             raise ValueError("Token authentication requires configured token hashes")
         return self

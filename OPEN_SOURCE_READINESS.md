@@ -18,16 +18,16 @@ PostgreSQL or MySQL source
   -> PostgreSQL or MySQL destination
 ```
 
-Only PostgreSQL and MySQL have working source/destination adapters, connection
-tests, connector builders, and automated coverage, so only those providers are
-publicly exposed.
+PostgreSQL and MySQL have working source and JDBC destination adapters. AWS S3
+and MinIO have destination-only connection tests and Aiven S3 sink configuration.
+Only providers backed by implementation and automated coverage are exposed.
 
 ## Deployment boundary
 
-The default `compose.yaml` starts five core services: metadata PostgreSQL,
-Kafka, Kafka Connect, API, and web. Optional database inspection is in
-`compose.dev.yaml`. PostgreSQL/MySQL source and destination fixtures are in
-`compose.test.yaml`.
+The default `compose.yaml` starts six core services: metadata PostgreSQL,
+Kafka, Kafka Connect, API, background worker, and web. Optional database
+inspection is in `compose.dev.yaml`. PostgreSQL/MySQL source and destination
+fixtures plus MinIO are in `compose.test.yaml`.
 
 The Kubernetes baseline deploys ClueCDC metadata, API, web, and distributed
 Kafka Connect workers. Kafka is deliberately external. Production still

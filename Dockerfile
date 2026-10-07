@@ -1,3 +1,6 @@
+ARG VERSION=development
+ARG VCS_REF=unknown
+
 FROM node:24.12-alpine AS dependencies
 WORKDIR /app
 COPY package*.json ./
@@ -13,6 +16,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 FROM node:24.12-alpine AS runtime
+ARG VERSION
+ARG VCS_REF
+LABEL org.opencontainers.image.title="ClueCDC Web" \
+      org.opencontainers.image.description="ClueCDC CDC control-plane web application" \
+      org.opencontainers.image.source="https://github.com/cluedata/cluecdc" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0
 COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./

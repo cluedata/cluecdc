@@ -44,7 +44,7 @@ npm run build
 ```
 
 Run live integration and browser tests only after starting Compose; instructions
-and cleanup behavior are in [verification](docs/development/verification.md).
+and cleanup behavior are in [testing](docs/development/testing.md).
 
 ## Database migrations
 

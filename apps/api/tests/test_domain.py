@@ -83,6 +83,22 @@ def test_production_refuses_documented_example_secrets():
         )
 
 
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        "[]",
+        '{"not-a-hash":{"actor":"operator","role":"Admin"}}',
+        '{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":'
+        '{"actor":"","role":"Admin"}}',
+        '{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":'
+        '{"actor":"operator","role":"Owner"}}',
+    ],
+)
+def test_token_auth_configuration_has_a_safe_schema(tokens):
+    with pytest.raises(ValidationError, match="AUTH_TOKENS_JSON"):
+        Settings(auth_mode="token", auth_tokens_json=tokens)
+
+
 def test_schema_diff_is_deterministic():
     old = {
         "columns": [

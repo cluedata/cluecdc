@@ -3,13 +3,15 @@
 ClueCDC uses Semantic Versioning. During the `0.x` series, minor releases may
 contain documented breaking changes; patch releases should remain compatible.
 
-1. Update `CHANGELOG.md`, documentation, and the API/package version.
-2. Run CI, live Compose CDC verification, migration upgrade/check, docs, secret,
-   dependency, and container scans.
-3. Review third-party notices and generated SBOMs without committing build output.
-4. Create a signed annotated tag such as `v0.2.0` from reviewed `main`.
-5. Publish immutable container tags and digests, then create GitHub release notes.
-6. Verify the GitHub Pages deployment and perform a clean-install smoke test.
+1. Update `CHANGELOG.md`, release notes, documentation, and the API package version.
+2. Complete `docs/RELEASE_CHECKLIST.md` and run `python scripts/release-check.py`
+   from a clean `main` checkout.
+3. Confirm CI, live CDC verification, migrations, docs, secret/dependency scans,
+   container builds, third-party notices, and generated checksums.
+4. Create and push a signed annotated tag such as `v0.1.0` from the approved commit.
+5. The tag workflow validates version consistency, publishes immutable `0.1.0`,
+   `0.1`, and `latest` GHCR image tags, and creates the GitHub Release.
+6. Verify image digests, GitHub Pages, release artifacts, and the released quick start.
 
-Release tags and artifacts require maintainer approval. Never rebuild an existing
-version tag with different contents.
+Release tags and artifacts require maintainer approval. Never move a release tag
+or rebuild an immutable version tag with different contents.

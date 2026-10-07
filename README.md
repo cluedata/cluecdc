@@ -1,9 +1,10 @@
 <p align="center">
-  <img src="docs/assets/homepage.png" alt="ClueCDC">
+  <img src="docs/assets/homepage.png" alt="ClueCDC pipeline overview" width="1100">
 </p>
 
 # ClueCDC
 
+[![Release](https://img.shields.io/github/v/release/cluedata/cluecdc?display_name=tag&sort=semver)](https://github.com/cluedata/cluecdc/releases)
 [![CI](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml/badge.svg)](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml)
 [![Documentation](https://github.com/cluedata/cluecdc/actions/workflows/docs.yml/badge.svg)](https://cluedata.github.io/cluecdc/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange.svg)](LICENSE)
@@ -11,87 +12,83 @@
 **ClueCDC is an open-source control plane for building, managing, and monitoring
 CDC pipelines powered by Debezium, Apache Kafka, and Kafka Connect.**
 
-ClueCDC manages infrastructure configuration and lifecycle; it does not relay
-CDC records through its API.
+It gives operators one UI and API for connections, table discovery, connector
+lifecycle, deliveries, health, alerts, and audit history. ClueCDC configures the
+data plane; CDC records never flow through its API.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  User[User] --> UI[ClueCDC Web UI]
-  UI --> API[ClueCDC API]
-  API --> Metadata[(Metadata PostgreSQL)]
-  API --> Kafka[Kafka Admin APIs]
-  API --> Connect[Kafka Connect REST API]
-
-  subgraph ConnectCluster[Kafka Connect]
-    DBZ[Debezium Source Connector]
-    Sink[Sink Connector]
-  end
-  Source[(Source Database)] --> DBZ
-  DBZ --> Topics[(Apache Kafka CDC Topics)]
-  Topics --> Sink
-  Sink --> Destination[(Database or Object Storage)]
+  Source[(Source)] --> Debezium[Debezium source connector]
+  Debezium --> Kafka[(Apache Kafka)]
+  Kafka --> Delivery[Kafka Connect delivery connector]
+  Delivery --> Destination[(Destination)]
+  ClueCDC[ClueCDC control plane] -. configures and observes .-> Debezium
+  ClueCDC -. configures and observes .-> Kafka
+  ClueCDC -. configures and observes .-> Delivery
 ```
 
-Debezium runs as a Kafka Connect source connector. Local Compose uses one Connect
-worker for source and sink connectors. Production deployments may use separate,
-horizontally scaled Connect worker clusters for isolation and capacity.
+Debezium and delivery connectors run in Kafka Connect. The local stack uses one
+worker; production may isolate or scale worker clusters independently.
+
+## Features
+
+- Reusable source, destination, Kafka, and Kafka Connect connections
+- Source readiness checks, schema discovery, and explicit table selection
+- Capture and delivery preview, deploy, pause, resume, restart, and removal
+- Independent JDBC or object-storage deliveries from one capture pipeline
+- Encrypted credentials, token authentication, structured logs, metrics, alerts,
+  and an audit trail
+- Docker Compose for local operation and a documented Kubernetes baseline
 
 ## Supported connectors
 
-| Type | Source | Destination | Connection test | CDC status |
-| --- | --- | --- | --- | --- |
-| PostgreSQL | Yes | Yes | Yes | Supported |
-| MySQL | Yes | Yes | Yes | Supported |
-| AWS S3 | No | Yes | Yes | JSONL archive |
-| MinIO | No | Yes | Yes | JSONL archive |
-
-The Connect image contains the Debezium PostgreSQL and MySQL source connectors
-and Debezium JDBC sink connector, plus the Apache-2.0 Aiven S3 sink pinned to
-3.4.2 with a verified artifact checksum. [Object storage deliveries](docs/connectors/object-storage.md)
-preserve CDC envelopes, including delete events, in gzip JSONL files.
+| System | Source | Destination | Delivery format |
+| --- | --- | --- | --- |
+| PostgreSQL 13+ | Debezium | JDBC sink | Typed rows/upserts/deletes |
+| MySQL 8 | Debezium | JDBC sink | Typed rows/upserts/deletes |
+| AWS S3 | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
+| MinIO | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
 
 ## Quick start
 
-Prerequisites are Docker Engine or Docker Desktop with Compose v2 and Git.
+Requirements: Git, Docker Engine or Docker Desktop, and Docker Compose v2. The
+default stack needs enough memory for PostgreSQL, Kafka, Kafka Connect, the API,
+worker, and web UI.
 
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d --build --wait
 ```
 
 Open [http://localhost:3000](http://localhost:3000). The API reference is at
 [http://localhost:8000/docs](http://localhost:8000/docs).
 
-The default stack starts six services: metadata PostgreSQL, one KRaft Kafka
-broker, Kafka Connect, the HTTP API, a separate ClueCDC background worker, and
-the web UI. Source/destination databases and MinIO are integration fixtures only.
-
-The metadata schema uses a clean baseline with a data-preserving upgrade bridge
-for prototype revision `5e2d8a9f1c30`. Back up existing metadata before upgrading;
-other old revisions require a fresh database. See the [migration decision](docs/development/migrations.md).
-
-Optional developer tooling:
-
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d
-```
-
-Integration and E2E fixtures:
-
-```bash
-docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
-```
-
-The example secrets are for loopback-only development. Generate unique local
-values before retaining or sharing data:
+The copied values are safe only for loopback local development. Generate unique
+local secrets before retaining data:
 
 ```bash
 python scripts/bootstrap.py
 ```
+
+Configuration is documented in [.env.example](.env.example) and the
+[operations guide](docs/operations/configuration.md). Critical secrets are
+required, and production mode rejects developer authentication and example keys.
+
+## Deployment and documentation
+
+The default Compose stack contains only runtime services. Development inspection
+tools use `compose.dev.yaml`; PostgreSQL/MySQL/MinIO integration fixtures use
+`compose.test.yaml`. See the [Compose guide](docs/getting-started/docker-compose.md),
+[production considerations](docs/deployment/production.md), and
+[Kubernetes baseline](docs/deployment/kubernetes.md).
+
+Full documentation is at <https://cluedata.github.io/cluecdc/> and in [docs](docs/).
+Start with the [architecture](docs/architecture/overview.md) and
+[first pipeline](docs/getting-started/first-pipeline.md).
 
 ## Development
 
@@ -100,25 +97,26 @@ Use Node.js 24 and Python 3.12.
 ```bash
 npm ci
 python -m pip install -e "apps/api[dev]"
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run build
+npm run verify
+python -m ruff check apps/api scripts
+python -m mypy --config-file apps/api/pyproject.toml apps/api/app
 mkdocs build --strict
 ```
 
-See the [architecture](docs/architecture/overview.md),
-[Docker deployment](docs/getting-started/docker-compose.md),
-[Kubernetes deployment](docs/deployment/kubernetes.md), and
-[contribution guide](CONTRIBUTING.md).
+Run `python scripts/release-check.py --allow-dirty` for the complete local
+release gate. It validates and builds but never tags, publishes, or pushes.
 
-## Security and support
+## Roadmap
 
-Do not open a public issue for a vulnerability. Follow [SECURITY.md](SECURITY.md).
-For usage and contribution expectations, see [SUPPORT.md](SUPPORT.md) and
-[GOVERNANCE.md](GOVERNANCE.md).
+Priorities before `v1.0.0` are production identity/SSO, TLS and external-secret
+integration, broader Kafka security support, HA deployment guidance, and more
+connector coverage. Planned work is not presented as current functionality.
 
-## License
+## Project policies
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Report
+vulnerabilities privately according to [SECURITY.md](SECURITY.md). Releases use
+Semantic Versioning and are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+ClueCDC is licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE)
+for bundled attribution.

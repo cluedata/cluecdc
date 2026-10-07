@@ -50,13 +50,13 @@ Debezium control notifications, not table CDC records.
 
 ## Dependency audit limitation
 
-On 2026-10-05, the full `npm audit --audit-level=high` reports the unpatched
+On 2026-10-07, the full `npm audit --audit-level=high` reports the unpatched
 `braces` stack-exhaustion issue through Next.js's development-only ESLint /
 fast-glob dependency chain. The [upstream advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
 lists no patched version; npm's forced fix downgrades the Next ESLint integration
-to an incompatible older major. No forced downgrade or audit allowlist was
-applied. The full dependency-audit check remains available in manually opted-in
-full CI; automatic documentation-only CI does not run it. The check will fail
-until a compatible fix is available or maintainers explicitly decide a
-documented policy. Runtime and development dependency exposure must be assessed
-separately; do not treat functional verification as a clean vulnerability audit.
+to an incompatible older major. No forced downgrade or hidden allowlist is
+applied. CI blocks high findings in production dependencies and critical
+findings in the complete dependency tree. The full high-threshold scan remains
+documented evidence and will fail until upstream publishes a compatible fix.
+Runtime and development exposure are assessed separately; functional
+verification is not treated as a clean vulnerability audit.
