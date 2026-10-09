@@ -6,6 +6,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 
 - Added local email/password authentication with Argon2id, server-side HttpOnly
@@ -29,6 +31,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 - Mapped compatibility developer-mode authorization to a persistent active
   Admin so user invitations always have a valid creator.
+- Normalized the unique email and authentication-token indexes so Alembic drift
+  checks agree with PostgreSQL metadata after upgrading.
 
 ## [0.1.0]
 
@@ -82,5 +86,6 @@ All notable changes to ClueCDC are documented here. The format follows
 - Required token authentication and non-example secrets in production, bound
   local ports to loopback, and added repository, dependency, and secret scans.
 
-[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cluedata/cluecdc/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cluedata/cluecdc/releases/tag/v0.1.0

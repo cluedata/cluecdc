@@ -28,7 +28,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: web
-          image: ghcr.io/cluedata/cluecdc-web:0.1.0
+          image: ghcr.io/cluedata/cluecdc-web:0.2.0
           ports:
             - name: http
               containerPort: 3000

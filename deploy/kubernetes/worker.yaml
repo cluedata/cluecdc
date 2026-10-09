@@ -17,7 +17,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: worker
-          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          image: ghcr.io/cluedata/cluecdc-api:0.2.0
           command: ["python", "-m", "app.worker"]
           readinessProbe:
             exec: { command: ["python", "-m", "app.worker_health"] }

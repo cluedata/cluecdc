@@ -30,7 +30,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: migrate
-          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          image: ghcr.io/cluedata/cluecdc-api:0.2.0
           command: ["alembic", "upgrade", "head"]
           envFrom:
             - configMapRef: { name: cluecdc-config }
@@ -45,7 +45,7 @@ spec:
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: session-secret } }
       containers:
         - name: api
-          image: ghcr.io/cluedata/cluecdc-api:0.1.0
+          image: ghcr.io/cluedata/cluecdc-api:0.2.0
           command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
           ports:
             - name: http
