@@ -89,6 +89,7 @@ extra:
 
 nav:
   - Home: index.md
+  - Feature Matrix: features.md
   - Getting Started:
       - Introduction: getting-started/introduction.md
       - Prerequisites: getting-started/prerequisites.md
@@ -156,6 +157,7 @@ nav:
       - Pull Request Process: development/pull-requests.md
       - Releases: development/releases.md
       - Release Checklist: RELEASE_CHECKLIST.md
+      - v0.2.0 Release Notes: releases/v0.2.0.md
       - v0.1.0 Release Notes: releases/v0.1.0.md
       - Open-source Audit: development/open-source-audit.md
   - Troubleshooting:

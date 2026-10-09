@@ -4,6 +4,7 @@ import type { Destination, PipelineDetail } from "@cluecdc/contracts";
 import { Button } from "@cluecdc/ui";
 import { Panel, QuietState } from "./operational";
 import { DataFlowRail } from "./data-flow-rail";
+import { useAuthorization } from "@/lib/auth";
 
 export function DataFlow({
   pipeline,
@@ -12,6 +13,7 @@ export function DataFlow({
   pipeline: PipelineDetail;
   state: string;
 }) {
+  const { can, role } = useAuthorization();
   const destinations = pipeline.destinations || [];
   return (
     <section className="panel flow-panel">
@@ -22,11 +24,13 @@ export function DataFlow({
             Independent capture and downstream delivery runtimes.
           </p>
         </div>
-        <Button asChild variant="outline">
-          <Link href={`/deliveries/new?pipeline_id=${pipeline.id}`}>
-            + Add delivery
-          </Link>
-        </Button>
+        {can("deliveries.write") && (
+          <Button asChild variant="outline">
+            <Link href={`/deliveries/new?pipeline_id=${pipeline.id}`}>
+              + Add delivery
+            </Link>
+          </Button>
+        )}
       </div>
       <div className="detail-flow-rails">
         {(destinations.length ? destinations : [null]).map((delivery) => (
@@ -41,7 +45,9 @@ export function DataFlow({
                 name: pipeline.source.name,
                 detail: `${pipeline.source.type === "mysql" ? "MySQL" : "PostgreSQL"} / ${pipeline.source.database_name}`,
                 status: pipeline.source.status,
-                href: `/sources/${pipeline.source_id}`,
+                href: can("sources.read")
+                  ? `/sources/${pipeline.source_id}`
+                  : undefined,
               },
               {
                 label: "Capture",
@@ -55,7 +61,10 @@ export function DataFlow({
                 name: pipeline.kafka_cluster.name,
                 detail: `Apache Kafka · ${pipeline.tables.length} topics`,
                 status: pipeline.kafka_cluster.status,
-                href: `/kafka/topics?cluster=${pipeline.kafka_cluster_id}`,
+                href:
+                  role === "Admin"
+                    ? `/kafka/topics?cluster=${pipeline.kafka_cluster_id}`
+                    : undefined,
               },
               {
                 label: "Delivery",
@@ -66,7 +75,9 @@ export function DataFlow({
                 status: delivery?.actual_state || "NOT_CONFIGURED",
                 href: delivery
                   ? `/deliveries/${delivery.id}`
-                  : `/deliveries/new?pipeline_id=${pipeline.id}`,
+                  : can("deliveries.write")
+                    ? `/deliveries/new?pipeline_id=${pipeline.id}`
+                    : undefined,
               },
               {
                 label: "Destination",
@@ -76,8 +87,12 @@ export function DataFlow({
                   : "Select an endpoint",
                 status: delivery?.destination.status || "NOT_CONFIGURED",
                 href: delivery
-                  ? `/destinations/${delivery.destination_id}`
-                  : `/deliveries/new?pipeline_id=${pipeline.id}`,
+                  ? can("destinations.read")
+                    ? `/destinations/${delivery.destination_id}`
+                    : undefined
+                  : can("deliveries.write")
+                    ? `/deliveries/new?pipeline_id=${pipeline.id}`
+                    : undefined,
               },
             ]}
           />

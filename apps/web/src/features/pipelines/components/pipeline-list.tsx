@@ -21,6 +21,7 @@ import { pipelineColumns } from "./shared";
 
 export function PipelinesPage() {
   const { can } = useAuthorization();
+  const canReadSources = can("sources.read");
   const [sourceFilter, setSourceFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const params = useSearchParams();
@@ -28,6 +29,7 @@ export function PipelinesPage() {
   const sourceMetadata = useQuery({
     queryKey: ["sources"],
     queryFn: () => api<Source[]>("/sources"),
+    enabled: canReadSources,
   });
   const query = useQuery({
     queryKey: ["pipelines"],
@@ -99,18 +101,20 @@ export function PipelinesPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <select
-          aria-label="Pipeline source"
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-        >
-          <option value="">All sources</option>
-          {sourceMetadata.data?.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {canReadSources && (
+          <select
+            aria-label="Pipeline source"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+          >
+            <option value="">All sources</option>
+            {sourceMetadata.data?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           aria-label="Pipeline health"
           value={stateFilter}
@@ -133,7 +137,7 @@ export function PipelinesPage() {
           {filtered.length} of {query.data?.length || 0} pipelines
         </span>
       </FilterBar>
-      {sourceMetadata.isError && (
+      {canReadSources && sourceMetadata.isError && (
         <ErrorPanel
           error={sourceMetadata.error}
           retry={() => sourceMetadata.refetch()}

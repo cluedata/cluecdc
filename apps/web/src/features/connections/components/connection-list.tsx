@@ -22,12 +22,20 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { categoryCopy, providerName } from "./shared";
+import { useAuthorization } from "@/lib/auth";
 
 export function ConnectionsPage({
   capability,
 }: {
   capability?: "SOURCE" | "DESTINATION";
 } = {}) {
+  const { can } = useAuthorization();
+  const writePermission =
+    capability === "SOURCE" ? "sources.write" : "destinations.write";
+  const adminPermission =
+    capability === "SOURCE" ? "sources.admin" : "destinations.admin";
+  const canWrite = can(writePermission);
+  const canDelete = can(adminPermission);
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<ConnectionCategory | "ALL">("ALL");
   const [search, setSearch] = useState("");
@@ -102,29 +110,33 @@ export function ConnectionsPage({
             className="row-actions"
             onClick={(event) => event.stopPropagation()}
           >
-            <Button
-              variant="ghost"
-              disabled={test.isPending}
-              onClick={() => test.mutate(row.original.id)}
-            >
-              Test
-            </Button>
+            {canWrite && (
+              <Button
+                variant="ghost"
+                disabled={test.isPending}
+                onClick={() => test.mutate(row.original.id)}
+              >
+                Test
+              </Button>
+            )}
             <Button asChild variant="ghost">
               <Link href={`/connections/${row.original.id}`}>Open</Link>
             </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Delete ${row.original.name}`}
-              disabled={remove.isPending}
-              onClick={() => setDeleting(row.original)}
-            >
-              <Trash2 size={15} />
-            </Button>
+            {canDelete && (
+              <Button
+                variant="ghost"
+                aria-label={`Delete ${row.original.name}`}
+                disabled={remove.isPending}
+                onClick={() => setDeleting(row.original)}
+              >
+                <Trash2 size={15} />
+              </Button>
+            )}
           </div>
         ),
       },
     ],
-    [remove, test],
+    [canDelete, canWrite, remove, test],
   );
   if (connections.isPending) return <Loading />;
   if (connections.isError)
@@ -158,11 +170,13 @@ export function ConnectionsPage({
         }
         eyebrow="CONNECTIONS"
       >
-        <Button asChild>
-          <Link href="/connections/new">
-            <Plus size={16} /> New Connection
-          </Link>
-        </Button>
+        {canWrite && (
+          <Button asChild>
+            <Link href="/connections/new">
+              <Plus size={16} /> New Connection
+            </Link>
+          </Button>
+        )}
       </PageHeader>
       <div className="filter-bar connection-filter-bar">
         <div className="tabs" role="tablist" aria-label="Connection category">
@@ -231,30 +245,32 @@ export function ConnectionsPage({
         <Empty
           title="No connections"
           description="Add a database or object storage connection."
-          href="/connections/new"
-          action="Add connection"
+          href={canWrite ? "/connections/new" : undefined}
+          action={canWrite ? "Add connection" : undefined}
         />
       )}
-      <Dialog
-        open={!!deleting}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete connection?"
-        description="This is blocked while pipelines or deliveries use the connection. Stored credentials will also be removed."
-      >
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setDeleting(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={remove.isPending}
-            onClick={() => deleting && remove.mutate(deleting.id)}
-          >
-            Delete connection
-          </Button>
-        </div>
-        {remove.isError && <ErrorPanel error={remove.error} />}
-      </Dialog>
+      {canDelete && (
+        <Dialog
+          open={!!deleting}
+          onOpenChange={(open) => !open && setDeleting(null)}
+          title="Delete connection?"
+          description="This is blocked while pipelines or deliveries use the connection. Stored credentials will also be removed."
+        >
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => deleting && remove.mutate(deleting.id)}
+            >
+              Delete connection
+            </Button>
+          </div>
+          {remove.isError && <ErrorPanel error={remove.error} />}
+        </Dialog>
+      )}
     </>
   );
 }

@@ -13,13 +13,23 @@ The default `compose.yaml` is the smallest practical ClueCDC runtime:
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+python scripts/bootstrap.py
+docker compose up -d --build --wait
 docker compose ps
 ```
 
 Open `http://localhost:3000`. Containers communicate over the Compose network
 using service names; for example, Kafka Connect resolves secrets through
 `http://cluecdc-api:8000`.
+
+Sign in to the loopback-only development stack with the public demo account:
+
+```text
+Email:    admin@cluecdc.local
+Password: cluecdc-admin
+```
+
+This account is not suitable for a shared or production deployment.
 
 ## Developer tools
 

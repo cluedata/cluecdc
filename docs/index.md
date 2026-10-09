@@ -16,10 +16,16 @@ Kafka Connect.
 
 - PostgreSQL and MySQL source discovery and CDC readiness.
 - Debezium source connector configuration and lifecycle.
-- Kafka clusters, topics, partitions, and bounded event inspection.
+- Kafka clusters, topic/partition/offset metadata, and consumer groups.
 - PostgreSQL and MySQL JDBC deliveries with explicit table mappings.
-- Kafka Connect connector and task status.
-- Alerts, audit records, encrypted secret references, and application metrics.
+- AWS S3 and MinIO JSONL deliveries through the Aiven S3 sink.
+- Kafka Connect plugins, connectors, tasks, and independent delivery lifecycle.
+- Local users and sessions, three-role authorization, alerts, audit records,
+  encrypted secret references, health endpoints, and application metrics.
+
+See the [current feature matrix](features.md) for the complete implemented
+surface and explicit product boundaries. CDC payloads never pass through the
+ClueCDC API; topic inspection is metadata-only.
 
 ## Control plane and data plane
 
@@ -36,8 +42,8 @@ flowchart LR
 flowchart LR
   Source[(Source Database)] --> DBZ[Debezium Source Connector]
   DBZ --> Kafka[(Kafka CDC Topics)]
-  Kafka --> Sink[JDBC Sink Connector]
-  Sink --> Destination[(Destination Database)]
+  Kafka --> Sink[JDBC or S3 Sink Connector]
+  Sink --> Destination[(Database / AWS S3 / MinIO)]
 ```
 
 Debezium runs inside Kafka Connect. The API is never inserted into record
@@ -45,10 +51,12 @@ transport.
 
 ## Supported connectors
 
-| Database | Source capture | Destination delivery | Connection test |
+| System | Source capture | Destination delivery | Connection test |
 | --- | --- | --- | --- |
 | PostgreSQL | Supported | Supported | Supported |
 | MySQL | Supported | Supported | Supported |
+| AWS S3 | No | Supported | Supported |
+| MinIO | No | Supported | Supported |
 
 ## Start locally
 
@@ -56,11 +64,13 @@ transport.
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
 cp .env.example .env
-docker compose up -d --build
+python scripts/bootstrap.py
+docker compose up -d --build --wait
 ```
 
-Open `http://localhost:3000`. The default stack contains only the five core
-runtime services. Developer tools and integration fixtures are separate Compose
-overrides.
+Open `http://localhost:3000/login` and sign in with
+`admin@cluecdc.local` / `cluecdc-admin`. This public account is only for the
+loopback development stack. The default stack contains six runtime services;
+developer tools and integration fixtures are separate Compose overrides.
 
 Next: [create your first pipeline](getting-started/first-pipeline.md).

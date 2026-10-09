@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Dialog, Input } from "@cluecdc/ui";
-import { Copy, UserPlus, Users } from "lucide-react";
+import { Copy, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { api, date } from "@/lib/api";
 import { ErrorPanel, Field, Loading, PageHeader } from "@/components/common";
+import { useAuthorization } from "@/lib/auth";
 
 type Role = "ADMIN" | "OPS" | "VIEWER";
 type User = {
@@ -19,11 +20,13 @@ type User = {
 };
 
 export function UsersPage() {
+  const { session } = useAuthorization();
   const cache = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("OPS");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [deleting, setDeleting] = useState<User | null>(null);
   const users = useQuery({
     queryKey: ["users"],
     queryFn: () => api<User[]>("/users"),
@@ -62,6 +65,17 @@ export function UsersPage() {
       toast.success(
         variables.action === "disable" ? "User disabled" : "User enabled",
       );
+      cache.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      api(`/users/${id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      toast.success("User deleted");
+      setDeleting(null);
       cache.invalidateQueries({ queryKey: ["users"] });
     },
   });
@@ -143,29 +157,42 @@ export function UsersPage() {
                     <td>{date(user.last_login_at)}</td>
                     <td>{date(user.created_at)}</td>
                     <td>
-                      {user.status === "DISABLED" ? (
-                        <Button
-                          variant="outline"
-                          disabled={status.isPending}
-                          onClick={() =>
-                            status.mutate({ id: user.id, action: "enable" })
-                          }
-                        >
-                          Enable
-                        </Button>
-                      ) : (
+                      <div className="row-actions">
+                        {user.status === "DISABLED" ? (
+                          <Button
+                            variant="outline"
+                            disabled={status.isPending}
+                            onClick={() =>
+                              status.mutate({ id: user.id, action: "enable" })
+                            }
+                          >
+                            Enable
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            disabled={
+                              status.isPending || user.status === "INVITED"
+                            }
+                            onClick={() =>
+                              status.mutate({ id: user.id, action: "disable" })
+                            }
+                          >
+                            Disable
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
+                          aria-label={`Delete ${user.email}`}
                           disabled={
-                            status.isPending || user.status === "INVITED"
+                            remove.isPending ||
+                            user.email === session.data?.email
                           }
-                          onClick={() =>
-                            status.mutate({ id: user.id, action: "disable" })
-                          }
+                          onClick={() => setDeleting(user)}
                         >
-                          Disable
+                          <Trash2 size={15} />
                         </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -182,6 +209,29 @@ export function UsersPage() {
           </div>
         </section>
       )}
+      <Dialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Delete user?"
+        description="The account, active sessions, and pending invite for this email will be permanently removed."
+      >
+        <p>
+          Delete <strong>{deleting?.email}</strong>?
+        </p>
+        <div className="dialog-actions">
+          <Button variant="outline" onClick={() => setDeleting(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={remove.isPending}
+            onClick={() => deleting && remove.mutate(deleting.id)}
+          >
+            Delete user
+          </Button>
+        </div>
+        {remove.isError && <ErrorPanel error={remove.error} />}
+      </Dialog>
       <Dialog
         open={inviteOpen}
         onOpenChange={(open) => (open ? setInviteOpen(true) : closeInvite())}

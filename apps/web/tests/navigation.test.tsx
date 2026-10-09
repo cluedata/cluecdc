@@ -1,10 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Shell } from "../src/components/shell";
 
+const navigationState = vi.hoisted(() => ({
+  pathname: "/connect/clusters",
+  role: "Admin" as "Admin" | "Ops" | "Viewer",
+  permissions: ["*"],
+}));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/connect/clusters",
+  usePathname: () => navigationState.pathname,
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
@@ -16,10 +22,10 @@ vi.mock("../src/lib/api", () => ({
     if (path === "/session") {
       return {
         actor: "tester",
-        role: "Admin",
+        role: navigationState.role,
         environment: "test",
         auth_mode: "developer",
-        permissions: ["*"],
+        permissions: navigationState.permissions,
       };
     }
     return [];
@@ -28,7 +34,13 @@ vi.mock("../src/lib/api", () => ({
 }));
 
 describe("main navigation", () => {
-  it("groups pipeline-centric resources under clear headings", () => {
+  beforeEach(() => {
+    navigationState.pathname = "/connect/clusters";
+    navigationState.role = "Admin";
+    navigationState.permissions = ["*"];
+  });
+
+  it("groups pipeline-centric resources under clear headings", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -41,7 +53,7 @@ describe("main navigation", () => {
       </QueryClientProvider>,
     );
 
-    const dataFlow = screen.getByRole("region", {
+    const dataFlow = await screen.findByRole("region", {
       name: "Data Flow",
     });
     expect(
@@ -85,6 +97,60 @@ describe("main navigation", () => {
       screen.queryByRole("link", { name: "API Reference" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Clue workspace")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      role: "Viewer" as const,
+      permissions: ["overview.read", "pipelines.read", "deliveries.read"],
+      visible: ["Overview", "Pipelines", "Deliveries"],
+      hidden: ["Sources", "Destinations", "Monitoring", "Settings"],
+    },
+    {
+      role: "Ops" as const,
+      permissions: [
+        "overview.read",
+        "pipelines.read",
+        "pipelines.write",
+        "deliveries.read",
+        "deliveries.write",
+        "sources.read",
+        "destinations.read",
+      ],
+      visible: [
+        "Overview",
+        "Pipelines",
+        "Deliveries",
+        "Sources",
+        "Destinations",
+      ],
+      hidden: ["Monitoring", "Alerts", "Settings"],
+    },
+  ])("only shows authorized navigation for $role", async (value) => {
+    navigationState.pathname = "/overview";
+    navigationState.role = value.role;
+    navigationState.permissions = value.permissions;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <Shell>
+          <div>Page content</div>
+        </Shell>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "Overview" }),
+    ).toBeInTheDocument();
+    value.visible.forEach((name) =>
+      expect(screen.getByRole("link", { name })).toBeInTheDocument(),
+    );
+    value.hidden.forEach((name) =>
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument(),
+    );
   });
 
   it("switches between dark and light themes and persists the choice", () => {

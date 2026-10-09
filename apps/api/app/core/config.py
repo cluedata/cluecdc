@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     auth_mode: Literal["developer", "token", "session"] = "session"
     # JSON mapping SHA256(token) -> {actor, role}; raw tokens are never stored.
     auth_tokens_json: str = "{}"
+    bootstrap_default_admin: bool = False
+    default_admin_email: str = "admin@cluecdc.local"
+    default_admin_password: SecretStr = SecretStr("cluecdc-admin")
     session_secret: SecretStr = SecretStr("development-session-secret-change-me-0001")
     session_ttl_seconds: int = Field(default=28800, ge=300, le=2592000)
     invite_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
@@ -36,6 +39,8 @@ class Settings(BaseSettings):
         if len(self.connect_secret_token.get_secret_value()) < 32:
             raise ValueError("Connect secret service token must be at least 32 characters")
         session_secret = self.session_secret.get_secret_value()
+        if self.environment != "development" and self.bootstrap_default_admin:
+            raise ValueError("The public default Admin is allowed only in development")
         if self.environment == "production" and (
             encryption_key == "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
             or self.connect_secret_token.get_secret_value()

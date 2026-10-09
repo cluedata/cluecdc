@@ -1,13 +1,27 @@
 # Authentication
 
-ClueCDC v0.2 uses local email-and-password accounts created through administrator
+ClueCDC uses local email-and-password accounts created through administrator
 invites. It does not include SSO, OAuth, OIDC, LDAP, SAML, groups, or custom
 roles.
 
-## Bootstrap the first administrator
+## Public development account
 
-Apply the database migration, then run the interactive command from the API
-environment:
+The default development Compose configuration creates one public demo account
+after migrations finish:
+
+```text
+Email:    admin@cluecdc.local
+Password: cluecdc-admin
+```
+
+Creation is idempotent and never resets an existing account's password. This is
+only for a local demo: do not expose it to a network or promote its metadata
+database to production.
+
+## Bootstrap a production administrator
+
+Set `BOOTSTRAP_DEFAULT_ADMIN=false`, apply the database migration, then run the
+interactive command from the API environment:
 
 ```bash
 python -m app.cli create-admin --email admin@example.com
@@ -19,8 +33,8 @@ The command securely prompts for the password and confirmation. For Compose:
 docker compose exec cluecdc-api python -m app.cli create-admin --email admin@example.com
 ```
 
-Passwords must contain at least 12 characters. ClueCDC stores an Argon2id hash,
-never the password. No default account or password is created.
+Passwords must contain at least 8 characters. ClueCDC stores an Argon2id hash,
+never the password. Production startup rejects the public development bootstrap.
 
 ## Browser sessions
 
@@ -40,6 +54,7 @@ Set these values before starting the production API:
 
 ```env
 AUTH_MODE=session
+BOOTSTRAP_DEFAULT_ADMIN=false
 SESSION_SECRET=<at-least-32-random-characters>
 SESSION_TTL_SECONDS=28800
 INVITE_TTL_SECONDS=86400

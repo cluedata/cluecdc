@@ -30,35 +30,59 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { AlertSummary } from "@cluecdc/contracts";
 import { api, ApiError, relativeTime } from "@/lib/api";
+import { hasPermission, requiredPermissionForPath } from "@/lib/auth";
 type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  adminOnly?: boolean;
+  permission: string;
 };
 const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "overview",
     label: "Overview",
-    items: [{ label: "Overview", href: "/overview", icon: LayoutDashboard }],
+    items: [
+      {
+        label: "Overview",
+        href: "/overview",
+        icon: LayoutDashboard,
+        permission: "overview.read",
+      },
+    ],
   },
   {
     id: "data-flow",
     label: "Data Flow",
     items: [
-      { label: "Pipelines", href: "/pipelines", icon: GitBranch },
-      { label: "Deliveries", href: "/deliveries", icon: Send },
+      {
+        label: "Pipelines",
+        href: "/pipelines",
+        icon: GitBranch,
+        permission: "pipelines.read",
+      },
+      {
+        label: "Deliveries",
+        href: "/deliveries",
+        icon: Send,
+        permission: "deliveries.read",
+      },
     ],
   },
   {
     id: "connections",
     label: "Connections",
     items: [
-      { label: "Sources", href: "/sources", icon: Database },
+      {
+        label: "Sources",
+        href: "/sources",
+        icon: Database,
+        permission: "sources.read",
+      },
       {
         label: "Destinations",
         href: "/destinations",
         icon: Workflow,
+        permission: "destinations.read",
       },
     ],
   },
@@ -66,31 +90,49 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     id: "infrastructure",
     label: "Infrastructure",
     items: [
-      { label: "Kafka Clusters", href: "/kafka/clusters", icon: Radio },
-      { label: "Topics", href: "/kafka/topics", icon: Table2 },
+      {
+        label: "Kafka Clusters",
+        href: "/kafka/clusters",
+        icon: Radio,
+        permission: "*",
+      },
+      { label: "Topics", href: "/kafka/topics", icon: Table2, permission: "*" },
       {
         label: "Consumer Groups",
         href: "/kafka/consumer-groups",
         icon: FileJson,
+        permission: "*",
       },
-      { label: "Connect Clusters", href: "/connect/clusters", icon: Box },
+      {
+        label: "Connect Clusters",
+        href: "/connect/clusters",
+        icon: Box,
+        permission: "*",
+      },
     ],
   },
   {
     id: "operations",
     label: "Operations",
     items: [
-      { label: "Monitoring", href: "/monitoring", icon: Activity },
-      { label: "Alerts", href: "/alerts", icon: Bell },
+      {
+        label: "Monitoring",
+        href: "/monitoring",
+        icon: Activity,
+        permission: "*",
+      },
+      { label: "Alerts", href: "/alerts", icon: Bell, permission: "*" },
       {
         label: "Error Center",
         href: "/operations/errors",
         icon: AlertCircle,
+        permission: "*",
       },
       {
         label: "Audit Trail",
         href: "/operations/audit",
         icon: FileClock,
+        permission: "*",
       },
     ],
   },
@@ -98,13 +140,13 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     id: "system",
     label: "System",
     items: [
-      { label: "Settings", href: "/settings", icon: Settings },
-      { label: "Users", href: "/settings/users", icon: Users, adminOnly: true },
+      { label: "Settings", href: "/settings", icon: Settings, permission: "*" },
+      { label: "Users", href: "/settings/users", icon: Users, permission: "*" },
       {
         label: "Security",
         href: "/settings/security",
         icon: ShieldCheck,
-        adminOnly: true,
+        permission: "*",
       },
     ],
   },
@@ -151,6 +193,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         role: string;
         environment: string;
         auth_mode: string;
+        permissions: string[];
       }>("/session"),
     staleTime: 30000,
     enabled: !publicPage,
@@ -158,7 +201,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const incidents = useQuery({
     queryKey: ["alert-summary"],
     queryFn: () => api<AlertSummary>("/alerts/summary"),
-    enabled: !publicPage && session.isSuccess,
+    enabled: !publicPage && session.data?.role === "Admin",
     refetchInterval: 30000,
   });
   const openCount = incidents.data?.active_count;
@@ -186,6 +229,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [publicPage, router, session.error]);
+  const requiredPermission = requiredPermissionForPath(path);
+  const authorized =
+    requiredPermission === null ||
+    hasPermission(session.data?.permissions, requiredPermission);
+  useEffect(() => {
+    if (!publicPage && session.isSuccess && !authorized) {
+      router.replace("/overview");
+    }
+  }, [authorized, publicPage, router, session.isSuccess]);
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nextTheme;
@@ -200,8 +252,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const current = group?.items.find(
     (item) => path === item.href || path.startsWith(item.href + "/"),
   );
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        hasPermission(session.data?.permissions, item.permission),
+      ),
+    }))
+    .filter((group) => group.items.length);
   const close = () => setMobile(false);
   if (publicPage) return <>{children}</>;
+  if (session.isSuccess && !authorized) return null;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -234,42 +295,56 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </button>
         <nav aria-label="Main navigation">
           <div className="signal-navigation">
-            {groups.map((group) => (
+            {visibleGroups.map((group) => (
               <section
                 className="sidebar-group"
                 key={group.id}
                 aria-labelledby={`nav-${group.id}`}
               >
                 <h2 id={`nav-${group.id}`}>{group.label}</h2>
-                {group.items
-                  .filter(
-                    (item) => !item.adminOnly || session.data?.role === "Admin",
-                  )
-                  .map((item) => (
-                    <SidebarItem
-                      key={item.href}
-                      item={item}
-                      path={path}
-                      onNavigate={close}
-                    />
-                  ))}
+                {group.items.map((item) => (
+                  <SidebarItem
+                    key={item.href}
+                    item={item}
+                    path={path}
+                    onNavigate={close}
+                  />
+                ))}
               </section>
             ))}
           </div>
         </nav>
         <div className="sidebar-bottom">
-          <Link href="/settings" className="user">
-            <span className="avatar">
-              {session.data?.actor.slice(0, 2).toUpperCase() || "?"}
-            </span>
-            <div>
-              <strong>
-                {session.data?.actor || "Authentication required"}
-              </strong>
-              <small>{session.data?.role || "Open Settings to sign in"}</small>
+          {session.data?.role === "Admin" ? (
+            <Link href="/settings" className="user">
+              <span className="avatar">
+                {session.data?.actor.slice(0, 2).toUpperCase() || "?"}
+              </span>
+              <div>
+                <strong>
+                  {session.data?.actor || "Authentication required"}
+                </strong>
+                <small>
+                  {session.data?.role || "Open Settings to sign in"}
+                </small>
+              </div>
+              <Settings size={15} />
+            </Link>
+          ) : (
+            <div className="user">
+              <span className="avatar">
+                {session.data?.actor.slice(0, 2).toUpperCase() || "?"}
+              </span>
+              <div>
+                <strong>
+                  {session.data?.actor || "Authentication required"}
+                </strong>
+                <small>
+                  {session.data?.role || "Open Settings to sign in"}
+                </small>
+              </div>
             </div>
-            <Settings size={15} />
-          </Link>
+          )}
         </div>
       </aside>
       <div className="main-shell">
@@ -308,62 +383,64 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </strong>
             </span>
           </div>
-          <div className="alert-indicator">
-            <button
-              className="icon-button notifications"
-              aria-label={`Recent alerts${openCount === undefined ? "" : `: ${openCount} active`}`}
-              aria-expanded={alertsOpen}
-              onClick={() => setAlertsOpen((value) => !value)}
-              title="Recent alerts"
-            >
-              <Bell size={17} />
-              {!!openCount && (
-                <span className="notification-count">
-                  {openCount > 99 ? "99+" : openCount}
-                </span>
-              )}
-            </button>
-            {alertsOpen && (
-              <div className="recent-alerts-popover">
-                <div className="recent-alerts-heading">
-                  <strong>Recent alerts</strong>
-                  <small>{openCount || 0} active</small>
-                </div>
-                {incidents.data?.recent.length ? (
-                  incidents.data.recent.map((alert) => (
-                    <Link
-                      href={`/alerts/${alert.id}`}
-                      key={alert.id}
-                      onClick={() => setAlertsOpen(false)}
-                    >
-                      <span
-                        className={`alert-severity-dot ${alert.severity}`}
-                      />
-                      <span>
-                        <strong>
-                          {alert.pipeline_name ||
-                            alert.source_name ||
-                            alert.title}
-                        </strong>
-                        <small>
-                          {alert.title} · {relativeTime(alert.last_seen_at)}
-                        </small>
-                      </span>
-                    </Link>
-                  ))
-                ) : (
-                  <p>Everything is running normally.</p>
+          {session.data?.role === "Admin" && (
+            <div className="alert-indicator">
+              <button
+                className="icon-button notifications"
+                aria-label={`Recent alerts${openCount === undefined ? "" : `: ${openCount} active`}`}
+                aria-expanded={alertsOpen}
+                onClick={() => setAlertsOpen((value) => !value)}
+                title="Recent alerts"
+              >
+                <Bell size={17} />
+                {!!openCount && (
+                  <span className="notification-count">
+                    {openCount > 99 ? "99+" : openCount}
+                  </span>
                 )}
-                <Link
-                  href="/alerts"
-                  className="view-all-alerts"
-                  onClick={() => setAlertsOpen(false)}
-                >
-                  View all alerts
-                </Link>
-              </div>
-            )}
-          </div>
+              </button>
+              {alertsOpen && (
+                <div className="recent-alerts-popover">
+                  <div className="recent-alerts-heading">
+                    <strong>Recent alerts</strong>
+                    <small>{openCount || 0} active</small>
+                  </div>
+                  {incidents.data?.recent.length ? (
+                    incidents.data.recent.map((alert) => (
+                      <Link
+                        href={`/alerts/${alert.id}`}
+                        key={alert.id}
+                        onClick={() => setAlertsOpen(false)}
+                      >
+                        <span
+                          className={`alert-severity-dot ${alert.severity}`}
+                        />
+                        <span>
+                          <strong>
+                            {alert.pipeline_name ||
+                              alert.source_name ||
+                              alert.title}
+                          </strong>
+                          <small>
+                            {alert.title} · {relativeTime(alert.last_seen_at)}
+                          </small>
+                        </span>
+                      </Link>
+                    ))
+                  ) : (
+                    <p>Everything is running normally.</p>
+                  )}
+                  <Link
+                    href="/alerts"
+                    className="view-all-alerts"
+                    onClick={() => setAlertsOpen(false)}
+                  >
+                    View all alerts
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
           <button
             type="button"
             className="icon-button theme-toggle"

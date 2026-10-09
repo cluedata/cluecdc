@@ -26,6 +26,8 @@ facing production deployment. Production operators must:
 
 - use local session authentication with a unique `SESSION_SECRET` and unique
   encryption/service/database secrets;
+- set `BOOTSTRAP_DEFAULT_ADMIN=false`; the public development account must never
+  be enabled or carried into production;
 - bootstrap a named Admin, disable departed users promptly, and assign Ops or
   Viewer unless administrative access is required;
 - terminate TLS and keep API, Connect, brokers, and databases on private networks;

@@ -16,9 +16,10 @@ python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
 
-The bootstrap step replaces documented development values with unique local
-secrets. See [local development](docs/development/setup.md) for host-based API
-and web workflows.
+The bootstrap step replaces infrastructure and cryptographic examples with
+unique local secrets while preserving the public loopback-only development
+Admin login. See [local development](docs/development/setup.md) for host-based
+API and web workflows.
 
 ## Architecture
 

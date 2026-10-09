@@ -28,6 +28,7 @@ secret_values = [
         "METADATA_PASSWORD",
         "SECRET_ENCRYPTION_KEY",
         "SESSION_SECRET",
+        "DEFAULT_ADMIN_PASSWORD",
         "CONNECT_SECRET_TOKEN",
         "MINIO_ACCESS_KEY",
         "MINIO_SECRET_KEY",

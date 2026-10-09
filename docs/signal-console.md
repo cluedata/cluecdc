@@ -19,9 +19,10 @@ height and scroll within the table at narrow widths.
 
 ## Shared components
 
-- `Shell`: 184px navigation, continuous signal rail, compact command bar and
-  mobile drawer. Connect clusters and connectors remain reachable after Audit;
-  Settings and API Reference stay at the bottom.
+- `Shell`: 232px role-aware navigation, continuous signal rail, compact command
+  bar and mobile drawer. It groups Overview, Data Flow, Connections,
+  Infrastructure, Operations, and System, hiding groups and actions that the
+  current Viewer or Ops role cannot access.
 - `InventoryStrip`: resource counts derived from each page's existing query.
   Incident counts describe the currently matching results.
 - `StatusBadge`: status text and a small colored dot; color is never the only
@@ -48,7 +49,8 @@ Missing throughput and lag remain unavailable. Error rate and event freshness
 are also unavailable because the existing Overview API does not measure them.
 Open incident counts are not converted into an event error rate. The destination
 detail rail labels Kafka health unknown because its data does not observe broker
-health. Historical metrics remain accessible on Monitoring.
+health. Monitoring exposes current runtime observations and clearly marks
+historical metrics unavailable until a metrics provider is configured.
 
 ## Verification
 

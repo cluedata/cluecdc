@@ -15,8 +15,11 @@ import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { categoryCopy, providerName } from "./shared";
+import { useAuthorization } from "@/lib/auth";
 
 export function ConnectionDetailPage({ id }: { id: string }) {
+  const { can } = useAuthorization();
+  const canWrite = can("destinations.write");
   const queryClient = useQueryClient();
   const [checks, setChecks] = useState<ConnectionTestResult | null>(null);
   const connection = useQuery({
@@ -40,13 +43,17 @@ export function ConnectionDetailPage({ id }: { id: string }) {
         description={value.description || providerName(value.provider)}
         eyebrow={`CONNECTIONS / ${categoryCopy[value.category].title.toUpperCase()}`}
       >
-        <Button asChild variant="outline">
-          <Link href={`/connections/${id}/edit`}>Edit</Link>
-        </Button>
-        <Button disabled={test.isPending} onClick={() => test.mutate()}>
-          Test Connection
-        </Button>
-        {value.category === "OBJECT_STORAGE" && (
+        {canWrite && (
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/connections/${id}/edit`}>Edit</Link>
+            </Button>
+            <Button disabled={test.isPending} onClick={() => test.mutate()}>
+              Test Connection
+            </Button>
+          </>
+        )}
+        {value.category === "OBJECT_STORAGE" && can("deliveries.write") && (
           <Button asChild>
             <Link href={`/deliveries/new/object-storage?destination_id=${id}`}>
               Create delivery

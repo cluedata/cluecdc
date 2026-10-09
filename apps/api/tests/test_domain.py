@@ -72,6 +72,11 @@ def test_production_refuses_developer_auth():
         Settings(environment="production", auth_mode="developer")
 
 
+def test_default_admin_is_development_only():
+    with pytest.raises(ValidationError, match="public default Admin"):
+        Settings(environment="production", bootstrap_default_admin=True)
+
+
 def test_production_refuses_documented_example_secrets():
     with pytest.raises(ValidationError, match="example development secrets"):
         Settings(

@@ -23,8 +23,17 @@ function renderFor(role: "Viewer" | "Ops") {
           auth_mode: "session",
           permissions:
             role === "Ops"
-              ? ["pipelines.read", "pipelines.write", "pipelines.operate"]
-              : ["pipelines.read"],
+              ? [
+                  "overview.read",
+                  "pipelines.read",
+                  "pipelines.write",
+                  "pipelines.operate",
+                  "deliveries.read",
+                  "deliveries.write",
+                  "sources.read",
+                  "destinations.read",
+                ]
+              : ["overview.read", "pipelines.read", "deliveries.read"],
         });
       }
       if (url.endsWith("/sources") || url.endsWith("/pipelines")) {

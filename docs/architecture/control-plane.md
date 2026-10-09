@@ -23,19 +23,26 @@ claim/call/persist pattern.
 Config validation precedes pipeline persistence. Deployment validates again, creates the external connector without overwriting existing names, and persists the connector association. Persistence failure triggers compensating connector deletion. **There is an unavoidable crash/ambiguous-timeout window between an external REST side effect and metadata commit.** This release reports conflicts/unavailable results and logs failed compensation; automated orphan adoption and full outbox reconciliation are future work. Operators should inspect Connect inventory before retrying ambiguous deployments.
 
 Developer mode can assign an explicit local Admin principal for isolated tests.
-Production uses local email/password accounts and opaque browser sessions. Session
-digests are stored server-side and resolved to the current user on every request.
-Viewer has read access; Ops can create, update, and operate CDC resources; Admin
-also manages users, destructive administration, settings, and audit. External
+The development Compose stack instead uses an idempotently created public demo
+Admin; production rejects that bootstrap. Production uses local email/password
+accounts and opaque browser sessions. Session digests are stored server-side
+and resolved to the current user on every request. Viewer sees only Overview,
+Pipelines, and Deliveries. Ops additionally sees Sources and Destinations as
+read-only and can create, update, operate, and delete Pipelines and Deliveries.
+Admin has the complete workspace, infrastructure/settings access, destructive
+administration, and user invite/role/enable/disable/delete operations. External
 identity providers are later phases.
 
 Connection is the only endpoint table. Pipeline source and Delivery destination
 foreign keys reference canonical connections; legacy `/sources` and
 `/destinations` APIs adapt their shape without creating mirror rows. Database
 and object-storage delivery providers build distinct connector settings. Active
-associations block deletion and connection edits. Collection endpoints batch
-related resources and dependency counts. Ops has destination read/write/operate
-permissions; Viewer remains read-only. Errors
-retain destination/pipeline/connector associations and audited resolution.
+associations block deletion and sensitive connection edits. Collection
+endpoints batch related resources and dependency counts. Ops has read-only
+source/destination access plus delivery write/operate permissions; the UI hides
+standalone Kafka/Connect pages, while narrowly scoped read APIs let the pipeline
+wizard select existing infrastructure. Viewer does not receive source,
+destination, or infrastructure access. Errors retain
+destination/pipeline/connector associations and audited resolution.
 
 Schema versions hash canonical JSON of ordered columns and PKs. Diff rules: nullable column added = NON_BREAKING, required column added = POTENTIALLY_BREAKING, column removed = BREAKING, type changed = POTENTIALLY_BREAKING, nullable tightened = BREAKING, nullable relaxed = NON_BREAKING, PK changed = BREAKING. Discovery does not currently create a dropped-table schema tombstone.

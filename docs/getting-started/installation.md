@@ -10,9 +10,16 @@ python scripts/bootstrap.py
 docker compose up -d --build --wait --wait-timeout 240
 ```
 
-`bootstrap.py` replaces documented development credentials with unique local values. Keep `.env` private. Existing database volumes retain their original passwords, so changing `.env` is not a password-rotation procedure.
+`bootstrap.py` replaces infrastructure, encryption, and session examples with
+unique local values while preserving the documented public development Admin.
+It does not overwrite custom values. Keep `.env` private. Existing database
+volumes retain their original passwords, so changing `.env` is not a
+password-rotation procedure.
 
-Open the UI at <http://localhost:3000> and the API documentation at <http://localhost:8000/docs>.
+Open the UI at <http://localhost:3000/login> and sign in with
+`admin@cluecdc.local` / `cluecdc-admin`. This account is only for the
+loopback development stack. The API documentation is at
+<http://localhost:8000/docs>.
 
 ## Confirm readiness
 

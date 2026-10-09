@@ -42,6 +42,7 @@ import {
   Status,
 } from "./common";
 import { DataFlowRail } from "./data-flow-rail";
+import { useAuthorization } from "@/lib/auth";
 
 const steps = ["Source", "Capture", "Stream", "Delivery", "Review"];
 type DeliveryDraft = Omit<DeliveryCreateInput, "pipeline_id" | "mappings">;
@@ -60,6 +61,7 @@ const deliveryDefaults: DeliveryDraft = {
 };
 
 export function PipelineWizard() {
+  const { can } = useAuthorization();
   const router = useRouter();
   const params = useSearchParams();
   const [step, setStep] = useState(0);
@@ -240,9 +242,13 @@ export function PipelineWizard() {
             ) : !sources.data.length ? (
               <Empty
                 title="No sources registered"
-                description="Register a PostgreSQL or MySQL source before creating a pipeline."
-                href="/sources/new"
-                action="Create Source"
+                description={
+                  can("sources.write")
+                    ? "Register a PostgreSQL or MySQL source before creating a pipeline."
+                    : "Ask an Admin to register a PostgreSQL or MySQL source."
+                }
+                href={can("sources.write") ? "/sources/new" : undefined}
+                action={can("sources.write") ? "Create Source" : undefined}
               />
             ) : (
               <>
@@ -272,11 +278,13 @@ export function PipelineWizard() {
                     </label>
                   ))}
                 </div>
-                <Button asChild variant="outline">
-                  <Link href="/sources/new">
-                    <Plus size={14} /> Create New Source
-                  </Link>
-                </Button>
+                {can("sources.write") && (
+                  <Button asChild variant="outline">
+                    <Link href="/sources/new">
+                      <Plus size={14} /> Create New Source
+                    </Link>
+                  </Button>
+                )}
               </>
             ))}
 
@@ -513,11 +521,13 @@ export function PipelineWizard() {
                       ))}
                     </select>
                   </Field>
-                  <Button asChild variant="outline">
-                    <Link href="/destinations/new">
-                      <Plus size={14} /> Create New Destination
-                    </Link>
-                  </Button>
+                  {can("destinations.write") && (
+                    <Button asChild variant="outline">
+                      <Link href="/destinations/new">
+                        <Plus size={14} /> Create New Destination
+                      </Link>
+                    </Button>
+                  )}
                   <h3>Delivery Settings</h3>
                   <p className="muted">JDBC Sink · Powered by Kafka Connect</p>
                   <div className="form-grid">

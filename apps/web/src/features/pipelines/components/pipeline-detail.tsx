@@ -43,9 +43,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function PipelineDetailPage({ id }: { id: string }) {
-  const { can } = useAuthorization();
+  const { can, role } = useAuthorization();
   const canOperate = can("pipelines.operate");
   const canAdmin = can("pipelines.admin");
+  const canReadSources = can("sources.read");
+  const canAudit = can("audit.read");
   const router = useRouter();
   const client = useQueryClient();
   const [tab, setTab] = useState("Overview");
@@ -79,13 +81,13 @@ export function PipelineDetailPage({ id }: { id: string }) {
   const activity = useQuery({
     queryKey: ["audit", id],
     queryFn: () => api<Audit[]>(`/audit?resource_id=${id}`),
-    enabled: tab === "Activity",
+    enabled: canAudit && tab === "Activity",
   });
   const schemas = useQuery({
     queryKey: ["schemas", query.data?.source_id],
     queryFn: () =>
       api<SchemaVersion[]>(`/data/schemas?source_id=${query.data?.source_id}`),
-    enabled: tab === "Schema" && !!query.data,
+    enabled: canReadSources && tab === "Schema" && !!query.data,
   });
   const availableTables = useQuery({
     queryKey: ["source-tables", query.data?.source_id, tableSearch],
@@ -93,7 +95,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
       api<SourceTable[]>(
         `/sources/${query.data?.source_id}/tables?search=${encodeURIComponent(tableSearch)}`,
       ),
-    enabled: addTables && !!query.data,
+    enabled: canOperate && canReadSources && addTables && !!query.data,
   });
   const operations = useQuery({
     queryKey: ["pipeline-operations", id],
@@ -358,13 +360,13 @@ export function PipelineDetailPage({ id }: { id: string }) {
           "Tables",
           "Topics",
           "Snapshots",
-          "Events",
-          "Schema",
+          ...(role === "Admin" ? ["Events"] : []),
+          ...(canReadSources ? ["Schema"] : []),
           "Operations",
           "Connector",
           "Configuration",
           "Logs",
-          "Activity",
+          ...(canAudit ? ["Activity"] : []),
         ]}
         active={tab}
         onChange={setTab}
@@ -438,9 +440,16 @@ export function PipelineDetailPage({ id }: { id: string }) {
               <dl className="facts">
                 <dt>Source</dt>
                 <dd>
-                  <Link href={`/sources/${p.source_id}`} className="text-link">
-                    {p.source.name}
-                  </Link>
+                  {canReadSources ? (
+                    <Link
+                      href={`/sources/${p.source_id}`}
+                      className="text-link"
+                    >
+                      {p.source.name}
+                    </Link>
+                  ) : (
+                    p.source.name
+                  )}
                 </dd>
                 <dt>Kafka</dt>
                 <dd>{p.kafka_cluster.name}</dd>
@@ -487,7 +496,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
         <section className="section">
           <div className="section-heading">
             <h2>Deliveries</h2>
-            {canOperate && (
+            {can("deliveries.write") && (
               <Button asChild>
                 <Link href={`/deliveries/new?pipeline_id=${id}`}>
                   <Plus size={14} />
@@ -545,9 +554,11 @@ export function PipelineDetailPage({ id }: { id: string }) {
               title="No deliveries configured"
               description="A delivery moves these Kafka topics to a destination."
               href={
-                canOperate ? `/deliveries/new?pipeline_id=${id}` : undefined
+                can("deliveries.write")
+                  ? `/deliveries/new?pipeline_id=${id}`
+                  : undefined
               }
-              action={canOperate ? "Add delivery" : undefined}
+              action={can("deliveries.write") ? "Add delivery" : undefined}
             />
           )}
         </section>
@@ -585,14 +596,17 @@ export function PipelineDetailPage({ id }: { id: string }) {
             {
               accessorKey: "topic_name",
               header: "Kafka topic",
-              cell: ({ row }) => (
-                <Link
-                  href={`/kafka/topics/${encodeURIComponent(row.original.topic_name)}?cluster=${p.kafka_cluster_id}`}
-                  className="text-link"
-                >
-                  {row.original.topic_name}
-                </Link>
-              ),
+              cell: ({ row }) =>
+                role === "Admin" ? (
+                  <Link
+                    href={`/kafka/topics/${encodeURIComponent(row.original.topic_name)}?cluster=${p.kafka_cluster_id}`}
+                    className="text-link"
+                  >
+                    {row.original.topic_name}
+                  </Link>
+                ) : (
+                  row.original.topic_name
+                ),
             },
           ]}
         />
@@ -821,147 +835,151 @@ export function PipelineDetailPage({ id }: { id: string }) {
             ]}
           />
         ))}
-      <Dialog
-        open={addTables}
-        onOpenChange={setAddTables}
-        title="Add tables"
-        description="Extend this pipeline without replacing its connector, replication slot, publication, or offsets."
-      >
-        <div className="form-grid">
-          <label className="full-span">
-            Search source tables
-            <input
-              value={tableSearch}
-              onChange={(event) => setTableSearch(event.target.value)}
-              placeholder="schema or table"
-            />
-          </label>
-        </div>
-        {availableTables.isPending ? (
-          <Loading />
-        ) : availableTables.isError ? (
-          <ErrorPanel error={availableTables.error} />
-        ) : (
-          <div className="selection-list lifecycle-table-picker">
-            {availableTables.data
-              .filter(
-                (candidate) =>
-                  !p.tables.some(
-                    (current) =>
-                      current.schema_name === candidate.schema_name &&
-                      current.table_name === candidate.table_name,
-                  ),
-              )
-              .map((candidate) => (
-                <label
-                  key={candidate.id}
-                  className={`selection-card ${selectedTables.includes(candidate.id) ? "selected" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedTables.includes(candidate.id)}
-                    onChange={(event) =>
-                      setSelectedTables((current) =>
-                        event.target.checked
-                          ? [...current, candidate.id]
-                          : current.filter((id) => id !== candidate.id),
-                      )
-                    }
-                  />
-                  <span>
-                    <strong>
-                      {candidate.schema_name}.{candidate.table_name}
-                    </strong>
-                    <small>
-                      {candidate.estimated_rows === null
-                        ? "Rows unavailable"
-                        : `${number(candidate.estimated_rows)} estimated rows`}
-                      {" · "}
-                      PK: {candidate.primary_key_columns.join(", ") || "None"}
-                    </small>
-                  </span>
-                  <Status value={candidate.cdc_status} />
-                </label>
-              ))}
+      {canOperate && (
+        <Dialog
+          open={addTables}
+          onOpenChange={setAddTables}
+          title="Add tables"
+          description="Extend this pipeline without replacing its connector, replication slot, publication, or offsets."
+        >
+          <div className="form-grid">
+            <label className="full-span">
+              Search source tables
+              <input
+                value={tableSearch}
+                onChange={(event) => setTableSearch(event.target.value)}
+                placeholder="schema or table"
+              />
+            </label>
           </div>
-        )}
-        <h3>Existing data</h3>
-        <div className="selection-list compact-options">
-          <label
-            className={`selection-card ${initialDataStrategy === "BACKFILL" ? "selected" : ""}`}
-          >
-            <input
-              type="radio"
-              name="initial-data"
-              checked={initialDataStrategy === "BACKFILL"}
-              onChange={() => setInitialDataStrategy("BACKFILL")}
-            />
-            <span>
-              <strong>Backfill existing rows</strong>
-              <small>
-                Run an incremental snapshot for only the selected tables.
-              </small>
-            </span>
-          </label>
-          <label
-            className={`selection-card ${initialDataStrategy === "FUTURE_ONLY" ? "selected" : ""}`}
-          >
-            <input
-              type="radio"
-              name="initial-data"
-              checked={initialDataStrategy === "FUTURE_ONLY"}
-              onChange={() => setInitialDataStrategy("FUTURE_ONLY")}
-            />
-            <span>
-              <strong>Capture future changes only</strong>
-              <small>Do not read rows that already exist in the source.</small>
-            </span>
-          </label>
-        </div>
-        {!!p.destinations.length && (
-          <label>
-            Destination handling
-            <select
-              value={destinationHandling}
-              onChange={(event) =>
-                setDestinationHandling(
-                  event.target.value as typeof destinationHandling,
+          {availableTables.isPending ? (
+            <Loading />
+          ) : availableTables.isError ? (
+            <ErrorPanel error={availableTables.error} />
+          ) : (
+            <div className="selection-list lifecycle-table-picker">
+              {availableTables.data
+                .filter(
+                  (candidate) =>
+                    !p.tables.some(
+                      (current) =>
+                        current.schema_name === candidate.schema_name &&
+                        current.table_name === candidate.table_name,
+                    ),
                 )
-              }
+                .map((candidate) => (
+                  <label
+                    key={candidate.id}
+                    className={`selection-card ${selectedTables.includes(candidate.id) ? "selected" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTables.includes(candidate.id)}
+                      onChange={(event) =>
+                        setSelectedTables((current) =>
+                          event.target.checked
+                            ? [...current, candidate.id]
+                            : current.filter((id) => id !== candidate.id),
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>
+                        {candidate.schema_name}.{candidate.table_name}
+                      </strong>
+                      <small>
+                        {candidate.estimated_rows === null
+                          ? "Rows unavailable"
+                          : `${number(candidate.estimated_rows)} estimated rows`}
+                        {" · "}
+                        PK: {candidate.primary_key_columns.join(", ") || "None"}
+                      </small>
+                    </span>
+                    <Status value={candidate.cdc_status} />
+                  </label>
+                ))}
+            </div>
+          )}
+          <h3>Existing data</h3>
+          <div className="selection-list compact-options">
+            <label
+              className={`selection-card ${initialDataStrategy === "BACKFILL" ? "selected" : ""}`}
             >
-              <option value="AUTO_CREATE">Create automatically</option>
-              <option value="USE_EXISTING">Use existing table</option>
-              <option value="VALIDATE_ONLY">Validate only</option>
-            </select>
-          </label>
-        )}
-        {selectedTables.some((id) => {
-          const table = availableTables.data?.find(
-            (candidate) => candidate.id === id,
-          );
-          return table && !table.primary_key_columns.length;
-        }) && (
-          <p className="warning-strip">
-            No primary key detected. Reliable key-based upserts and deletes may
-            not be possible. Incremental backfill requires a primary key.
-          </p>
-        )}
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setAddTables(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!selectedTables.length || addTableOperation.isPending}
-            onClick={() => addTableOperation.mutate()}
-          >
-            Add {selectedTables.length || ""} table
-            {selectedTables.length === 1 ? "" : "s"}
-          </Button>
-        </div>
-        {addTableOperation.isError && (
-          <ErrorPanel error={addTableOperation.error} />
-        )}
-      </Dialog>
+              <input
+                type="radio"
+                name="initial-data"
+                checked={initialDataStrategy === "BACKFILL"}
+                onChange={() => setInitialDataStrategy("BACKFILL")}
+              />
+              <span>
+                <strong>Backfill existing rows</strong>
+                <small>
+                  Run an incremental snapshot for only the selected tables.
+                </small>
+              </span>
+            </label>
+            <label
+              className={`selection-card ${initialDataStrategy === "FUTURE_ONLY" ? "selected" : ""}`}
+            >
+              <input
+                type="radio"
+                name="initial-data"
+                checked={initialDataStrategy === "FUTURE_ONLY"}
+                onChange={() => setInitialDataStrategy("FUTURE_ONLY")}
+              />
+              <span>
+                <strong>Capture future changes only</strong>
+                <small>
+                  Do not read rows that already exist in the source.
+                </small>
+              </span>
+            </label>
+          </div>
+          {!!p.destinations.length && (
+            <label>
+              Destination handling
+              <select
+                value={destinationHandling}
+                onChange={(event) =>
+                  setDestinationHandling(
+                    event.target.value as typeof destinationHandling,
+                  )
+                }
+              >
+                <option value="AUTO_CREATE">Create automatically</option>
+                <option value="USE_EXISTING">Use existing table</option>
+                <option value="VALIDATE_ONLY">Validate only</option>
+              </select>
+            </label>
+          )}
+          {selectedTables.some((id) => {
+            const table = availableTables.data?.find(
+              (candidate) => candidate.id === id,
+            );
+            return table && !table.primary_key_columns.length;
+          }) && (
+            <p className="warning-strip">
+              No primary key detected. Reliable key-based upserts and deletes
+              may not be possible. Incremental backfill requires a primary key.
+            </p>
+          )}
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setAddTables(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!selectedTables.length || addTableOperation.isPending}
+              onClick={() => addTableOperation.mutate()}
+            >
+              Add {selectedTables.length || ""} table
+              {selectedTables.length === 1 ? "" : "s"}
+            </Button>
+          </div>
+          {addTableOperation.isError && (
+            <ErrorPanel error={addTableOperation.error} />
+          )}
+        </Dialog>
+      )}
       <Dialog
         open={tableAction?.type === "stop"}
         onOpenChange={(open) => {

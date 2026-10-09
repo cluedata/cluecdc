@@ -14,7 +14,7 @@ SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", help="Git tag to compare, for example v0.1.0")
+    parser.add_argument("--tag", help="Git tag to compare, for example v0.2.0")
     args = parser.parse_args()
 
     metadata = tomllib.loads(

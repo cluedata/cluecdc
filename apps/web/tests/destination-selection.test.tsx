@@ -53,12 +53,19 @@ function renderWizard(
       ];
     return [];
   });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(["session"], {
+    actor: "admin@example.com",
+    email: "admin@example.com",
+    role: "Admin",
+    environment: "test",
+    auth_mode: "session",
+    permissions: ["*"],
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={client}>
       <DestinationWizard />
     </QueryClientProvider>,
   );

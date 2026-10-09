@@ -6,17 +6,33 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 
 - Added local email/password authentication with Argon2id, server-side HttpOnly
   sessions, expiring single-use invite links, and first-Admin CLI bootstrap.
 - Added built-in Admin, Ops, and Viewer authorization, user management screens,
   a current-user menu, authentication audit events, and security documentation.
+- Added an explicitly development-only public Admin account for local demos;
+  production startup rejects the default-account bootstrap.
+- Added Admin-only user deletion with self-deletion and last-Admin safeguards.
 
 ### Changed
 
 - Made session authentication the production mode and restricted destructive
   infrastructure and identity operations to Admins.
+- Narrowed Viewer access to Overview, Pipelines, and Deliveries; made Sources
+  and Destinations read-only for Ops while allowing full Pipeline and Delivery
+  lifecycle operations; unauthorized navigation and controls are hidden.
+- Reduced the invite password minimum to eight characters.
+
+### Fixed
+
+- Mapped compatibility developer-mode authorization to a persistent active
+  Admin so user invitations always have a valid creator.
+- Normalized the unique email and authentication-token indexes so Alembic drift
+  checks agree with PostgreSQL metadata after upgrading.
 
 ## [0.1.0]
 
@@ -70,5 +86,6 @@ All notable changes to ClueCDC are documented here. The format follows
 - Required token authentication and non-example secrets in production, bound
   local ports to loopback, and added repository, dependency, and secret scans.
 
-[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cluedata/cluecdc/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cluedata/cluecdc/releases/tag/v0.1.0

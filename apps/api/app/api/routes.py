@@ -519,7 +519,7 @@ async def connectors(db: DB, user: Annotated[Principal, Depends(require("connect
 
 
 @router.get("/deliveries")
-async def deliveries(db: DB, user: Annotated[Principal, Depends(require("destinations.read"))]):
+async def deliveries(db: DB, user: Annotated[Principal, Depends(require("deliveries.read"))]):
     """Expose managed sink connectors as first-class delivery resources."""
     return await destination_service.delivery_views(
         db, await destination_service.all_deliveries(db)
@@ -530,7 +530,7 @@ async def deliveries(db: DB, user: Annotated[Principal, Depends(require("destina
 async def delivery_detail(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.read"))],
+    user: Annotated[Principal, Depends(require("deliveries.read"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
     return await destination_service.delivery_view(db, delivery)
@@ -540,7 +540,7 @@ async def delivery_detail(
 async def delivery_status(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.read"))],
+    user: Annotated[Principal, Depends(require("deliveries.read"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
     result = await destination_service.reconcile(db, delivery)
@@ -553,7 +553,7 @@ async def update_delivery_mappings(
     identifier: UUID,
     data: DeliveryInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.operate"))],
+    user: Annotated[Principal, Depends(require("deliveries.write"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
     destination = await get(db, Connection, delivery.destination_id)
@@ -565,7 +565,7 @@ async def operate_delivery(
     identifier: UUID,
     operation: str,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.operate"))],
+    user: Annotated[Principal, Depends(require("deliveries.operate"))],
     task: int | None = Query(default=None, ge=0),
 ):
     if operation not in {"pause", "resume", "restart", "restart-task"}:
@@ -579,7 +579,7 @@ async def operate_delivery(
 async def delete_delivery(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("destinations.admin"))],
+    user: Annotated[Principal, Depends(require("deliveries.admin"))],
 ):
     delivery = await destination_service.delivery_by_id(db, identifier)
     destination = await get(db, Connection, delivery.destination_id)
@@ -1165,7 +1165,7 @@ async def audit_logs(
 @router.get("/operations/errors")
 async def errors(
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.read"))],
+    user: Annotated[Principal, Depends(require("operations.read"))],
     limit: int = Query(default=500, ge=1, le=500),
     active: bool = False,
 ):
@@ -1190,7 +1190,7 @@ async def errors(
 async def error_status(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("operations.operate"))],
     status: str = Query(pattern="^(OPEN|ACKNOWLEDGED|RESOLVED)$"),
 ):
     error = await get(db, PipelineEvent, identifier)
@@ -1202,7 +1202,7 @@ async def error_status(
 
 
 @router.get("/monitoring/overview")
-async def monitoring(db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]):
+async def monitoring(db: DB, user: Annotated[Principal, Depends(require("overview.read"))]):
     states = ["RUNNING", "DEGRADED", "FAILED", "UNKNOWN", "PAUSED"]
     connections = (await db.scalars(select(Connection))).all()
     sources = [item for item in connections if "SOURCE" in item.capabilities_json]

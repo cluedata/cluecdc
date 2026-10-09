@@ -13,6 +13,16 @@ vi.mock("../src/lib/api", () => ({
 beforeEach(() => {
   apiMock.mockReset();
   apiMock.mockImplementation(async (path: string) => {
+    if (path === "/session") {
+      return {
+        actor: "admin@example.com",
+        email: "admin@example.com",
+        role: "Admin",
+        environment: "test",
+        auth_mode: "session",
+        permissions: ["*"],
+      };
+    }
     if (path === "/users") {
       return [
         {
@@ -23,6 +33,14 @@ beforeEach(() => {
           last_login_at: null,
           created_at: "2026-10-07T00:00:00Z",
         },
+        {
+          id: "viewer-id",
+          email: "viewer@example.com",
+          role: "VIEWER",
+          status: "ACTIVE",
+          last_login_at: null,
+          created_at: "2026-10-08T00:00:00Z",
+        },
       ];
     }
     if (path === "/users/invite") {
@@ -30,6 +48,32 @@ beforeEach(() => {
     }
     return {};
   });
+});
+
+it("deletes another user after confirmation", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <UsersPage />
+    </QueryClientProvider>,
+  );
+
+  await screen.findByText("viewer@example.com");
+  expect(
+    screen.getByRole("button", { name: "Delete admin@example.com" }),
+  ).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Delete viewer@example.com" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Delete user" }));
+
+  await waitFor(() =>
+    expect(apiMock).toHaveBeenCalledWith("/users/viewer-id", {
+      method: "DELETE",
+    }),
+  );
 });
 
 it("lists users and creates a copyable invite link", async () => {

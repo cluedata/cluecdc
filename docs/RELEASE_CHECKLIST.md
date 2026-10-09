@@ -49,16 +49,16 @@ complete unless it was verified against the release candidate commit.
 
 ## Release
 
-- [ ] Version is `0.1.0`
+- [ ] Version is `0.2.0`
 - [ ] Release notes are prepared
 - [ ] Release workflow is ready
-- [ ] `v0.1.0` Git tag has not been created during release preparation
+- [ ] `v0.2.0` Git tag has not been created during release preparation
 - [ ] Maintainer has approved the exact commit to tag
 
 ## Post-release
 
 - [ ] GitHub Release is visible
-- [ ] `0.1.0`, `0.1`, and `latest` Docker image tags are available
+- [ ] `0.2.0`, `0.2`, and `latest` Docker image tags are available
 - [ ] Published image labels and digests are correct
 - [ ] Documentation is available
 - [ ] Quick start is verified against released images/source

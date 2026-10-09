@@ -19,7 +19,7 @@ curl http://localhost:8000/ready
 | `KAFKA_UNAVAILABLE`        | Check broker listeners and use `kafka:29092` from containers.                                              |
 | `SINK_PLUGIN_MISSING`      | Inspect Connect plugin discovery and rebuild the supplied Connect image.                                   |
 | Pipeline `DEGRADED`        | Inspect connector tasks and the correlation/request ID in API logs.                                        |
-| No recent events           | Confirm the topic, create a new source change, and remember inspection is deliberately bounded.            |
+| No recent changes          | Confirm topic offsets, create a source change, and inspect payloads directly with Kafka or at the destination. |
 | API fails at startup       | Validate required settings and JSON formatting in `.env`.                                                  |
 
 If a paused demo sink still receives rows, inspect

@@ -34,13 +34,23 @@ import {
   initialConnection,
   Unavailable,
 } from "./shared";
+import { useAuthorization } from "@/lib/auth";
 
 export function DestinationDetailPage({ id }: { id: string }) {
+  const { can } = useAuthorization();
+  const canWriteDestination = can("destinations.write");
+  const canDeleteDestination = can("destinations.admin");
+  const canWriteDelivery = can("deliveries.write");
+  const canOperateDelivery = can("deliveries.operate");
+  const canDeleteDelivery = can("deliveries.admin");
+  const canAudit = can("audit.read");
   const router = useRouter();
   const params = useSearchParams();
   const client = useQueryClient();
   const [tab, setTab] = useState("Overview");
-  const [editing, setEditing] = useState(params.get("edit") === "true");
+  const [editing, setEditing] = useState(
+    canWriteDestination && params.get("edit") === "true",
+  );
   const [deleting, setDeleting] = useState(false);
   const [removeLink, setRemoveLink] = useState<Delivery | null>(null);
   const [mappingLink, setMappingLink] = useState<Delivery | null>(null);
@@ -61,7 +71,7 @@ export function DestinationDetailPage({ id }: { id: string }) {
       api<Audit[]>(
         `/audit?resource_id=${id}&include_related=true&meaningful=true`,
       ),
-    enabled: tab === "Activity",
+    enabled: canAudit && tab === "Activity",
   });
   const form = useForm<DestinationForm>({
     resolver: zodResolver(destinationSchema),
@@ -70,6 +80,7 @@ export function DestinationDetailPage({ id }: { id: string }) {
   const initializedEdit = useRef(false);
   useEffect(() => {
     if (
+      canWriteDestination &&
       params.get("edit") === "true" &&
       query.data &&
       !initializedEdit.current
@@ -77,7 +88,7 @@ export function DestinationDetailPage({ id }: { id: string }) {
       form.reset({ ...initialConnection, ...query.data, password: "" });
       initializedEdit.current = true;
     }
-  }, [params, query.data, form]);
+  }, [canWriteDestination, params, query.data, form]);
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["destination"] });
     client.invalidateQueries({ queryKey: ["destination-status"] });
@@ -179,26 +190,37 @@ export function DestinationDetailPage({ id }: { id: string }) {
         eyebrow="COMPONENTS / DESTINATION"
       >
         <Status value={target.status} />
-        <Button variant="outline" onClick={edit}>
-          Edit
-        </Button>
-        <Button
-          variant="outline"
-          disabled={operation.isPending}
-          onClick={() => operation.mutate("test")}
-        >
-          Test connection
-        </Button>
-        <Button
-          variant="ghost"
-          aria-label="Delete destination"
-          onClick={() => setDeleting(true)}
-        >
-          <Trash2 size={16} />
-        </Button>
+        {canWriteDestination && (
+          <>
+            <Button variant="outline" onClick={edit}>
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              disabled={operation.isPending}
+              onClick={() => operation.mutate("test")}
+            >
+              Test connection
+            </Button>
+          </>
+        )}
+        {canDeleteDestination && (
+          <Button
+            variant="ghost"
+            aria-label="Delete destination"
+            onClick={() => setDeleting(true)}
+          >
+            <Trash2 size={16} />
+          </Button>
+        )}
       </PageHeader>
       <Tabs
-        tabs={["Overview", "Used by Deliveries", "Configuration", "Activity"]}
+        tabs={[
+          "Overview",
+          "Used by Deliveries",
+          "Configuration",
+          ...(canAudit ? ["Activity"] : []),
+        ]}
         active={tab}
         onChange={setTab}
       />
@@ -256,12 +278,14 @@ export function DestinationDetailPage({ id }: { id: string }) {
                   endpoint.
                 </p>
               </div>
-              <Button asChild variant="outline">
-                <Link href={`/deliveries/new?destination_id=${id}`}>
-                  <Plus size={14} />
-                  Add delivery
-                </Link>
-              </Button>
+              {canWriteDelivery && (
+                <Button asChild variant="outline">
+                  <Link href={`/deliveries/new?destination_id=${id}`}>
+                    <Plus size={14} />
+                    Add delivery
+                  </Link>
+                </Button>
+              )}
             </div>
             {links.length ? (
               <div className="delivery-cards">
@@ -292,8 +316,12 @@ export function DestinationDetailPage({ id }: { id: string }) {
               <Empty
                 title="No delivery configured"
                 description="Choose a capture pipeline and topics to start delivering records to this target."
-                href={`/deliveries/new?destination_id=${id}`}
-                action="Add delivery"
+                href={
+                  canWriteDelivery
+                    ? `/deliveries/new?destination_id=${id}`
+                    : undefined
+                }
+                action={canWriteDelivery ? "Add delivery" : undefined}
               />
             )}
           </section>
@@ -307,16 +335,18 @@ export function DestinationDetailPage({ id }: { id: string }) {
                 <h2>
                   {link.pipeline_name} · {link.name}
                 </h2>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setMappingLink(link);
-                    setEditMappings(link.topic_mapping_json);
-                    mapping.reset();
-                  }}
-                >
-                  Edit mappings
-                </Button>
+                {canWriteDelivery && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setMappingLink(link);
+                      setEditMappings(link.topic_mapping_json);
+                      mapping.reset();
+                    }}
+                  >
+                    Edit mappings
+                  </Button>
+                )}
               </div>
               <DataTable
                 data={link.topic_mapping_json}
@@ -413,38 +443,46 @@ export function DestinationDetailPage({ id }: { id: string }) {
                   </dd>
                 </div>
               </dl>
-              <div className="header-actions">
-                <Button
-                  variant="outline"
-                  disabled={deliveryOp.isPending}
-                  onClick={() =>
-                    deliveryOp.mutate({ delivery: link, op: "pause" })
-                  }
-                >
-                  Pause
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={deliveryOp.isPending}
-                  onClick={() =>
-                    deliveryOp.mutate({ delivery: link, op: "resume" })
-                  }
-                >
-                  Resume
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={deliveryOp.isPending}
-                  onClick={() =>
-                    deliveryOp.mutate({ delivery: link, op: "restart" })
-                  }
-                >
-                  Restart
-                </Button>
-                <Button variant="ghost" onClick={() => setRemoveLink(link)}>
-                  Remove delivery
-                </Button>
-              </div>
+              {(canOperateDelivery || canDeleteDelivery) && (
+                <div className="header-actions">
+                  {canOperateDelivery && (
+                    <>
+                      <Button
+                        variant="outline"
+                        disabled={deliveryOp.isPending}
+                        onClick={() =>
+                          deliveryOp.mutate({ delivery: link, op: "pause" })
+                        }
+                      >
+                        Pause
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={deliveryOp.isPending}
+                        onClick={() =>
+                          deliveryOp.mutate({ delivery: link, op: "resume" })
+                        }
+                      >
+                        Resume
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={deliveryOp.isPending}
+                        onClick={() =>
+                          deliveryOp.mutate({ delivery: link, op: "restart" })
+                        }
+                      >
+                        Restart
+                      </Button>
+                    </>
+                  )}
+                  {canDeleteDelivery && (
+                    <Button variant="ghost" onClick={() => setRemoveLink(link)}>
+                      Remove delivery
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </>
@@ -489,41 +527,44 @@ export function DestinationDetailPage({ id }: { id: string }) {
                     {
                       id: "restart",
                       header: "Action",
-                      cell: ({ row }) => (
-                        <Button
-                          variant="outline"
-                          disabled={deliveryOp.isPending}
-                          onClick={() =>
-                            deliveryOp.mutate({
-                              delivery: link,
-                              op: "restart",
-                              task: row.original.id,
-                            })
-                          }
-                        >
-                          Restart task
-                        </Button>
-                      ),
+                      cell: ({ row }) =>
+                        canOperateDelivery ? (
+                          <Button
+                            variant="outline"
+                            disabled={deliveryOp.isPending}
+                            onClick={() =>
+                              deliveryOp.mutate({
+                                delivery: link,
+                                op: "restart",
+                                task: row.original.id,
+                              })
+                            }
+                          >
+                            Restart task
+                          </Button>
+                        ) : null,
                     },
                   ]}
                 />
-                <div className="header-actions">
-                  <Button
-                    variant="outline"
-                    disabled={deliveryOp.isPending}
-                    onClick={() =>
-                      deliveryOp.mutate({ delivery: link, op: "restart" })
-                    }
-                  >
-                    Restart connector
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setTab("Configuration")}
-                  >
-                    View raw config
-                  </Button>
-                </div>
+                {canOperateDelivery && (
+                  <div className="header-actions">
+                    <Button
+                      variant="outline"
+                      disabled={deliveryOp.isPending}
+                      onClick={() =>
+                        deliveryOp.mutate({ delivery: link, op: "restart" })
+                      }
+                    >
+                      Restart connector
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setTab("Configuration")}
+                    >
+                      View raw config
+                    </Button>
+                  </div>
+                )}
               </section>
             );
           })}
@@ -581,120 +622,131 @@ export function DestinationDetailPage({ id }: { id: string }) {
             ]}
           />
         ))}
-      <Dialog
-        open={editing}
-        onOpenChange={setEditing}
-        title="Edit destination"
-        description="Connection settings cannot change while deliveries exist. Name, environment, and description can be updated."
-      >
-        <form onSubmit={form.handleSubmit(() => save.mutate())}>
-          <ConnectionFields form={form} existing />
+      {canWriteDestination && (
+        <Dialog
+          open={editing}
+          onOpenChange={setEditing}
+          title="Edit destination"
+          description="Connection settings cannot change while deliveries exist. Name, environment, and description can be updated."
+        >
+          <form onSubmit={form.handleSubmit(() => save.mutate())}>
+            <ConnectionFields form={form} existing />
+            <div className="dialog-actions">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+              <Button disabled={save.isPending}>Save destination</Button>
+            </div>
+            {save.isError && <ErrorPanel error={save.error} />}
+          </form>
+        </Dialog>
+      )}
+      {canDeleteDestination && (
+        <Dialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title="Delete destination?"
+          description="Remove deliveries first. Target data is retained."
+        >
           <div className="dialog-actions">
-            <Button
-              variant="outline"
-              type="button"
-              onClick={() => setEditing(false)}
-            >
+            <Button variant="outline" onClick={() => setDeleting(false)}>
               Cancel
             </Button>
-            <Button disabled={save.isPending}>Save destination</Button>
+            <Button
+              variant="destructive"
+              disabled={operation.isPending}
+              onClick={() => operation.mutate("delete")}
+            >
+              Delete destination
+            </Button>
           </div>
-          {save.isError && <ErrorPanel error={save.error} />}
-        </form>
-      </Dialog>
-      <Dialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title="Delete destination?"
-        description="Remove deliveries first. Target data is retained."
-      >
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setDeleting(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={operation.isPending}
-            onClick={() => operation.mutate("delete")}
-          >
-            Delete destination
-          </Button>
-        </div>
-        {operation.isError && <ErrorPanel error={operation.error} />}
-      </Dialog>
-      <Dialog
-        open={!!removeLink}
-        onOpenChange={(open) => {
-          if (!open) setRemoveLink(null);
-        }}
-        title="Remove delivery?"
-        description="The sink connector and association are deleted. Capture, Kafka topics, and destination rows are retained."
-      >
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setRemoveLink(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            Remove delivery
-          </Button>
-        </div>
-        {remove.isError && <ErrorPanel error={remove.error} />}
-      </Dialog>
-      <Dialog
-        open={!!mappingLink}
-        onOpenChange={(open) => {
-          if (!open) setMappingLink(null);
-        }}
-        title="Edit delivery mappings"
-        description="Validates target readiness, refreshes discovered types, and updates the live sink. Previous target rows are retained."
-      >
-        {editMappings.map((value, index) => (
-          <div className="form-grid" key={value.topic}>
-            <p className="full-width">{value.topic}</p>
-            <Field label={`Schema for ${value.topic}`}>
-              <Input
-                value={value.schema_name}
-                onChange={(event) =>
-                  setEditMappings((values) =>
-                    values.map((entry, i) =>
-                      i === index
-                        ? { ...entry, schema_name: event.target.value }
-                        : entry,
-                    ),
-                  )
-                }
-              />
-            </Field>
-            <Field label={`Table for ${value.topic}`}>
-              <Input
-                value={value.table_name}
-                onChange={(event) =>
-                  setEditMappings((values) =>
-                    values.map((entry, i) =>
-                      i === index
-                        ? { ...entry, table_name: event.target.value }
-                        : entry,
-                    ),
-                  )
-                }
-              />
-            </Field>
+          {operation.isError && <ErrorPanel error={operation.error} />}
+        </Dialog>
+      )}
+      {canDeleteDelivery && (
+        <Dialog
+          open={!!removeLink}
+          onOpenChange={(open) => {
+            if (!open) setRemoveLink(null);
+          }}
+          title="Remove delivery?"
+          description="The sink connector and association are deleted. Capture, Kafka topics, and destination rows are retained."
+        >
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setRemoveLink(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              Remove delivery
+            </Button>
           </div>
-        ))}
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setMappingLink(null)}>
-            Cancel
-          </Button>
-          <Button disabled={mapping.isPending} onClick={() => mapping.mutate()}>
-            Apply mappings
-          </Button>
-        </div>
-        {mapping.isError && <ErrorPanel error={mapping.error} />}
-      </Dialog>
+          {remove.isError && <ErrorPanel error={remove.error} />}
+        </Dialog>
+      )}
+      {canWriteDelivery && (
+        <Dialog
+          open={!!mappingLink}
+          onOpenChange={(open) => {
+            if (!open) setMappingLink(null);
+          }}
+          title="Edit delivery mappings"
+          description="Validates target readiness, refreshes discovered types, and updates the live sink. Previous target rows are retained."
+        >
+          {editMappings.map((value, index) => (
+            <div className="form-grid" key={value.topic}>
+              <p className="full-width">{value.topic}</p>
+              <Field label={`Schema for ${value.topic}`}>
+                <Input
+                  value={value.schema_name}
+                  onChange={(event) =>
+                    setEditMappings((values) =>
+                      values.map((entry, i) =>
+                        i === index
+                          ? { ...entry, schema_name: event.target.value }
+                          : entry,
+                      ),
+                    )
+                  }
+                />
+              </Field>
+              <Field label={`Table for ${value.topic}`}>
+                <Input
+                  value={value.table_name}
+                  onChange={(event) =>
+                    setEditMappings((values) =>
+                      values.map((entry, i) =>
+                        i === index
+                          ? { ...entry, table_name: event.target.value }
+                          : entry,
+                      ),
+                    )
+                  }
+                />
+              </Field>
+            </div>
+          ))}
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setMappingLink(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={mapping.isPending}
+              onClick={() => mapping.mutate()}
+            >
+              Apply mappings
+            </Button>
+          </div>
+          {mapping.isError && <ErrorPanel error={mapping.error} />}
+        </Dialog>
+      )}
     </>
   );
 }

@@ -33,6 +33,7 @@ import {
 import { DataFlowRail } from "./data-flow-rail";
 import { FilterBar, MetricCard, Panel, QuietState } from "./operational";
 import { DestinationWizard } from "./destinations";
+import { useAuthorization } from "@/lib/auth";
 
 export function DeliveryCreatePage() {
   return (
@@ -59,6 +60,17 @@ function destinationHref(delivery: Delivery): string {
   if (delivery.delivery_type === "OBJECT_STORAGE")
     return `/connections/${delivery.destination_id}`;
   return `/destinations/${delivery.destination_id}`;
+}
+
+function DestinationReference({ delivery }: { delivery: Delivery }) {
+  const { can } = useAuthorization();
+  return can("destinations.read") ? (
+    <Link className="text-link" href={destinationHref(delivery)}>
+      {delivery.destination.name}
+    </Link>
+  ) : (
+    <>{delivery.destination.name}</>
+  );
 }
 
 function destinationDetail(delivery: Delivery): string {
@@ -98,11 +110,7 @@ const columns: ColumnDef<Delivery>[] = [
   {
     id: "destination",
     header: "Destination",
-    cell: ({ row }) => (
-      <Link className="text-link" href={destinationHref(row.original)}>
-        {row.original.destination.name}
-      </Link>
-    ),
+    cell: ({ row }) => <DestinationReference delivery={row.original} />,
   },
   {
     id: "connect",
@@ -146,6 +154,7 @@ const columns: ColumnDef<Delivery>[] = [
 ];
 
 export function DeliveriesPage() {
+  const { can } = useAuthorization();
   const [state, setState] = useState("");
   const params = useSearchParams();
   const search = (params.get("q") || "").toLowerCase();
@@ -183,11 +192,13 @@ export function DeliveriesPage() {
         description="Move Kafka topics to destination endpoints with managed sink connectors."
         eyebrow="COMPONENTS / DELIVERY"
       >
-        <Button asChild>
-          <Link href="/deliveries/new">
-            <Plus size={16} /> Create delivery
-          </Link>
-        </Button>
+        {can("deliveries.write") && (
+          <Button asChild>
+            <Link href="/deliveries/new">
+              <Plus size={16} /> Create delivery
+            </Link>
+          </Button>
+        )}
       </PageHeader>
       <FilterBar>
         <select
@@ -211,8 +222,8 @@ export function DeliveriesPage() {
         <Empty
           title="No deliveries configured"
           description="A delivery moves data from Kafka topics to a destination."
-          href="/deliveries/new"
-          action="Create delivery"
+          href={can("deliveries.write") ? "/deliveries/new" : undefined}
+          action={can("deliveries.write") ? "Create delivery" : undefined}
         />
       ) : (
         <DataTable
@@ -227,6 +238,7 @@ export function DeliveriesPage() {
 }
 
 function TopicTable({ delivery }: { delivery: Delivery }) {
+  const { role } = useAuthorization();
   return (
     <div className="table-scroll">
       <table>
@@ -247,12 +259,16 @@ function TopicTable({ delivery }: { delivery: Delivery }) {
           {delivery.topic_mapping_json.map((mapping) => (
             <tr key={mapping.topic}>
               <td>
-                <Link
-                  className="text-link"
-                  href={`/kafka/topics/${encodeURIComponent(mapping.topic)}`}
-                >
-                  {mapping.topic}
-                </Link>
+                {role === "Admin" ? (
+                  <Link
+                    className="text-link"
+                    href={`/kafka/topics/${encodeURIComponent(mapping.topic)}`}
+                  >
+                    {mapping.topic}
+                  </Link>
+                ) : (
+                  mapping.topic
+                )}
               </td>
               <td>Unavailable</td>
               <td>
@@ -279,6 +295,10 @@ function TopicTable({ delivery }: { delivery: Delivery }) {
 }
 
 export function DeliveryDetailPage({ id }: { id: string }) {
+  const { can } = useAuthorization();
+  const canOperate = can("deliveries.operate");
+  const canDelete = can("deliveries.admin");
+  const canAudit = can("audit.read");
   const router = useRouter();
   const client = useQueryClient();
   const [tab, setTab] = useState("Overview");
@@ -296,6 +316,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
   const history = useQuery({
     queryKey: ["delivery-history", id],
     queryFn: () => api<Audit[]>(`/audit?resource_id=${id}`),
+    enabled: canAudit,
   });
   const operation = useMutation({
     mutationFn: (value: "pause" | "resume" | "restart") =>
@@ -324,7 +345,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
     "Tasks",
     "Metrics",
     "Logs",
-    "History",
+    ...(canAudit ? ["History"] : []),
   ];
   return (
     <>
@@ -337,37 +358,42 @@ export function DeliveryDetailPage({ id }: { id: string }) {
         eyebrow="COMPONENTS / DELIVERY"
       >
         <Status value={actual} />
-        {actual === "PAUSED" ? (
+        {canOperate &&
+          (actual === "PAUSED" ? (
+            <Button
+              variant="outline"
+              disabled={operation.isPending}
+              onClick={() => operation.mutate("resume")}
+            >
+              <Play size={14} /> Resume
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              disabled={operation.isPending}
+              onClick={() => operation.mutate("pause")}
+            >
+              <Pause size={14} /> Pause
+            </Button>
+          ))}
+        {canOperate && (
           <Button
             variant="outline"
             disabled={operation.isPending}
-            onClick={() => operation.mutate("resume")}
+            onClick={() => operation.mutate("restart")}
           >
-            <Play size={14} /> Resume
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            disabled={operation.isPending}
-            onClick={() => operation.mutate("pause")}
-          >
-            <Pause size={14} /> Pause
+            <RefreshCw size={14} /> Restart
           </Button>
         )}
-        <Button
-          variant="outline"
-          disabled={operation.isPending}
-          onClick={() => operation.mutate("restart")}
-        >
-          <RefreshCw size={14} /> Restart
-        </Button>
-        <Button
-          variant="ghost"
-          aria-label="Delete delivery"
-          onClick={() => setDeleting(true)}
-        >
-          <Trash2 size={16} />
-        </Button>
+        {canDelete && (
+          <Button
+            variant="ghost"
+            aria-label="Delete delivery"
+            onClick={() => setDeleting(true)}
+          >
+            <Trash2 size={16} />
+          </Button>
+        )}
       </PageHeader>
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
       {runtime.isError && (
@@ -412,7 +438,9 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                   name: delivery.destination.name,
                   detail: destinationDetail(delivery),
                   status: delivery.destination.status,
-                  href: destinationHref(delivery),
+                  href: can("destinations.read")
+                    ? destinationHref(delivery)
+                    : undefined,
                 },
               ]}
             />
@@ -475,9 +503,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
               </dd>
               <dt>Destination</dt>
               <dd>
-                <Link className="text-link" href={destinationHref(delivery)}>
-                  {delivery.destination.name}
-                </Link>
+                <DestinationReference delivery={delivery} />
               </dd>
               <dt>Desired state</dt>
               <dd>{delivery.desired_state}</dd>
@@ -504,9 +530,11 @@ export function DeliveryDetailPage({ id }: { id: string }) {
               </div>
             ))}
           </div>
-          <Button asChild variant="outline">
-            <Link href={destinationHref(delivery)}>Edit mapping</Link>
-          </Button>
+          {can("deliveries.write") && can("destinations.read") && (
+            <Button asChild variant="outline">
+              <Link href={destinationHref(delivery)}>Edit mapping</Link>
+            </Button>
+          )}
         </Panel>
       )}
       {tab === "Configuration" && (
@@ -632,26 +660,28 @@ export function DeliveryDetailPage({ id }: { id: string }) {
           )}
         </Panel>
       )}
-      <Dialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title="Delete delivery?"
-        description="The managed sink connector and delivery association will be removed. Kafka topics, captured data and the destination connection are retained."
-      >
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setDeleting(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            Delete delivery
-          </Button>
-        </div>
-        {remove.isError && <ErrorPanel error={remove.error} />}
-      </Dialog>
+      {canDelete && (
+        <Dialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title="Delete delivery?"
+          description="The managed sink connector and delivery association will be removed. Kafka topics, captured data and the destination connection are retained."
+        >
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setDeleting(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              Delete delivery
+            </Button>
+          </div>
+          {remove.isError && <ErrorPanel error={remove.error} />}
+        </Dialog>
+      )}
     </>
   );
 }

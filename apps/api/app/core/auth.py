@@ -20,24 +20,24 @@ SESSION_COOKIE = "cluecdc_session"
 
 PERMISSIONS = {
     "Viewer": {
-        "sources.read",
-        "destinations.read",
+        "overview.read",
         "pipelines.read",
-        "kafka.read",
-        "connect.read",
+        "deliveries.read",
     },
     "Ops": {
+        "overview.read",
         "sources.read",
-        "sources.write",
         "destinations.read",
-        "destinations.write",
-        "destinations.operate",
         "pipelines.read",
         "pipelines.write",
         "pipelines.operate",
+        "pipelines.admin",
+        "deliveries.read",
+        "deliveries.write",
+        "deliveries.operate",
+        "deliveries.admin",
         "kafka.read",
         "connect.read",
-        "connect.operate",
     },
     "Admin": {"*"},
 }
@@ -111,7 +111,16 @@ async def principal(
 ) -> Principal:
     settings = get_settings()
     if settings.auth_mode == "developer":
-        return await DeveloperAuthProvider().authenticate(credentials)
+        developer = await DeveloperAuthProvider().authenticate(credentials)
+        admin = await db.scalar(
+            select(User)
+            .where(User.role == "ADMIN", User.status == "ACTIVE")
+            .order_by(User.created_at)
+            .limit(1)
+        )
+        if admin:
+            return Principal(admin.email, "Admin", admin.id)
+        return developer
     if settings.auth_mode == "token":
         return await TokenAuthProvider(settings).authenticate(credentials)
     return await _session_principal(request, db, settings)

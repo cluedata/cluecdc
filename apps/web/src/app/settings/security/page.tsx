@@ -18,7 +18,7 @@ export default function Page() {
           <dt>Browser session</dt>
           <dd>HttpOnly, SameSite cookie</dd>
           <dt>Minimum password length</dt>
-          <dd>12 characters</dd>
+          <dd>8 characters</dd>
           <dt>User onboarding</dt>
           <dd>Single-use, expiring invite links</dd>
         </dl>

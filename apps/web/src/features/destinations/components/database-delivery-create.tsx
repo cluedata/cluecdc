@@ -36,6 +36,7 @@ import {
   initialConnection,
   initialDelivery,
 } from "./shared";
+import { useAuthorization } from "@/lib/auth";
 
 export const steps = [
   "Destination",
@@ -49,12 +50,15 @@ export const steps = [
 export function DestinationWizard({
   deliveryFirst = false,
 }: { deliveryFirst?: boolean } = {}) {
+  const { can } = useAuthorization();
+  const canCreateDestination = can("destinations.write");
   const router = useRouter();
   const params = useSearchParams();
   const client = useQueryClient();
   const providers = useQuery({
     queryKey: ["database-providers"],
     queryFn: () => api<DatabaseProviderMetadata[]>("/database-providers"),
+    enabled: canCreateDestination,
   });
   const [step, setStep] = useState(params.get("destination_id") ? 2 : 0);
   const [destinationId, setDestinationId] = useState(
@@ -165,6 +169,7 @@ export function DestinationWizard({
       setStep(2);
       return;
     }
+    if (step === 0 && !canCreateDestination) return;
     if (step === 1) {
       if (!(await connection.trigger())) return;
       if (!connection.getValues("password")) {
@@ -237,8 +242,8 @@ export function DestinationWizard({
           {step === 0 && (
             <>
               <p className="muted">
-                Choose a registered destination or add a new destination for
-                this delivery.
+                Choose a registered destination for this delivery.
+                {canCreateDestination && " You can also add a new destination."}
               </p>
               <Field
                 label="Destination"
@@ -252,7 +257,11 @@ export function DestinationWizard({
                     setPreview(null);
                   }}
                 >
-                  <option value="">Add a new destination</option>
+                  <option value="">
+                    {canCreateDestination
+                      ? "Add a new destination"
+                      : "Select a destination"}
+                  </option>
                   {registeredDestinations.data
                     ?.slice()
                     .sort((a, b) => a.name.localeCompare(b.name))
@@ -278,8 +287,9 @@ export function DestinationWizard({
               {registeredDestinations.isSuccess &&
                 !registeredDestinations.data.length && (
                   <p className="muted">
-                    No destinations registered yet. Add your first destination
-                    below.
+                    {canCreateDestination
+                      ? "No destinations registered yet. Add your first destination below."
+                      : "No destinations are available. Ask an Admin to add one."}
                   </p>
                 )}
               {selectedDestinationId ? (
@@ -290,7 +300,7 @@ export function DestinationWizard({
                     be created.
                   </span>
                 </div>
-              ) : (
+              ) : canCreateDestination ? (
                 <div className="destination-types">
                   {(providers.data || [])
                     .filter((provider) => provider.destination_supported)
@@ -318,7 +328,7 @@ export function DestinationWizard({
                       </button>
                     ))}
                 </div>
-              )}
+              ) : null}
             </>
           )}
           {step === 1 && (
@@ -752,7 +762,11 @@ export function DestinationWizard({
             ) : (
               <Button
                 disabled={
-                  pending || (step === 2 && (!pipelineId || !mappings.length))
+                  pending ||
+                  (step === 0 &&
+                    !canCreateDestination &&
+                    !selectedDestinationId) ||
+                  (step === 2 && (!pipelineId || !mappings.length))
                 }
                 onClick={next}
               >

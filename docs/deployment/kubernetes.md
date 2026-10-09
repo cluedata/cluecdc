@@ -15,10 +15,14 @@ kubectl -n cluecdc create secret generic cluecdc-secrets \
   --from-literal=database-url='postgresql+asyncpg://cluecdc:REPLACE@cluecdc-metadata:5432/cluecdc' \
   --from-literal=secret-encryption-key='FERNET_KEY' \
   --from-literal=connect-secret-token='AT_LEAST_32_RANDOM_CHARACTERS' \
-  --from-literal=auth-tokens-json='{"SHA256_OF_TOKEN":{"actor":"operator","role":"Admin"}}'
+  --from-literal=session-secret='AT_LEAST_32_RANDOM_CHARACTERS'
 ```
 
-Review `configmap.yaml` for Kafka bootstrap servers, public origins, image registry, storage class, and network-specific URLs. Build and publish the web, API, and Connect images from this repository before applying.
+The base uses `AUTH_MODE=session` and does not enable the public development
+Admin. Review `configmap.yaml` for the HTTPS public URL, CORS origins, Kafka
+bootstrap servers, image registry, storage class, and network-specific URLs.
+Build and publish the web, API, and Connect images from this repository before
+applying.
 
 ```bash
 kubectl apply -k deploy/kubernetes
@@ -28,6 +32,16 @@ kubectl -n cluecdc rollout status deployment/cluecdc-worker
 kubectl -n cluecdc rollout status deployment/cluecdc-web
 kubectl -n cluecdc rollout status deployment/kafka-connect
 ```
+
+Create the first production Admin interactively after the API is ready:
+
+```bash
+kubectl -n cluecdc exec -it deployment/cluecdc-api -- \
+  python -m app.cli create-admin --email admin@example.com
+```
+
+The command prompts for a password of at least 8 characters. Replace the email
+with an operator-controlled address; this account is not a recovery backdoor.
 
 ## Operational properties
 

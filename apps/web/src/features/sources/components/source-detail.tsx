@@ -37,8 +37,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { SourceEditor } from "./source-editor";
+import { useAuthorization } from "@/lib/auth";
 
 export function SourceDetailPage({ id }: { id: string }) {
+  const { can } = useAuthorization();
+  const canWrite = can("sources.write");
+  const canDelete = can("sources.admin");
+  const canAudit = can("audit.read");
   const router = useRouter();
   const client = useQueryClient();
   const [tab, setTab] = useState("Overview");
@@ -72,7 +77,7 @@ export function SourceDetailPage({ id }: { id: string }) {
   const activity = useQuery({
     queryKey: ["audit", id],
     queryFn: () => api<Audit[]>(`/audit?resource_id=${id}`),
-    enabled: tab === "Activity",
+    enabled: canAudit && tab === "Activity",
   });
   const test = useMutation({
     mutationFn: () => post<{ status: string }>(`/sources/${id}/test`),
@@ -165,25 +170,29 @@ export function SourceDetailPage({ id }: { id: string }) {
         eyebrow="SOURCE / POSTGRESQL"
       >
         <Status value={s.status} />
-        <Button
-          variant="outline"
-          disabled={test.isPending}
-          onClick={() => test.mutate()}
-        >
-          <CheckCircle2 size={16} />
-          Test connection
-        </Button>
-        <Button
-          disabled={discovery.isPending}
-          onClick={() => discovery.mutate()}
-        >
-          {discovery.isPending ? (
-            <Loader2 className="spin" size={16} />
-          ) : (
-            <RefreshCw size={16} />
-          )}
-          Discover tables
-        </Button>
+        {canWrite && (
+          <>
+            <Button
+              variant="outline"
+              disabled={test.isPending}
+              onClick={() => test.mutate()}
+            >
+              <CheckCircle2 size={16} />
+              Test connection
+            </Button>
+            <Button
+              disabled={discovery.isPending}
+              onClick={() => discovery.mutate()}
+            >
+              {discovery.isPending ? (
+                <Loader2 className="spin" size={16} />
+              ) : (
+                <RefreshCw size={16} />
+              )}
+              Discover tables
+            </Button>
+          </>
+        )}
       </PageHeader>
       {test.isError && <ErrorPanel error={test.error} />}{" "}
       {discovery.isError && <ErrorPanel error={discovery.error} />}
@@ -228,7 +237,7 @@ export function SourceDetailPage({ id }: { id: string }) {
           "CDC Readiness",
           "Pipelines",
           "Configuration",
-          "Activity",
+          ...(canAudit ? ["Activity"] : []),
         ]}
         active={tab}
         onChange={setTab}
@@ -284,12 +293,14 @@ export function SourceDetailPage({ id }: { id: string }) {
               <span>02 · Assess CDC readiness</span>
               <span>03 · Discover & select tables</span>
             </div>
-            <Button asChild>
-              <Link href={`/pipelines/new?source=${id}`}>
-                Create pipeline
-                <ArrowRight size={15} />
-              </Link>
-            </Button>
+            {can("pipelines.write") && (
+              <Button asChild>
+                <Link href={`/pipelines/new?source=${id}`}>
+                  Create pipeline
+                  <ArrowRight size={15} />
+                </Link>
+              </Button>
+            )}
           </section>
         </div>
       )}
@@ -385,15 +396,21 @@ export function SourceDetailPage({ id }: { id: string }) {
         <section className="panel">
           <h2>Source configuration</h2>
           <JsonView value={s} />
-          <div className="toolbar">
-            <Button variant="outline" onClick={() => setEdit(true)}>
-              Edit source
-            </Button>
-            <Button variant="destructive" onClick={() => setConfirm(true)}>
-              <Trash2 size={15} />
-              Delete source
-            </Button>
-          </div>
+          {(canWrite || canDelete) && (
+            <div className="toolbar">
+              {canWrite && (
+                <Button variant="outline" onClick={() => setEdit(true)}>
+                  Edit source
+                </Button>
+              )}
+              {canDelete && (
+                <Button variant="destructive" onClick={() => setConfirm(true)}>
+                  <Trash2 size={15} />
+                  Delete source
+                </Button>
+              )}
+            </div>
+          )}
         </section>
       )}
       {tab === "Activity" &&
@@ -415,27 +432,31 @@ export function SourceDetailPage({ id }: { id: string }) {
             ]}
           />
         ))}
-      <SourceEditor source={s} open={edit} onOpenChange={setEdit} />
-      <Dialog
-        open={confirm}
-        onOpenChange={setConfirm}
-        title="Delete source?"
-        description="The source connection, encrypted credential, and discovery metadata will be deleted. Associated pipelines must be deleted first."
-      >
-        <div className="dialog-actions">
-          <Button variant="outline" onClick={() => setConfirm(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            Delete source
-          </Button>
-        </div>
-        {remove.isError && <ErrorPanel error={remove.error} />}
-      </Dialog>
+      {canWrite && (
+        <SourceEditor source={s} open={edit} onOpenChange={setEdit} />
+      )}
+      {canDelete && (
+        <Dialog
+          open={confirm}
+          onOpenChange={setConfirm}
+          title="Delete source?"
+          description="The source connection, encrypted credential, and discovery metadata will be deleted. Associated pipelines must be deleted first."
+        >
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              Delete source
+            </Button>
+          </div>
+          {remove.isError && <ErrorPanel error={remove.error} />}
+        </Dialog>
+      )}
       <DetailDrawer
         open={!!selected}
         onOpenChange={(open) => {

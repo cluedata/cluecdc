@@ -79,7 +79,7 @@ async def rule_view(db: AsyncSession, rule: AlertRule) -> dict:
 
 
 @router.get("/alerts/summary")
-async def alert_summary(db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]):
+async def alert_summary(db: DB, user: Annotated[Principal, Depends(require("alerts.read"))]):
     active = Alert.status.in_(["firing", "acknowledged", "silenced"])
     count = await db.scalar(select(func.count()).select_from(Alert).where(active))
     recent = (
@@ -91,7 +91,7 @@ async def alert_summary(db: DB, user: Annotated[Principal, Depends(require("pipe
 @router.get("/alerts")
 async def alerts(
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.read"))],
+    user: Annotated[Principal, Depends(require("alerts.read"))],
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
     status: str | None = None,
@@ -135,7 +135,7 @@ async def alerts(
 async def alert_detail(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.read"))],
+    user: Annotated[Principal, Depends(require("alerts.read"))],
 ):
     alert = await get(db, Alert, identifier)
     rows = (
@@ -159,7 +159,7 @@ async def alert_detail(
 async def acknowledge_alert(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("alerts.operate"))],
 ):
     alert = await get(db, Alert, identifier)
     if alert.status == "resolved":
@@ -178,7 +178,7 @@ async def silence_alert(
     identifier: UUID,
     data: SilenceInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("alerts.operate"))],
 ):
     alert = await get(db, Alert, identifier)
     if alert.status == "resolved":
@@ -198,7 +198,7 @@ async def silence_alert(
 async def unsilence_alert(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("pipelines.operate"))],
+    user: Annotated[Principal, Depends(require("alerts.operate"))],
 ):
     alert = await get(db, Alert, identifier)
     if alert.status != "silenced":
@@ -213,7 +213,7 @@ async def unsilence_alert(
 
 
 @router.get("/notification-channels")
-async def list_channels(db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]):
+async def list_channels(db: DB, user: Annotated[Principal, Depends(require("alerts.read"))]):
     rows = (await db.scalars(select(NotificationChannel).order_by(NotificationChannel.name))).all()
     return [channel_view(row) for row in rows]
 
@@ -222,7 +222,7 @@ async def list_channels(db: DB, user: Annotated[Principal, Depends(require("pipe
 async def create_channel(
     data: ChannelInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     config = await validate_channel_config(data.type, data.config)
     ref = await secret_provider(db).put_secret(config)
@@ -240,7 +240,7 @@ async def create_channel(
 async def get_channel(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     return channel_view(await get(db, NotificationChannel, identifier))
 
@@ -250,7 +250,7 @@ async def update_channel(
     identifier: UUID,
     data: ChannelUpdate,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     channel = await get(db, NotificationChannel, identifier)
     before = serialize(channel)
@@ -280,7 +280,7 @@ async def update_channel(
 async def delete_channel(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     channel = await get(db, NotificationChannel, identifier)
     secret = await db.get(SecretReference, channel.config_encrypted)
@@ -296,7 +296,7 @@ async def delete_channel(
 async def test_channel(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     channel = await get(db, NotificationChannel, identifier)
     config = await secret_provider(db).get_secret(channel.config_encrypted)
@@ -307,7 +307,7 @@ async def test_channel(
 
 
 @router.get("/alert-rules")
-async def list_rules(db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]):
+async def list_rules(db: DB, user: Annotated[Principal, Depends(require("alerts.read"))]):
     rules = (await db.scalars(select(AlertRule).order_by(AlertRule.name))).all()
     return [await rule_view(db, rule) for rule in rules]
 
@@ -316,7 +316,7 @@ async def list_rules(db: DB, user: Annotated[Principal, Depends(require("pipelin
 async def create_rule(
     data: RuleInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     rule = AlertRule(**data.model_dump(exclude={"channel_ids"}))
     db.add(rule)
@@ -329,7 +329,7 @@ async def create_rule(
 
 @router.get("/alert-rules/{identifier}")
 async def get_rule(
-    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("pipelines.read"))]
+    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("alerts.read"))]
 ):
     return await rule_view(db, await get(db, AlertRule, identifier))
 
@@ -339,7 +339,7 @@ async def update_rule(
     identifier: UUID,
     data: RuleInput,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     rule = await get(db, AlertRule, identifier)
     before = serialize(rule)
@@ -355,7 +355,7 @@ async def update_rule(
 async def delete_rule(
     identifier: UUID,
     db: DB,
-    user: Annotated[Principal, Depends(require("settings.manage"))],
+    user: Annotated[Principal, Depends(require("alerts.manage"))],
 ):
     rule = await get(db, AlertRule, identifier)
     audit(db, user.actor, "alert_rule.deleted", rule)
