@@ -10,7 +10,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, VerifyMismatchError
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, SecretStr, field_validator
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import (
@@ -30,7 +30,7 @@ from app.repositories.metadata import audit_event
 router = APIRouter(prefix="/api/v1", tags=["Authentication"])
 DB = Annotated[AsyncSession, Depends(session_dependency)]
 Admin = Annotated[Principal, Depends(require("users.manage"))]
-PASSWORD_MIN_LENGTH = 12
+PASSWORD_MIN_LENGTH = 8
 _hasher = PasswordHasher()
 _dummy_hash = _hasher.hash("not-a-real-password-value")
 _attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -357,3 +357,41 @@ async def enable_user(user_id: UUID, db: DB, actor: Admin):
         raise DomainError("NOT_FOUND", "User was not found", 404)
     status = "ACTIVE" if target.password_hash else "INVITED"
     return await _set_status(user_id, status, db, actor)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: UUID, db: DB, actor: Admin):
+    if actor.user_id is None:
+        raise DomainError("SESSION_REQUIRED", "Sign in as an Admin to delete users", 403)
+    target = await db.get(User, user_id)
+    if target is None:
+        raise DomainError("NOT_FOUND", "User was not found", 404)
+    if actor.user_id == target.id:
+        raise DomainError("CANNOT_DELETE_SELF", "You cannot delete your own account", 409)
+    if target.role == "ADMIN" and target.status == "ACTIVE":
+        active_admins = await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "ADMIN", User.status == "ACTIVE")
+        )
+        if (active_admins or 0) <= 1:
+            raise DomainError(
+                "LAST_ADMIN",
+                "The last active Admin cannot be deleted",
+                409,
+            )
+    await db.execute(
+        update(Invite).where(Invite.created_by == target.id).values(created_by=actor.user_id)
+    )
+    await db.execute(delete(Invite).where(Invite.email == target.email))
+    await db.execute(delete(AuthSession).where(AuthSession.user_id == target.id))
+    audit_event(
+        db,
+        actor.actor,
+        "USER_DELETED",
+        "users",
+        str(target.id),
+        {"email": target.email, "role": target.role},
+    )
+    await db.delete(target)
+    await db.commit()

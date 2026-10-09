@@ -19,6 +19,7 @@ import type {
 } from "@cluecdc/contracts";
 import { Button } from "@cluecdc/ui";
 import { api, date, number, relativeTime } from "@/lib/api";
+import { useAuthorization } from "@/lib/auth";
 import { ErrorPanel, Loading, PageHeader, Status } from "./common";
 import {
   HealthIndicator,
@@ -81,7 +82,13 @@ type HealthSegment = {
   tone: "healthy" | "degraded" | "failed" | "paused" | "unknown";
 };
 
-function HealthDistribution({ overview }: { overview: Overview }) {
+function HealthDistribution({
+  overview,
+  canCreate,
+}: {
+  overview: Overview;
+  canCreate: boolean;
+}) {
   const segments: HealthSegment[] = [
     { label: "Running", value: overview.running, tone: "healthy" },
     { label: "Degraded", value: overview.degraded, tone: "degraded" },
@@ -111,9 +118,11 @@ function HealthDistribution({ overview }: { overview: Overview }) {
             <strong>No pipelines configured</strong>
             <small>Create a pipeline to begin tracking data movement.</small>
           </span>
-          <Button asChild>
-            <Link href="/pipelines/new">Create pipeline</Link>
-          </Button>
+          {canCreate && (
+            <Button asChild>
+              <Link href="/pipelines/new">Create pipeline</Link>
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -173,7 +182,13 @@ function InfrastructureRow({
   );
 }
 
-function OperationalSummary({ overview }: { overview: Overview }) {
+function OperationalSummary({
+  overview,
+  isAdmin,
+}: {
+  overview: Overview;
+  isAdmin: boolean;
+}) {
   const infrastructureTotal =
     overview.kafka_clusters + overview.connect_clusters;
   const infrastructureHealthy =
@@ -205,29 +220,36 @@ function OperationalSummary({ overview }: { overview: Overview }) {
           ? "DEGRADED"
           : "HEALTHY",
     },
-    {
-      label: "Infrastructure",
-      value: `${infrastructureHealthy} / ${infrastructureTotal} healthy`,
-      detail:
-        infrastructureTotal && infrastructureHealthy === infrastructureTotal
-          ? "All systems OK"
-          : infrastructureTotal
-            ? "Review system health"
-            : "Not configured",
-      href: "/monitoring",
-      state: !infrastructureTotal
-        ? "NOT CONFIGURED"
-        : infrastructureHealthy === infrastructureTotal
-          ? "HEALTHY"
-          : "DEGRADED",
-    },
-    {
-      label: "Issues",
-      value: String(overview.errors),
-      detail: overview.errors ? "Requires attention" : "No active incidents",
-      href: "/operations/errors",
-      state: overview.errors ? "ERROR" : "HEALTHY",
-    },
+    ...(isAdmin
+      ? [
+          {
+            label: "Infrastructure",
+            value: `${infrastructureHealthy} / ${infrastructureTotal} healthy`,
+            detail:
+              infrastructureTotal &&
+              infrastructureHealthy === infrastructureTotal
+                ? "All systems OK"
+                : infrastructureTotal
+                  ? "Review system health"
+                  : "Not configured",
+            href: "/monitoring",
+            state: !infrastructureTotal
+              ? "NOT CONFIGURED"
+              : infrastructureHealthy === infrastructureTotal
+                ? "HEALTHY"
+                : "DEGRADED",
+          },
+          {
+            label: "Issues",
+            value: String(overview.errors),
+            detail: overview.errors
+              ? "Requires attention"
+              : "No active incidents",
+            href: "/operations/errors",
+            state: overview.errors ? "ERROR" : "HEALTHY",
+          },
+        ]
+      : []),
   ];
   return (
     <section
@@ -283,6 +305,8 @@ function prioritizeIssues(entries: OperationalError[]) {
 }
 
 export function OverviewPage() {
+  const { can, role } = useAuthorization();
+  const isAdmin = role === "Admin";
   const interval = 15000;
   const overview = useQuery({
     queryKey: ["overview"],
@@ -294,11 +318,13 @@ export function OverviewPage() {
     queryFn: () =>
       api<OperationalError[]>("/operations/errors?limit=5&active=true"),
     refetchInterval: interval,
+    enabled: isAdmin,
   });
   const activity = useQuery({
     queryKey: ["audit", "meaningful"],
     queryFn: () => api<Audit[]>("/audit?limit=6&meaningful=true"),
     refetchInterval: interval,
+    enabled: can("audit.read"),
   });
   const data = overview.data;
 
@@ -309,12 +335,14 @@ export function OverviewPage() {
         description="System health, data movement, and issues requiring attention."
         eyebrow="WORKSPACE / OPERATIONS"
       >
-        <Button asChild>
-          <Link href="/pipelines/new">
-            <Plus size={14} />
-            Create pipeline
-          </Link>
-        </Button>
+        {can("pipelines.write") && (
+          <Button asChild>
+            <Link href="/pipelines/new">
+              <Plus size={14} />
+              Create pipeline
+            </Link>
+          </Button>
+        )}
       </PageHeader>
 
       {overview.isPending ? (
@@ -323,7 +351,7 @@ export function OverviewPage() {
         <ErrorPanel error={overview.error} retry={() => overview.refetch()} />
       ) : data ? (
         <>
-          <OperationalSummary overview={data} />
+          <OperationalSummary overview={data} isAdmin={isAdmin} />
 
           <div className="overview-grid">
             <Panel
@@ -335,144 +363,153 @@ export function OverviewPage() {
                 </Link>
               }
             >
-              <HealthDistribution overview={data} />
+              <HealthDistribution
+                overview={data}
+                canCreate={can("pipelines.write")}
+              />
             </Panel>
-            <Panel
-              title="System health"
-              description="Control-plane infrastructure and connectivity"
-              actions={
-                <Link className="text-link" href="/monitoring">
-                  Open monitoring
-                </Link>
-              }
-            >
-              <div className="infrastructure-list">
-                <InfrastructureRow
-                  label="Kafka clusters"
-                  healthy={data.healthy_kafka_clusters}
-                  total={data.kafka_clusters}
-                  href="/kafka/clusters"
-                />
-                <InfrastructureRow
-                  label="Connect clusters"
-                  healthy={data.healthy_connect_clusters}
-                  total={data.connect_clusters}
-                  href="/connect/clusters"
-                />
-                <InfrastructureRow
-                  label="Source connections"
-                  healthy={data.healthy_sources}
-                  total={data.sources}
-                  href="/sources"
-                />
-                <InfrastructureRow
-                  label="Destinations"
-                  healthy={data.destination_running}
-                  total={data.destinations}
-                  href="/destinations"
-                />
-              </div>
-            </Panel>
-
-            <Panel
-              title="Requires attention"
-              description="Active operational incidents"
-              actions={
-                <Link className="text-link" href="/operations/errors">
-                  Error center
-                </Link>
-              }
-            >
-              {errors.isPending ? (
-                <Loading />
-              ) : errors.isError ? (
-                <ErrorPanel
-                  error={errors.error}
-                  retry={() => errors.refetch()}
-                />
-              ) : errors.data.length ? (
-                <div className="attention-list">
-                  {prioritizeIssues(errors.data).map((error) => (
-                    <Link
-                      key={error.id}
-                      href={
-                        error.destination_id
-                          ? `/destinations/${error.destination_id}`
-                          : error.pipeline_id
-                            ? `/pipelines/${error.pipeline_id}`
-                            : "/operations/errors"
-                      }
-                    >
-                      <Status value={error.status} />
-                      <div>
-                        <strong>{error.message}</strong>
-                        <small>
-                          {error.category.replaceAll("_", " ")} ·{" "}
-                          {relativeTime(error.created_at)}
-                        </small>
-                      </div>
-                    </Link>
-                  ))}
+            {isAdmin && (
+              <Panel
+                title="System health"
+                description="Control-plane infrastructure and connectivity"
+                actions={
+                  <Link className="text-link" href="/monitoring">
+                    Open monitoring
+                  </Link>
+                }
+              >
+                <div className="infrastructure-list">
+                  <InfrastructureRow
+                    label="Kafka clusters"
+                    healthy={data.healthy_kafka_clusters}
+                    total={data.kafka_clusters}
+                    href="/kafka/clusters"
+                  />
+                  <InfrastructureRow
+                    label="Connect clusters"
+                    healthy={data.healthy_connect_clusters}
+                    total={data.connect_clusters}
+                    href="/connect/clusters"
+                  />
+                  <InfrastructureRow
+                    label="Source connections"
+                    healthy={data.healthy_sources}
+                    total={data.sources}
+                    href="/sources"
+                  />
+                  <InfrastructureRow
+                    label="Destinations"
+                    healthy={data.destination_running}
+                    total={data.destinations}
+                    href="/destinations"
+                  />
                 </div>
-              ) : (
-                <div className="healthy-inline-state">
-                  <ShieldCheck size={16} aria-hidden="true" />
-                  <strong>No active incidents</strong>
-                  <span>Everything looks operational.</span>
-                </div>
-              )}
-            </Panel>
+              </Panel>
+            )}
 
-            <Panel
-              title="Recent activity"
-              description="Latest configuration and lifecycle changes"
-              actions={
-                <Link className="text-link" href="/operations/audit">
-                  Audit trail
-                </Link>
-              }
-            >
-              {activity.isPending ? (
-                <Loading />
-              ) : activity.isError ? (
-                <ErrorPanel
-                  error={activity.error}
-                  retry={() => activity.refetch()}
-                />
-              ) : activity.data.length ? (
-                <div className="overview-activity">
-                  {collapseActivity(activity.data).map(({ entry, count }) => (
-                    <div key={entry.id}>
-                      <span className="activity-point" aria-hidden="true" />
-                      <div>
-                        <strong>{actionLabel(entry.action)}</strong>
-                        <small>
-                          {entry.actor} · {entry.resource_type}
-                          {count > 1 && <b> ×{count}</b>} ·{" "}
-                          {relativeTime(entry.created_at)}
-                        </small>
-                      </div>
-                      <time
-                        dateTime={entry.created_at}
-                        title={date(entry.created_at)}
+            {isAdmin && (
+              <Panel
+                title="Requires attention"
+                description="Active operational incidents"
+                actions={
+                  <Link className="text-link" href="/operations/errors">
+                    Error center
+                  </Link>
+                }
+              >
+                {errors.isPending ? (
+                  <Loading />
+                ) : errors.isError ? (
+                  <ErrorPanel
+                    error={errors.error}
+                    retry={() => errors.refetch()}
+                  />
+                ) : errors.data.length ? (
+                  <div className="attention-list">
+                    {prioritizeIssues(errors.data).map((error) => (
+                      <Link
+                        key={error.id}
+                        href={
+                          error.destination_id
+                            ? `/destinations/${error.destination_id}`
+                            : error.pipeline_id
+                              ? `/pipelines/${error.pipeline_id}`
+                              : "/operations/errors"
+                        }
                       >
-                        {new Intl.DateTimeFormat(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        }).format(new Date(entry.created_at))}
-                      </time>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <QuietState
-                  icon={Activity}
-                  title="No recent activity"
-                  description="Configuration and lifecycle actions will appear here."
-                />
-              )}
-            </Panel>
+                        <Status value={error.status} />
+                        <div>
+                          <strong>{error.message}</strong>
+                          <small>
+                            {error.category.replaceAll("_", " ")} ·{" "}
+                            {relativeTime(error.created_at)}
+                          </small>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="healthy-inline-state">
+                    <ShieldCheck size={16} aria-hidden="true" />
+                    <strong>No active incidents</strong>
+                    <span>Everything looks operational.</span>
+                  </div>
+                )}
+              </Panel>
+            )}
+
+            {isAdmin && (
+              <Panel
+                title="Recent activity"
+                description="Latest configuration and lifecycle changes"
+                actions={
+                  <Link className="text-link" href="/operations/audit">
+                    Audit trail
+                  </Link>
+                }
+              >
+                {activity.isPending ? (
+                  <Loading />
+                ) : activity.isError ? (
+                  <ErrorPanel
+                    error={activity.error}
+                    retry={() => activity.refetch()}
+                  />
+                ) : activity.data.length ? (
+                  <div className="overview-activity">
+                    {collapseActivity(activity.data).map(({ entry, count }) => (
+                      <div key={entry.id}>
+                        <span className="activity-point" aria-hidden="true" />
+                        <div>
+                          <strong>{actionLabel(entry.action)}</strong>
+                          <small>
+                            {entry.actor} · {entry.resource_type}
+                            {count > 1 && <b> ×{count}</b>} ·{" "}
+                            {relativeTime(entry.created_at)}
+                          </small>
+                        </div>
+                        <time
+                          dateTime={entry.created_at}
+                          title={date(entry.created_at)}
+                        >
+                          {new Intl.DateTimeFormat(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          }).format(new Date(entry.created_at))}
+                        </time>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <QuietState
+                    icon={Activity}
+                    title="No recent activity"
+                    description="Configuration and lifecycle actions will appear here."
+                  />
+                )}
+              </Panel>
+            )}
           </div>
 
           <div className="overview-metrics-note">
@@ -493,9 +530,11 @@ export function OverviewPage() {
                 "Configure a metrics provider for historical throughput, lag, and freshness."
               }
             />
-            <Link href="/monitoring" aria-label="Open monitoring">
-              <ArrowRight size={14} />
-            </Link>
+            {isAdmin && (
+              <Link href="/monitoring" aria-label="Open monitoring">
+                <ArrowRight size={14} />
+              </Link>
+            )}
           </div>
         </>
       ) : null}

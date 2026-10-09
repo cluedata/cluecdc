@@ -11,6 +11,9 @@ invalid. The web server validates its private API origin at request time.
 | `SECRET_ENCRYPTION_KEY`       | Yes            | URL-safe 32-byte Fernet key                            |
 | `CONNECT_SECRET_TOKEN`        | Yes            | 32+ character machine credential for secret resolution |
 | `AUTH_MODE`                   | No             | `session`; `developer`/`token` remain for compatibility |
+| `BOOTSTRAP_DEFAULT_ADMIN`     | No             | Create the public Admin in development only             |
+| `DEFAULT_ADMIN_EMAIL`         | Development    | Initial public Admin email                               |
+| `DEFAULT_ADMIN_PASSWORD`      | Development    | Initial public Admin password (minimum 8 characters)     |
 | `SESSION_SECRET`              | Production     | Unique 32+ character key for session token digests     |
 | `SESSION_TTL_SECONDS`         | No             | Browser session lifetime (default 28800)                |
 | `INVITE_TTL_SECONDS`          | No             | Invite lifetime (default 86400)                         |

@@ -56,6 +56,9 @@ else:
         "ENVIRONMENT": "development",
         "AUTH_MODE": "session",
         "AUTH_TOKENS_JSON": "{}",
+        "BOOTSTRAP_DEFAULT_ADMIN": "true",
+        "DEFAULT_ADMIN_EMAIL": "admin@cluecdc.local",
+        "DEFAULT_ADMIN_PASSWORD": "cluecdc-admin",
         "SECRET_ENCRYPTION_KEY": base64.urlsafe_b64encode(
             secrets.token_bytes(32)
         ).decode(),

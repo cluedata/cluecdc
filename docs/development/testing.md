@@ -2,15 +2,16 @@
 
 ## GitHub Actions
 
-Automatic CI on pushes to `main`/`master` and pull requests currently runs only
-the documentation job (`mkdocs build --strict`). Application quality checks,
-dependency/security audits, container builds and live smoke tests are skipped.
-To run them explicitly, select **Actions → CI → Run workflow** and enable
-`run_full_ci`; it defaults to false, including for manual runs.
+Automatic CI on pushes to `main`/`master` and pull requests runs application
+quality/tests, documentation, dependency/security scans, container builds, core
+smoke tests, real PostgreSQL/MySQL/object-storage CDC flows, and browser E2E.
+For a manually dispatched CI run, enable `run_full_ci`; when it is false, only
+the documentation job runs.
 
 The separate Documentation workflow continues to build and deploy GitHub Pages
 on documentation changes pushed to `main`, or when manually triggered.
-Documentation-only CI does not verify application correctness or security.
+The Documentation workflow builds and publishes the site only; correctness and
+security coverage comes from the CI workflow.
 
 ## Fast checks
 

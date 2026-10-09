@@ -12,6 +12,31 @@ export type Session = {
   permissions: string[];
 };
 
+export function hasPermission(
+  permissions: string[] | undefined,
+  permission: string,
+) {
+  return !!permissions?.includes("*") || !!permissions?.includes(permission);
+}
+
+export function requiredPermissionForPath(path: string): string | null {
+  if (path === "/login" || path.startsWith("/invite/")) return null;
+  if (path === "/" || path.startsWith("/overview")) return "overview.read";
+  if (path.startsWith("/pipelines/new")) return "pipelines.write";
+  if (path.startsWith("/pipelines")) return "pipelines.read";
+  if (path.startsWith("/deliveries/new")) return "deliveries.write";
+  if (path.startsWith("/deliveries")) return "deliveries.read";
+  if (path.startsWith("/sources/new")) return "sources.write";
+  if (path.startsWith("/sources")) return "sources.read";
+  if (path.startsWith("/destinations/new")) return "destinations.write";
+  if (path.startsWith("/destinations")) return "destinations.read";
+  if (path.startsWith("/connections/new") || path.endsWith("/edit")) {
+    return "destinations.write";
+  }
+  if (path.startsWith("/connections")) return "destinations.read";
+  return "*";
+}
+
 export function useAuthorization() {
   const session = useQuery({
     queryKey: ["session"],
@@ -22,7 +47,6 @@ export function useAuthorization() {
   return {
     session,
     role: session.data?.role,
-    can: (permission: string) =>
-      permissions.includes("*") || permissions.includes(permission),
+    can: (permission: string) => hasPermission(permissions, permission),
   };
 }

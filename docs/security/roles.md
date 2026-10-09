@@ -6,18 +6,24 @@ experience aid.
 
 | Capability | Viewer | Ops | Admin |
 | --- | :---: | :---: | :---: |
-| View dashboard, connections, pipelines, schemas, Kafka, Connect, and alerts | Yes | Yes | Yes |
-| Create, update, and test connections | No | Yes | Yes |
-| Create and update pipelines | No | Yes | Yes |
-| Start, stop, restart, and resync pipelines or tables | No | Yes | Yes |
-| Acknowledge and silence alerts | No | Yes | Yes |
-| Delete pipelines, connections, deliveries, topics, or infrastructure settings | No | No | Yes |
-| Configure alert rules/channels and system settings | No | No | Yes |
-| View audit logs | No | No | Yes |
-| Invite, enable, disable, or change the role of users | No | No | Yes |
+| View Overview, Pipelines, and Deliveries | Yes | Yes | Yes |
+| View Sources and Destinations | No | Yes | Yes |
+| Create, update, operate, and delete Pipelines | No | Yes | Yes |
+| Create, update, operate, and delete Deliveries | No | Yes | Yes |
+| Create, update, test, or delete Sources and Destinations | No | No | Yes |
+| Open Kafka/Connect infrastructure pages or mutate infrastructure | No | No | Yes |
+| View or manage alerts, errors, audit, and system settings | No | No | Yes |
+| Invite, enable, disable, change the role of, or delete users | No | No | Yes |
 
-`Viewer` is read-only. `Ops` can run day-to-day CDC operations but cannot manage
-identity or perform destructive administration. `Admin` has every permission.
+`Viewer` has a deliberately narrow read-only workspace containing Overview,
+Pipelines, and Deliveries. `Ops` adds read-only Source and Destination access and
+full day-to-day lifecycle control over Pipelines and Deliveries. `Admin` has
+every permission. Navigation, actions, and detail tabs outside a role's access
+are hidden, while the API independently enforces the same boundaries.
+
+Ops has read-only API access to existing Kafka and Connect inventory so the
+pipeline wizard can select runtime clusters. Standalone infrastructure pages
+and every infrastructure mutation remain hidden and Admin-only.
 
 Role changes take effect on the user's next API request because each session is
 resolved against the current user record. Disabling a user also invalidates all

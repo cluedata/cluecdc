@@ -7,15 +7,18 @@ Use ClueCDC when you want repeatable connector configuration, table discovery, c
 ## Community scope
 
 The current release implements PostgreSQL and MySQL capture through Debezium
-source connectors and PostgreSQL/MySQL delivery through JDBC sink connectors. It
-includes a Next.js interface, a FastAPI API, PostgreSQL metadata, Alembic
-migrations, a reconciliation worker, structured logs, application metrics,
-audit records, and notification channels.
+source connectors, PostgreSQL/MySQL delivery through JDBC sink connectors, and
+AWS S3/MinIO delivery through the Aiven S3 sink. It includes a Next.js
+interface, a FastAPI API, PostgreSQL metadata, Alembic migrations, a
+reconciliation worker, durable table/snapshot operations, structured logs,
+application metrics, alerting, audit records, and notification channels.
 
 ClueCDC includes local email/password authentication, invitation-based user
-provisioning, and role-based access control. It does not bundle external identity
-providers, managed Kafka, automatic TLS/ACL provisioning, schema registry, or a
-historical metrics backend. The compatibility developer mode is local/test-only.
+provisioning, Admin user management, and role-based access control. It does not
+bundle external identity providers, managed Kafka, automatic TLS/ACL
+provisioning, schema registry, payload browsing, or a historical metrics
+backend. The compatibility developer mode is local/test-only. See the
+[current feature matrix](../features.md) for the detailed supported surface.
 
 ## Where to go next
 

@@ -19,6 +19,9 @@ Read = Annotated[Principal, Depends(require("destinations.read"))]
 Write = Annotated[Principal, Depends(require("destinations.write"))]
 Operate = Annotated[Principal, Depends(require("destinations.operate"))]
 Admin = Annotated[Principal, Depends(require("destinations.admin"))]
+DeliveryWrite = Annotated[Principal, Depends(require("deliveries.write"))]
+DeliveryOperate = Annotated[Principal, Depends(require("deliveries.operate"))]
+DeliveryAdmin = Annotated[Principal, Depends(require("deliveries.admin"))]
 
 
 async def failure(
@@ -88,7 +91,7 @@ async def test(identifier: UUID, db: DB, user: Write):
 
 
 @router.post("/{identifier}/preview")
-async def preview(identifier: UUID, data: DeliveryInput, db: DB, user: Write):
+async def preview(identifier: UUID, data: DeliveryInput, db: DB, user: DeliveryWrite):
     value = await get(db, Connection, identifier)
     if "DESTINATION" not in value.capabilities_json:
         raise DomainError("NOT_FOUND", "Destination was not found", 404)
@@ -96,7 +99,7 @@ async def preview(identifier: UUID, data: DeliveryInput, db: DB, user: Write):
 
 
 @router.post("/{identifier}/deploy", status_code=201)
-async def deploy(identifier: UUID, data: DeliveryInput, db: DB, user: Operate):
+async def deploy(identifier: UUID, data: DeliveryInput, db: DB, user: DeliveryWrite):
     try:
         value = await get(db, Connection, identifier)
         if "DESTINATION" not in value.capabilities_json:
@@ -147,7 +150,7 @@ async def status(identifier: UUID, db: DB, user: Read):
 
 @router.put("/{identifier}/deliveries/{delivery_id}/mappings")
 async def update_mappings(
-    identifier: UUID, delivery_id: UUID, data: DeliveryInput, db: DB, user: Operate
+    identifier: UUID, delivery_id: UUID, data: DeliveryInput, db: DB, user: DeliveryWrite
 ):
     try:
         destination = await get(db, Connection, identifier)
@@ -161,7 +164,7 @@ async def update_mappings(
 
 
 @router.delete("/{identifier}/deliveries/{delivery_id}")
-async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Admin):
+async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: DeliveryAdmin):
     destination = await get(db, Connection, identifier)
     link = await service.delivery_by_id(db, delivery_id)
     if link.destination_id != identifier:
@@ -170,7 +173,13 @@ async def remove_delivery(identifier: UUID, delivery_id: UUID, db: DB, user: Adm
 
 
 @router.post("/{identifier}/deliveries/{delivery_id}/tasks/{task_id}/restart")
-async def restart_task(identifier: UUID, delivery_id: UUID, task_id: int, db: DB, user: Operate):
+async def restart_task(
+    identifier: UUID,
+    delivery_id: UUID,
+    task_id: int,
+    db: DB,
+    user: DeliveryOperate,
+):
     if task_id < 0:
         raise DomainError("INVALID_TASK", "Task ID must be non-negative", 422)
     destination = await get(db, Connection, identifier)
@@ -185,7 +194,7 @@ async def operate(
     identifier: UUID,
     operation: str,
     db: DB,
-    user: Operate,
+    user: DeliveryOperate,
     delivery_id: UUID | None = Query(default=None),
 ):
     if operation not in {"pause", "resume", "restart"}:

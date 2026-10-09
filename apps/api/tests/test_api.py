@@ -144,7 +144,7 @@ async def test_viewer_cannot_mutate_or_read_audit(client, monkeypatch, source_pa
     )
     assert (await client.get("/api/v1/sources")).status_code == 401
     headers = {"Authorization": f"Bearer {token}"}
-    assert (await client.get("/api/v1/sources", headers=headers)).status_code == 200
+    assert (await client.get("/api/v1/sources", headers=headers)).status_code == 403
     assert (
         await client.post("/api/v1/sources", json=source_payload, headers=headers)
     ).status_code == 403

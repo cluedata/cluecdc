@@ -374,7 +374,7 @@ async def test_destination_viewer_boundary(client, target_payload, monkeypatch):
         ),
     )
     headers = {"Authorization": "Bearer " + token}
-    assert (await client.get("/api/v1/destinations", headers=headers)).status_code == 200
+    assert (await client.get("/api/v1/destinations", headers=headers)).status_code == 403
     assert (
         await client.post("/api/v1/destinations", json=target_payload, headers=headers)
     ).status_code == 403

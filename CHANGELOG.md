@@ -12,11 +12,23 @@ All notable changes to ClueCDC are documented here. The format follows
   sessions, expiring single-use invite links, and first-Admin CLI bootstrap.
 - Added built-in Admin, Ops, and Viewer authorization, user management screens,
   a current-user menu, authentication audit events, and security documentation.
+- Added an explicitly development-only public Admin account for local demos;
+  production startup rejects the default-account bootstrap.
+- Added Admin-only user deletion with self-deletion and last-Admin safeguards.
 
 ### Changed
 
 - Made session authentication the production mode and restricted destructive
   infrastructure and identity operations to Admins.
+- Narrowed Viewer access to Overview, Pipelines, and Deliveries; made Sources
+  and Destinations read-only for Ops while allowing full Pipeline and Delivery
+  lifecycle operations; unauthorized navigation and controls are hidden.
+- Reduced the invite password minimum to eight characters.
+
+### Fixed
+
+- Mapped compatibility developer-mode authorization to a persistent active
+  Admin so user invitations always have a valid creator.
 
 ## [0.1.0]
 

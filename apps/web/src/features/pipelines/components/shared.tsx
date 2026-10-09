@@ -5,6 +5,19 @@ import type { Pipeline } from "@cluecdc/contracts";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowRight, GitBranch } from "lucide-react";
 import Link from "next/link";
+import { useAuthorization } from "@/lib/auth";
+
+function SourceReference({ pipeline }: { pipeline: Pipeline }) {
+  const { can } = useAuthorization();
+  const name = pipeline.source_name || "Unavailable";
+  return can("sources.read") ? (
+    <Link className="text-link" href={`/sources/${pipeline.source_id}`}>
+      {name}
+    </Link>
+  ) : (
+    <>{name}</>
+  );
+}
 
 export const pipelineColumns: ColumnDef<Pipeline>[] = [
   {
@@ -25,11 +38,7 @@ export const pipelineColumns: ColumnDef<Pipeline>[] = [
   {
     accessorKey: "source_name",
     header: "Source",
-    cell: ({ row }) => (
-      <Link className="text-link" href={`/sources/${row.original.source_id}`}>
-        {row.original.source_name || "Unavailable"}
-      </Link>
-    ),
+    cell: ({ row }) => <SourceReference pipeline={row.original} />,
   },
   {
     id: "coverage",

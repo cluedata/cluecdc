@@ -52,6 +52,14 @@ function workspace({
   });
   client.setQueryData(["errors", "recent-active"], errors);
   client.setQueryData(["audit", "meaningful"], []);
+  client.setQueryData(["session"], {
+    actor: "admin@example.com",
+    email: "admin@example.com",
+    role: "Admin",
+    environment: "test",
+    auth_mode: "session",
+    permissions: ["*"],
+  });
   return render(
     <QueryClientProvider client={client}>
       <OverviewPage />

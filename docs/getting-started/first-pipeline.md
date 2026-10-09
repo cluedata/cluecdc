@@ -9,6 +9,9 @@ docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
 
 This exercises the real Debezium, Kafka, and JDBC sink path.
 
+Sign in as Admin for infrastructure and connection setup. Once those reusable
+resources exist, an Ops user can create and operate pipelines and deliveries.
+
 ## 1. Register infrastructure
 
 Open **Infrastructure** in ClueCDC and register:
@@ -22,7 +25,7 @@ These are container-network addresses. A host client would use `localhost:9092` 
 
 ## 2. Register the PostgreSQL source
 
-Open **Data Movement → Sources → Add source** and use:
+Open **Connections → Sources → Create Source** and use:
 
 | Field | Value |
 | --- | --- |
@@ -33,13 +36,9 @@ Open **Data Movement → Sources → Add source** and use:
 
 Test the connection, save it, run discovery, and review CDC readiness. Select `public.customers` and `public.orders`; both have stable keys and local logical-replication configuration.
 
-## 3. Create capture
+## 3. Register the destination
 
-Open **Pipelines → Create pipeline**. Select the source, registered Kafka and Connect clusters, the two tables, snapshot mode `initial`, and a unique topic prefix such as `commerce`. Validate, create, and deploy. The connector and its task should reach **RUNNING**.
-
-## 4. Add the destination
-
-From the pipeline's **Destinations** tab choose **Add destination**, then create a PostgreSQL destination:
+Open **Connections → Destinations → Create Destination** and register PostgreSQL:
 
 | Field | Value |
 | --- | --- |
@@ -48,7 +47,27 @@ From the pipeline's **Destinations** tab choose **Add destination**, then create
 | User | `delivery_user` |
 | Password | `cluecdc-destination-test-only` unless overridden |
 
-Map the customers and orders topics to destination tables. Validate the source keys/types, destination permissions, topics, and installed JDBC plugin; then deploy.
+Test and save the destination. Registration stores a reusable endpoint; it does
+not start a sink connector or move data.
+
+## 4. Create the pipeline and first delivery
+
+Open **Data Flow → Pipelines → Create Pipeline**. The five-step wizard performs
+the complete initial path:
+
+1. Select the PostgreSQL source.
+2. Select `public.customers` and `public.orders`, snapshot mode `initial`, and a
+   unique topic prefix such as `commerce`.
+3. Select the registered Kafka and Kafka Connect clusters.
+4. Select the PostgreSQL destination, name the delivery, and map each topic to
+   its destination table.
+5. Review and create.
+
+The UI previews and saves the capture, deploys its Debezium connector, prepares
+topics, validates the source keys/types, destination permissions, installed
+JDBC plugin, and mappings, then deploys the delivery. If delivery creation
+fails after capture succeeds, the wizard reports the partial result and offers
+a delivery retry. Wait until both connector tasks report **RUNNING**.
 
 ## 5. Verify synchronization
 
@@ -80,7 +99,7 @@ Check, in order:
 
 1. Source readiness and discovery status.
 2. Capture connector and task state.
-3. Expected Kafka topic existence and recent records.
+3. Expected Kafka topic existence and partition offset movement.
 4. Delivery connector/task state and sanitized task trace.
 5. Target table keys, types, and permissions.
 

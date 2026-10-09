@@ -134,8 +134,8 @@ export function InvitePage({ token }: { token: string }) {
     const form = new FormData(event.currentTarget);
     const password = String(form.get("password") || "");
     const confirmation = String(form.get("confirmation") || "");
-    if (password.length < 12) {
-      setError(new Error("Password must be at least 12 characters."));
+    if (password.length < 8) {
+      setError(new Error("Password must be at least 8 characters."));
       return;
     }
     if (password !== confirmation) {
@@ -190,11 +190,11 @@ export function InvitePage({ token }: { token: string }) {
               </p>
             </div>
             <form onSubmit={submit} className="auth-form">
-              <Field label="Password" hint="Use at least 12 characters.">
+              <Field label="Password" hint="Use at least 8 characters.">
                 <Input
                   name="password"
                   type="password"
-                  minLength={12}
+                  minLength={8}
                   autoComplete="new-password"
                   required
                   autoFocus
@@ -204,7 +204,7 @@ export function InvitePage({ token }: { token: string }) {
                 <Input
                   name="confirmation"
                   type="password"
-                  minLength={12}
+                  minLength={8}
                   autoComplete="new-password"
                   required
                 />

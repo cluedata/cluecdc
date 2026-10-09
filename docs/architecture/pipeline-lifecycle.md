@@ -23,6 +23,11 @@ provisions required topics, creates the connector, then commits runtime metadata
 failure is explicit and compensating cleanup is attempted where safe. The worker
 periodically maps Kafka Connect connector/task state to ClueCDC domain state.
 
+Those are separate API stages. The web wizard orchestrates them into one flow:
+capture preview, pipeline save, capture deployment, topic preparation, delivery
+preview, and first-delivery deployment. If the delivery stage fails, the
+already-created capture remains visible and the UI offers delivery retry.
+
 Deleting a pipeline is explicit. It does not delete Kafka topics, messages,
 source tables, destination tables, replication publications, or slots. Kafka
 topic deletion is a separate API/UI operation with a permanent-data-loss warning.

@@ -89,6 +89,7 @@ extra:
 
 nav:
   - Home: index.md
+  - Feature Matrix: features.md
   - Getting Started:
       - Introduction: getting-started/introduction.md
       - Prerequisites: getting-started/prerequisites.md
