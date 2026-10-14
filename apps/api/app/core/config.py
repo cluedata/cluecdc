@@ -2,10 +2,53 @@ import json
 import re
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+KNOWN_DEVELOPMENT_SECRETS = {
+    "cluecdc-admin",
+    "cluecdc-metadata-local-only",
+    "development-session-secret-change-me-0001",
+    "local-connect-token-change-before-production-0001",
+    "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+}
+
+
+def _origin(value: str, setting: str, *, require_https: bool) -> str:
+    """Validate and normalize an HTTP origin without echoing its value."""
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or (require_https and parsed.scheme != "https")
+    ):
+        scheme = "HTTPS" if require_https else "HTTP(S)"
+        raise ValueError(f"{setting} must be a valid {scheme} origin without credentials or a path")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{setting} contains an invalid port") from exc
+    default_port = (parsed.scheme == "https" and port == 443) or (
+        parsed.scheme == "http" and port == 80
+    )
+    authority = parsed.hostname.lower()
+    if port is not None and not default_port:
+        authority = f"{authority}:{port}"
+    return f"{parsed.scheme}://{authority}"
+
+
+def _strong_secret(value: str, setting: str) -> None:
+    if len(value) < 32 or len(set(value)) < 8 or value in KNOWN_DEVELOPMENT_SECRETS:
+        raise ValueError(f"Production requires a strong, unique {setting}")
 
 
 class Settings(BaseSettings):
@@ -35,27 +78,58 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":
         encryption_key = self.secret_encryption_key.get_secret_value()
-        Fernet(encryption_key.encode())
-        if len(self.connect_secret_token.get_secret_value()) < 32:
+        try:
+            Fernet(encryption_key.encode())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("SECRET_ENCRYPTION_KEY must be a valid Fernet key") from exc
+        connect_token = self.connect_secret_token.get_secret_value()
+        if len(connect_token) < 32:
             raise ValueError("Connect secret service token must be at least 32 characters")
         session_secret = self.session_secret.get_secret_value()
         if self.environment != "development" and self.bootstrap_default_admin:
             raise ValueError("The public default Admin is allowed only in development")
-        if self.environment == "production" and (
-            encryption_key == "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-            or self.connect_secret_token.get_secret_value()
-            == "local-connect-token-change-before-production-0001"
-        ):
-            raise ValueError("Production must not use the example development secrets")
-        if self.environment == "production" and self.auth_mode != "session":
-            raise ValueError("Production requires session authentication")
-        if self.environment == "production" and (
-            len(session_secret) < 32
-            or session_secret == "development-session-secret-change-me-0001"
-        ):
-            raise ValueError("Production requires a strong, unique SESSION_SECRET")
-        if self.environment == "production" and not self.public_url.startswith("https://"):
-            raise ValueError("Production PUBLIC_URL must use HTTPS")
+        if self.environment == "production":
+            if self.auth_mode != "session":
+                raise ValueError("Production requires session authentication")
+            _strong_secret(session_secret, "SESSION_SECRET")
+            _strong_secret(connect_token, "CONNECT_SECRET_TOKEN")
+            if encryption_key in KNOWN_DEVELOPMENT_SECRETS:
+                raise ValueError("Production must not use the example SECRET_ENCRYPTION_KEY")
+            if len({session_secret, connect_token, encryption_key}) != 3:
+                raise ValueError("Production security secrets must be unique")
+
+            public_origin = _origin(self.public_url, "PUBLIC_URL", require_https=True)
+            if not self.cors_origins:
+                raise ValueError("Production requires at least one explicit CORS origin")
+            normalized_origins: list[str] = []
+            for value in self.cors_origins:
+                if value == "*":
+                    raise ValueError("Production CORS origins must not contain a wildcard")
+                normalized_origins.append(_origin(value, "CORS_ORIGINS", require_https=True))
+            if len(normalized_origins) != len(set(normalized_origins)):
+                raise ValueError("Production CORS origins must be unique")
+            if public_origin not in normalized_origins:
+                raise ValueError("Production CORS origins must include PUBLIC_URL")
+            self.public_url = public_origin
+            self.cors_origins = normalized_origins
+
+            try:
+                database = make_url(self.database_url)
+            except Exception as exc:
+                raise ValueError("DATABASE_URL must be a valid SQLAlchemy URL") from exc
+            if (
+                database.get_backend_name() != "postgresql"
+                or not database.host
+                or not database.database
+                or not database.username
+                or not database.password
+            ):
+                raise ValueError(
+                    "Production DATABASE_URL must use PostgreSQL with host, "
+                    "database, and credentials"
+                )
+            if str(database.password) in KNOWN_DEVELOPMENT_SECRETS:
+                raise ValueError("Production DATABASE_URL must not use an example password")
         tokens = json.loads(self.auth_tokens_json)
         if not isinstance(tokens, dict):
             raise ValueError("AUTH_TOKENS_JSON must be a JSON object")

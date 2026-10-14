@@ -6,6 +6,12 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- Added centralized production configuration validation for HTTPS/CORS origins,
+  authenticated PostgreSQL metadata, unique high-entropy service secrets, and
+  known development credential rejection without exposing configured values.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
