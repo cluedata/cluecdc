@@ -11,6 +11,20 @@ least one explicit HTTPS `CORS_ORIGINS` entry and include the normalized
 `PUBLIC_URL`; wildcard origins and origins containing paths or credentials are
 rejected before readiness.
 
+Cookie-authenticated production writes require an `Origin` matching the
+configured allowlist. The same-origin Next.js API proxy forwards only the
+browser `Origin` needed for that check and does not forward client-supplied
+`X-Forwarded-*` headers. Session cookies are `Secure`, `HttpOnly`,
+`SameSite=Lax`, scoped to `/`, and carry matching maximum-age and expiry values.
+Responses add clickjacking, MIME-sniffing, referrer, browser-feature, and web
+Content Security Policy headers.
+
+Terminate TLS and redirect HTTP at a reviewed reverse proxy or Ingress. The
+Kustomize baseline includes an nginx Ingress example using an externally
+provided `cluecdc-tls` Secret. Replace the hostname/class in an overlay and
+configure HSTS only after verifying that every public route is HTTPS. Local
+development intentionally remains HTTP and does not set Secure cookies.
+
 Database and object-store credentials are encrypted with Fernet in metadata. The encryption key is external configuration and must be backed up separately. Kafka Connect receives secret references and calls a private internal endpoint using `CONNECT_SECRET_TOKEN`; isolate this path and add transport protection appropriate to the environment.
 
 Restrict `/metrics`, OpenAPI, Kafka Connect REST, brokers, and databases to private networks. ClueCDC does not yet provide SSO, OIDC, automated TLS, Kafka ACL provisioning, or a production external-secret integration.

@@ -54,6 +54,7 @@ app = FastAPI(title="ClueCDC", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
     expose_headers=["X-Correlation-ID"],
@@ -103,7 +104,8 @@ async def request_context(request: Request, call_next):
     structlog.contextvars.bind_contextvars(request_id=correlation_id, correlation_id=correlation_id)
     started = time.monotonic()
     try:
-        response = await call_next(request)
+        csrf_response = _csrf_response(request)
+        response = csrf_response if csrf_response is not None else await call_next(request)
     except Exception as exc:
         frames = [
             {"file": f.filename, "line": f.lineno, "function": f.name}
@@ -127,6 +129,7 @@ async def request_context(request: Request, call_next):
             },
             status_code=500,
         )
+    _apply_security_headers(request, response)
     response.headers["X-Correlation-ID"] = correlation_id
     REQUESTS.labels(request.method, str(response.status_code)).inc()
     log.info(
@@ -137,6 +140,48 @@ async def request_context(request: Request, call_next):
         duration=round(time.monotonic() - started, 3),
     )
     return response
+
+
+def _csrf_response(request: Request) -> JSONResponse | None:
+    """Reject cross-site cookie-authenticated writes using configured origins.
+
+    Public origin is configuration, never an untrusted forwarding header. Login is
+    protected as well to prevent forcing a victim into an attacker-controlled session.
+    """
+    if (
+        settings.environment != "production"
+        or settings.auth_mode != "session"
+        or request.method not in {"POST", "PUT", "PATCH", "DELETE"}
+    ):
+        return None
+    has_session = bool(request.cookies.get("cluecdc_session"))
+    is_login = request.url.path == "/api/v1/auth/login"
+    if not has_session and not is_login:
+        return None
+    origin = request.headers.get("Origin")
+    if origin in set(settings.cors_origins):
+        return None
+    return JSONResponse(
+        {
+            "error": {
+                "code": "CSRF_ORIGIN_REJECTED",
+                "message": "The request origin is not allowed",
+                "details": {},
+            }
+        },
+        status_code=403,
+    )
+
+
+def _apply_security_headers(request: Request, response: Response) -> None:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+    )
+    if request.url.path.startswith("/api/") or request.url.path.startswith("/internal/"):
+        response.headers.setdefault("Cache-Control", "no-store")
 
 
 @app.exception_handler(DomainError)

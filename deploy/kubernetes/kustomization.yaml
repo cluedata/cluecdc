@@ -9,6 +9,7 @@ resources:
   - worker.yaml
   - web.yaml
   - connect.yaml
+  - ingress.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: cluecdc

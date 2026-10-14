@@ -81,6 +81,57 @@ async def test_login_session_logout_and_generic_failures(client, db_factory):
     assert (await client.get("/api/v1/auth/session")).status_code == 401
 
 
+async def test_production_cookie_and_csrf_origin_enforcement(client, db_factory, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "public_url", "https://cluecdc.example.com")
+    monkeypatch.setattr(settings, "cors_origins", ["https://cluecdc.example.com"])
+    await add_user(db_factory, "admin@example.com", "ADMIN")
+
+    rejected_login = await sign_in(client, "admin@example.com")
+    assert rejected_login.status_code == 403
+    assert rejected_login.json()["error"]["code"] == "CSRF_ORIGIN_REJECTED"
+
+    logged_in = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.com", "password": PASSWORD},
+        headers={"Origin": "https://cluecdc.example.com"},
+    )
+    assert logged_in.status_code == 200
+    cookie = logged_in.headers["set-cookie"]
+    assert all(value in cookie for value in ["HttpOnly", "Secure", "SameSite=lax", "Path=/"])
+    assert "Max-Age=" in cookie and "expires=" in cookie.lower()
+    cookie_header = f"cluecdc_session={client.cookies.get('cluecdc_session')}"
+
+    forged = await client.post(
+        "/api/v1/auth/logout",
+        headers={
+            "Cookie": cookie_header,
+            "Origin": "https://evil.example",
+            "X-Forwarded-Host": "cluecdc.example.com",
+            "X-Forwarded-Proto": "https",
+        },
+    )
+    assert forged.status_code == 403
+    assert (
+        await client.get("/api/v1/auth/session", headers={"Cookie": cookie_header})
+    ).status_code == 200
+
+    logout = await client.post(
+        "/api/v1/auth/logout",
+        headers={"Origin": "https://cluecdc.example.com", "Cookie": cookie_header},
+    )
+    assert logout.status_code == 204
+
+
+async def test_api_security_headers_are_set(client):
+    response = await client.get("/api/v1/session")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+
+
 async def test_disabled_user_cannot_login(client, db_factory):
     await add_user(db_factory, "disabled@example.com", "OPS", "DISABLED")
     response = await sign_in(client, "disabled@example.com")

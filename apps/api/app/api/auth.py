@@ -160,6 +160,7 @@ async def login(data: LoginInput, response: Response, db: DB):
         SESSION_COOKIE,
         raw_token,
         max_age=settings.session_ttl_seconds,
+        expires=expires_at,
         httponly=True,
         secure=settings.environment == "production",
         samesite="lax",

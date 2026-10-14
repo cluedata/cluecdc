@@ -11,6 +11,9 @@ All notable changes to ClueCDC are documented here. The format follows
 - Added centralized production configuration validation for HTTPS/CORS origins,
   authenticated PostgreSQL metadata, unique high-entropy service secrets, and
   known development credential rejection without exposing configured values.
+- Enforced production origin checks for cookie-authenticated writes, hardened
+  cookie expiry and browser response headers, and added a TLS-terminating
+  Kubernetes Ingress baseline without trusting client forwarding headers.
 
 ## [0.2.0] - 2026-10-09
 
