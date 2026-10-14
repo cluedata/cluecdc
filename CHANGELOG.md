@@ -37,6 +37,9 @@ All notable changes to ClueCDC are documented here. The format follows
   resnapshot repair, interruption and cancellation; compatible destination
   columns are provisioned additively while breaking and unsupported changes
   remain explicit operator actions.
+- Added non-mutating PostgreSQL logical-slot and retained-WAL diagnostics,
+  MySQL binlog retention/position inventory, configurable outage-window checks,
+  permission-limited warnings, and critical retention-risk alert recovery.
 
 ## [0.2.0] - 2026-10-09
 

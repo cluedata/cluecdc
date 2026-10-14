@@ -19,3 +19,15 @@ state when possible. Otherwise, pause dependent deliveries, assess the replay
 boundary, back up metadata, and create an explicit resnapshot/rebuild plan. This
 can replay records and must be reconciled at every destination before service is
 declared recovered.
+
+For PostgreSQL, first determine whether the original logical slot still exists and whether its
+`wal_status` and `restart_lsn` remain usable. Restore missing WAL only through a reviewed database
+recovery procedure; never drop a recoverable slot merely to clear retained disk. If the slot is
+lost, stop dependent deliveries, record the last trusted consistency boundary, create a fresh
+pipeline/slot, run an explicit snapshot, and reconcile every destination before cutover.
+
+For MySQL, compare the connector's recorded file/position or GTID set with `SHOW BINARY LOGS`.
+If the required file was purged and cannot be restored from a trusted backup, stop dependent
+deliveries and plan a fresh snapshot/rebuild. Do not silently start from the current binlog: that
+would hide the missing interval. Retention readiness reports only values exposed by MySQL and a
+configured outage objective; it cannot prove recoverability for an arbitrary historical offset.

@@ -15,6 +15,12 @@ export const sourceSchema = z.object({
   provider_options: z.object({
     server_id: z.number().int().min(1).max(4294967295).optional(),
     connection_timeout_seconds: z.number().int().min(1).max(120).optional(),
+    max_connector_outage_seconds: z
+      .number()
+      .int()
+      .min(300)
+      .max(31536000)
+      .optional(),
     ssl_mode: z.string().optional(),
   }),
 });

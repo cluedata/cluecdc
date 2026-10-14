@@ -22,9 +22,14 @@ class SourceInput(BaseModel):
     @model_validator(mode="after")
     def validate_provider_options(self) -> "SourceInput":
         allowed = (
-            {"connection_timeout_seconds", "ssl_mode"}
+            {"connection_timeout_seconds", "ssl_mode", "max_connector_outage_seconds"}
             if self.type == "postgresql"
-            else {"server_id", "connection_timeout_seconds", "ssl_mode"}
+            else {
+                "server_id",
+                "connection_timeout_seconds",
+                "ssl_mode",
+                "max_connector_outage_seconds",
+            }
         )
         unknown = set(self.provider_options) - allowed
         if unknown:
@@ -39,6 +44,11 @@ class SourceInput(BaseModel):
         timeout = self.provider_options.get("connection_timeout_seconds", 10)
         if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 120:
             raise ValueError("Connection timeout must be between 1 and 120 seconds")
+        outage = self.provider_options.get("max_connector_outage_seconds")
+        if outage is not None and (
+            not isinstance(outage, int) or isinstance(outage, bool) or not 300 <= outage <= 31536000
+        ):
+            raise ValueError("Maximum connector outage must be between 300 and 31536000 seconds")
         return self
 
 

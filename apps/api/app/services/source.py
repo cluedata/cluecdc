@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts.monitoring import observe_database_connection
+from app.alerts.monitoring import observe_database_connection, observe_source_retention
 from app.models.entities import Connection, SchemaVersion, Source, SourceTable, now
 from app.providers import get_provider
 from app.providers.types import parse_type
@@ -142,6 +142,19 @@ async def health(session: AsyncSession, source_id: UUID, actor: str) -> dict:
         database_type=source.type,
         firing=False,
         message="Source database connection recovered",
+    )
+    await observe_source_retention(
+        session,
+        identifier=str(source.id),
+        name=source.name,
+        database_type=source.type,
+        firing=bool(result.get("retention_risk")),
+        details={
+            "monitoring_limited": bool(result.get("monitoring_limited")),
+            "binlog_retention_seconds": result.get("binlog_retention_seconds"),
+            "binlog_inventory": result.get("binlog_inventory"),
+            "replication_slots": result.get("replication_slots", []),
+        },
     )
     audit(session, actor, "source.health_checked", source)
     return result

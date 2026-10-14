@@ -12,6 +12,39 @@ from app.models.entities import Alert, Connector, Pipeline, PipelineDestination,
 classifier = ErrorClassifier()
 
 
+async def observe_source_retention(
+    session: AsyncSession,
+    *,
+    identifier: str,
+    name: str,
+    database_type: str,
+    firing: bool,
+    details: dict[str, Any],
+) -> None:
+    message = (
+        "Source log retention is below the configured recovery objective or an inactive/lost "
+        "replication slot requires review"
+        if firing
+        else "Source log retention risk is not currently detected"
+    )
+    await _emit(
+        session,
+        AlertEvent(
+            event_type="CDC_SOURCE_LOG_RETENTION_RISK",
+            severity="critical",
+            status="firing" if firing else "resolved",
+            source_type="source",
+            source_id=identifier,
+            source_name=name,
+            pipeline_id=None,
+            pipeline_name=None,
+            component=f"source/{database_type}",
+            message=message,
+            details=details,
+        ),
+    )
+
+
 async def observe_database_connection(
     session: AsyncSession,
     *,

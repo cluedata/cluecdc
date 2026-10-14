@@ -26,7 +26,9 @@ binlog-row-image=FULL
 binlog-expire-logs-seconds=604800
 ```
 
-Choose binlog retention longer than the maximum connector outage. If Kafka Connect resumes
+Choose binlog retention longer than the maximum connector outage. Set the optional source
+advanced setting `max_connector_outage_seconds` to the outage/recovery objective that ClueCDC
+should compare with `binlog_expire_logs_seconds` (or the legacy `expire_logs_days`). If Kafka Connect resumes
 from an offset whose binlog was purged, the connector cannot silently reconstruct the gap.
 
 Create a least-privilege CDC account. `LOCK TABLES` is needed when the deployment cannot use
@@ -47,7 +49,12 @@ replication-role procedures; do not apply self-managed commands blindly.
 ## Readiness and discovery
 
 `Test connection` validates connectivity, authentication, MySQL version, the selected
-database, TLS, `log_bin`, `binlog_format`, `binlog_row_image`, and replication grants. Failed
+database, TLS, `log_bin`, `binlog_format`, `binlog_row_image`, and replication grants. It reports
+the configured binlog retention, current binary-log position, retained file inventory and total
+bytes when the account can access them. A configured outage objective equal to or longer than
+the expiration window is a retention risk. When monitoring queries are permission-limited,
+readiness returns a warning and recommends external monitoring; it does not invent a position,
+retention duration, or available recovery capacity. Failed
 checks include an expected value and recommended action. ClueCDC does not change server
 configuration automatically.
 
