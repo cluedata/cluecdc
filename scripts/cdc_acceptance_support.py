@@ -98,6 +98,31 @@ class Compose:
             ]
         )
 
+    def run(self, *arguments: str, timeout: int = 180) -> str:
+        result = subprocess.run(
+            [*self.command, *arguments],
+            encoding="utf-8",
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+        if result.returncode:
+            raise AcceptanceError(
+                f"Compose {' '.join(arguments)} failed with exit code "
+                f"{result.returncode}; service output withheld"
+            )
+        return result.stdout.strip()
+
+    def restart(self, *services: str) -> None:
+        self.run("restart", *services)
+
+    def stop(self, service: str) -> None:
+        self.run("stop", service)
+
+    def start(self, service: str) -> None:
+        self.run("start", service)
+
     def exec(self, service: str, command: Sequence[str], stdin: str = "") -> str:
         result = subprocess.run(
             [*self.command, "exec", "-T", service, *command],

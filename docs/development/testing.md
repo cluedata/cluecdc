@@ -59,6 +59,10 @@ python scripts/cdc-integrity.py \
   --api-url http://localhost:3000/api/v1 \
   --compose-project cluecdc-acceptance \
   --env-file .env.example --env-file .env.test.example
+python scripts/cdc-recovery.py \
+  --api-url http://localhost:3000/api/v1 \
+  --compose-project cluecdc-acceptance \
+  --env-file .env.example --env-file .env.test.example
 python scripts/demo-object-storage.py \
   --api-url http://localhost:3000/api/v1 \
   --compose-project cluecdc-acceptance \

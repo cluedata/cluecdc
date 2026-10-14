@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.adapters.connect import KafkaConnectClient
+from app.adapters.connect import KafkaConnectClient, failure_hint
 from app.core.errors import DomainError
 
 
@@ -69,3 +69,38 @@ async def test_raw_traces_never_return_to_browser():
         result = await KafkaConnectClient("http://connect", http).status("capture")
         assert "private" not in str(result)
         assert result["tasks"][0]["state"] == "FAILED"
+
+
+@pytest.mark.parametrize(
+    "trace,expected",
+    [
+        ("requested WAL segment has already been removed password=private", "PostgreSQL"),
+        ("purged binary log password=private", "MySQL"),
+        ("database history topic is missing password=private", "schema history"),
+        ("Offset out of range password=private", "Kafka source offset"),
+    ],
+)
+def test_source_position_failures_are_actionable_and_redacted(trace, expected):
+    hint = failure_hint(trace, "source")
+    assert expected in hint
+    assert "private" not in hint
+
+
+async def test_source_status_maps_missing_position_without_raw_trace():
+    runtime = {
+        "type": "source",
+        "connector": {"state": "RUNNING"},
+        "tasks": [
+            {
+                "id": 0,
+                "state": "FAILED",
+                "trace": "purged binary log password=private",
+            }
+        ],
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=runtime))
+    ) as http:
+        result = await KafkaConnectClient("http://connect", http).status("capture")
+        assert "MySQL binlog position" in result["tasks"][0]["error"]
+        assert "private" not in str(result)

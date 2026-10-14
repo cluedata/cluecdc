@@ -30,6 +30,9 @@ All notable changes to ClueCDC are documented here. The format follows
   sources against both JDBC destinations, with snapshot/stream reconciliation,
   transactions, CRUD, primary-key updates, NULL, UTF-8, decimal and timestamp
   cases, plus event-semantic MinIO JSONL verification.
+- Added a restart/offset-recovery acceptance test across connector tasks,
+  Kafka Connect, API, worker, Kafka and PostgreSQL outages; missing WAL, binlog,
+  schema-history and Kafka offset failures now return redacted recovery hints.
 
 ## [0.2.0] - 2026-10-09
 

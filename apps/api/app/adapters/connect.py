@@ -11,8 +11,44 @@ from app.core.errors import DomainError, redact
 log = structlog.get_logger()
 
 
-def failure_hint(trace: object) -> str:
+def failure_hint(trace: object, connector_type: str = "sink") -> str:
     text = str(trace).lower()
+    if connector_type == "source":
+        source_hints = [
+            (
+                (
+                    "requested wal segment has already been removed",
+                    "replication slot does not exist",
+                    "wal position is no longer available",
+                ),
+                "PostgreSQL replication position is unavailable; restore retained WAL/slot "
+                "or plan an explicit resnapshot",
+            ),
+            (
+                (
+                    "could not find first log file name in binary log index file",
+                    "the connector is trying to read binlog starting at",
+                    "binlog event is not available",
+                    "purged binary log",
+                ),
+                "MySQL binlog position is no longer retained; restore the binlog or plan "
+                "an explicit resnapshot",
+            ),
+            (
+                ("schema history", "database history topic"),
+                "Debezium schema history is unavailable; restore the history topic or plan "
+                "an explicit resnapshot",
+            ),
+            (
+                ("offset out of range", "no offset available"),
+                "Kafka source offset is unavailable; inspect Kafka retention before an "
+                "explicit resnapshot",
+            ),
+        ]
+        for needles, message in source_hints:
+            if any(needle in text for needle in needles):
+                return message
+        return "Source task failed; inspect Kafka Connect worker logs"
     hints = [
         (
             ("constraintviolationexception", "violates check constraint", "duplicate key"),
@@ -183,11 +219,7 @@ class KafkaConnectClient:
         for task in data["tasks"]:
             trace = task.pop("trace", None)
             if trace:
-                task["error"] = (
-                    failure_hint(trace)
-                    if data.get("type") == "sink"
-                    else "Task failed; inspect Kafka Connect worker logs"
-                )
+                task["error"] = failure_hint(trace, str(data.get("type", "sink")))
         if data["connector"].pop("trace", None):
             data["connector"]["error"] = "Connector failed; inspect Kafka Connect worker logs"
         return data
