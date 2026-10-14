@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     worker_concurrency: int = Field(default=4, ge=1, le=32)
     job_lease_seconds: int = Field(default=300, ge=30, le=3600)
     job_max_attempts: int = Field(default=3, ge=1, le=20)
+    job_retry_base_seconds: float = Field(default=2, ge=0.1, le=300)
+    job_retry_max_seconds: float = Field(default=60, ge=1, le=3600)
+    job_retry_jitter_ratio: float = Field(default=0.2, ge=0, le=1)
     cors_origins: list[str] = []
     integration_timeout_seconds: float = 10
     log_level: Literal["debug", "info", "warn", "warning", "error"] = "info"
@@ -78,6 +81,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":
+        if self.job_retry_max_seconds < self.job_retry_base_seconds:
+            raise ValueError("JOB_RETRY_MAX_SECONDS must be at least JOB_RETRY_BASE_SECONDS")
         encryption_key = self.secret_encryption_key.get_secret_value()
         try:
             Fernet(encryption_key.encode())

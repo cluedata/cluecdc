@@ -477,9 +477,14 @@ class Job(Entity, Base):
     status: Mapped[str] = mapped_column(String, default="PENDING", index=True)
     result_json: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_category: Mapped[str | None] = mapped_column(String(80))
+    retryable: Mapped[bool | None] = mapped_column(Boolean)
+    failure_history_json: Mapped[list] = mapped_column(JSON, default=list)
     claimed_by: Mapped[str | None] = mapped_column(String(120), index=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

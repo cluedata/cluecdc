@@ -280,6 +280,25 @@ async def job_status(
     return serialize(await get(db, Job, identifier))
 
 
+@router.post("/jobs/{identifier}/retry", status_code=202)
+async def retry_job(
+    identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.write"))]
+):
+    job = await db.scalar(select(Job).where(Job.id == identifier).with_for_update())
+    if job is None:
+        raise DomainError("NOT_FOUND", "Job was not found", 404)
+    if job.status != "FAILED":
+        raise DomainError("JOB_NOT_FAILED", "Only a failed job can be retried", 409)
+    job.status = "PENDING"
+    job.attempt_count = 0
+    job.next_attempt_at = datetime.now(UTC)
+    job.claimed_by = None
+    job.lease_expires_at = None
+    audit(db, user.actor, "job.manual_retry_requested", job)
+    await db.commit()
+    return serialize(job)
+
+
 @router.get("/sources/{identifier}/cdc-readiness")
 async def readiness(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.read"))]

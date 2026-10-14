@@ -21,6 +21,7 @@ from app.models.entities import (
     now,
 )
 from app.workers import worker
+from app.workers.retry import classify_failure, retry_delay_seconds
 
 
 async def queued_job(factory, **kwargs):
@@ -47,8 +48,17 @@ async def test_expired_lease_is_recovered_but_active_lease_is_not(db_factory, mo
         lease_expires_at=now() + timedelta(minutes=5),
         attempt_count=1,
     )
+    assert await worker._claim_job("replacement-worker") is None
+    async with db_factory() as db:
+        recovered = await db.get(Job, expired)
+        assert recovered.status == "PENDING"
+        assert recovered.error_code == "WORKER_LEASE_EXPIRED"
+        assert recovered.error_category == "TRANSIENT_CONNECTIVITY"
+        assert recovered.failure_history_json[-1]["attempt"] == 1
+        recovered.next_attempt_at = now() - timedelta(seconds=1)
+        await db.commit()
     claim = await worker._claim_job("replacement-worker")
-    assert claim[0] == expired
+    assert claim is not None and claim[0] == expired
     assert await worker._claim_job("other-worker") is None
     async with db_factory() as db:
         recovered = await db.get(Job, expired)
@@ -66,12 +76,73 @@ async def test_retry_backoff_and_terminal_failure(db_factory, monkeypatch):
             job = await db.get(Job, identifier)
             assert "secret-in-exception" not in job.error
             assert job.attempt_count == attempt
+            assert job.error_code == "UNEXPECTED_ERROR"
+            assert job.error_category == "UNKNOWN"
+            assert job.retryable is True
+            assert job.last_attempt_at is not None
+            assert len(job.failure_history_json) == attempt
             assert job.claimed_by is None and job.lease_expires_at is None
             assert job.status == ("FAILED" if attempt == 3 else "PENDING")
             if attempt < 3:
                 assert await worker._claim_job() is None
                 job.next_attempt_at = now() - timedelta(seconds=1)
                 await db.commit()
+
+
+async def test_permanent_failure_is_not_automatically_retried(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    identifier = await queued_job(db_factory)
+    assert await worker._claim_job()
+    await worker._fail_job(
+        identifier,
+        DomainError("SOURCE_AUTH_FAILED", "Source rejected the supplied credentials", 422),
+    )
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "FAILED" and job.attempt_count == 1
+        assert job.error_category == "AUTHENTICATION" and job.retryable is False
+        assert job.failure_history_json[-1]["code"] == "SOURCE_AUTH_FAILED"
+
+
+async def test_transient_failure_recovers_on_a_later_attempt(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    identifier = await queued_job(db_factory)
+    calls = 0
+
+    async def health(*_):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError
+        return {"status": "passed"}
+
+    monkeypatch.setattr(worker, "health", health)
+    assert await worker.run_job()
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "PENDING"
+        assert job.error_category == "TRANSIENT_CONNECTIVITY"
+        job.next_attempt_at = now() - timedelta(seconds=1)
+        await db.commit()
+    assert await worker.run_job()
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "COMPLETED" and job.attempt_count == 2
+        assert job.result_json == {"status": "passed"}
+        assert job.error is None and len(job.failure_history_json) == 1
+
+
+def test_failure_classification_and_bounded_jitter(monkeypatch):
+    assert classify_failure(TimeoutError()).category == "TRANSIENT_CONNECTIVITY"
+    schema = classify_failure(DomainError("DESTINATION_SCHEMA_ERROR", "incompatible"))
+    assert schema.category == "SCHEMA_INCOMPATIBILITY" and schema.retryable is False
+    history = classify_failure(DomainError("CDC_WAL_ERROR", "missing WAL"))
+    assert history.category == "MISSING_SOURCE_HISTORY" and history.retryable is False
+    resource = classify_failure(DomainError("RESOURCE_EXHAUSTED", "busy", 503))
+    assert resource.category == "RESOURCE_EXHAUSTION" and resource.retryable is True
+    monkeypatch.setattr("app.workers.retry.random.uniform", lambda low, high: high)
+    assert retry_delay_seconds(1, 2, 60, 0.25) == 2.5
+    assert retry_delay_seconds(10, 2, 60, 0.25) == 60
 
 
 async def test_success_commits_the_operation_result_and_clears_the_lease(db_factory, monkeypatch):

@@ -105,6 +105,16 @@ def test_error_classifier_maps_postgres_mysql_and_destination_failures():
         classifier.classify("duplicate key violates constraint", "CONNECT_TASK_FAILED")
         == "DESTINATION_WRITE_FAILED"
     )
+    assert (
+        classifier.classify("ConfigException: invalid connector configuration", "fallback")
+        == "CONNECT_CONFIGURATION_ERROR"
+    )
+    assert classifier.classify("too many connections", "fallback") == "RESOURCE_EXHAUSTED"
+    assert (
+        classifier.classify("schema history topic does not exist", "fallback")
+        == "CDC_SOURCE_HISTORY_ERROR"
+    )
+    assert classifier.classify("offset is missing", "fallback") == "CDC_OFFSET_ERROR"
 
 
 async def test_matching_rule_enqueues_each_channel_and_recovery(db_factory):

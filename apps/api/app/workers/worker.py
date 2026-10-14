@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import structlog
 from sqlalchemy import or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.dispatcher import dispatch_pending
 from app.core.config import get_settings
@@ -17,43 +18,85 @@ from app.services.destinations.service import reconcile as reconcile_delivery
 from app.services.pipeline import reconcile
 from app.services.pipeline_tables import run_operation, sync_snapshot_operations
 from app.services.source import discover, health
+from app.workers.retry import FailureDecision, classify_failure, retry_delay_seconds
 
 log = structlog.get_logger(component="worker")
 WORKER_ID = f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+def _record_failure(
+    job: Job,
+    decision: FailureDecision,
+    message: str,
+    timestamp,
+) -> None:
+    history = list(job.failure_history_json or [])
+    history.append(
+        {
+            "attempt": job.attempt_count,
+            "at": timestamp.isoformat(),
+            "code": decision.code,
+            "category": decision.category,
+            "retryable": decision.retryable,
+            "message": message,
+        }
+    )
+    job.failure_history_json = history[-20:]
+    job.error = message
+    job.error_code = decision.code
+    job.error_category = decision.category
+    job.retryable = decision.retryable
+
+
+def _schedule_failure(session: AsyncSession, job: Job, exc: Exception, timestamp) -> None:
+    settings = get_settings()
+    decision = classify_failure(exc)
+    message = (
+        exc.message
+        if isinstance(exc, DomainError)
+        else "Operation failed; inspect correlation logs"
+    )
+    _record_failure(job, decision, message, timestamp)
+    job.claimed_by = None
+    job.lease_expires_at = None
+    if decision.retryable and job.attempt_count < settings.job_max_attempts:
+        delay = retry_delay_seconds(
+            job.attempt_count,
+            settings.job_retry_base_seconds,
+            settings.job_retry_max_seconds,
+            settings.job_retry_jitter_ratio,
+        )
+        job.status = "PENDING"
+        job.next_attempt_at = timestamp + timedelta(seconds=delay)
+        audit(session, job.actor, "job.retry_scheduled", job)
+    else:
+        job.status = "FAILED"
+        audit(session, job.actor, "job.failed", job)
 
 
 async def _claim_job(worker_id: str = WORKER_ID) -> tuple[uuid.UUID, str, uuid.UUID, str] | None:
     settings = get_settings()
     timestamp = now()
     async with Session() as session:
-        await session.execute(
-            update(Job)
-            .where(
-                Job.status == "RUNNING",
-                Job.lease_expires_at < timestamp,
-                Job.attempt_count >= settings.job_max_attempts,
+        expired = (
+            await session.scalars(
+                select(Job)
+                .where(Job.status == "RUNNING", Job.lease_expires_at < timestamp)
+                .with_for_update(skip_locked=True)
+                .limit(100)
             )
-            .values(
-                status="FAILED",
-                claimed_by=None,
-                lease_expires_at=None,
-                error="Job lease expired after the maximum number of attempts",
+        ).all()
+        for stale in expired:
+            _schedule_failure(
+                session,
+                stale,
+                DomainError(
+                    "WORKER_LEASE_EXPIRED",
+                    "Job worker lease expired before the operation completed",
+                    503,
+                ),
+                timestamp,
             )
-        )
-        await session.execute(
-            update(Job)
-            .where(
-                Job.status == "RUNNING",
-                Job.lease_expires_at < timestamp,
-                Job.attempt_count < settings.job_max_attempts,
-            )
-            .values(
-                status="PENDING",
-                claimed_by=None,
-                lease_expires_at=None,
-                next_attempt_at=timestamp,
-            )
-        )
         job = await session.scalar(
             select(Job)
             .where(
@@ -76,6 +119,7 @@ async def _claim_job(worker_id: str = WORKER_ID) -> tuple[uuid.UUID, str, uuid.U
                 claimed_by=worker_id,
                 lease_expires_at=timestamp + timedelta(seconds=settings.job_lease_seconds),
                 attempt_count=Job.attempt_count + 1,
+                last_attempt_at=timestamp,
             )
             .returning(Job.id)
         )
@@ -99,6 +143,9 @@ async def _finish_job(job_id: uuid.UUID, result: dict) -> None:
         job.status = "COMPLETED"
         job.result_json = result
         job.error = None
+        job.error_code = None
+        job.error_category = None
+        job.retryable = None
         job.claimed_by = None
         job.lease_expires_at = None
         audit(session, job.actor, "job.completed", job)
@@ -106,27 +153,13 @@ async def _finish_job(job_id: uuid.UUID, result: dict) -> None:
 
 
 async def _fail_job(job_id: uuid.UUID, exc: Exception) -> None:
-    settings = get_settings()
     async with Session() as session:
         job = await session.scalar(
             select(Job).where(Job.id == job_id, Job.claimed_by == WORKER_ID).with_for_update()
         )
         if job is None:
             return
-        job.error = (
-            exc.message
-            if isinstance(exc, DomainError)
-            else "Operation failed; inspect correlation logs"
-        )
-        job.claimed_by = None
-        job.lease_expires_at = None
-        if job.attempt_count < settings.job_max_attempts:
-            job.status = "PENDING"
-            job.next_attempt_at = now() + timedelta(seconds=min(60, 2**job.attempt_count))
-            audit(session, job.actor, "job.retry_scheduled", job)
-        else:
-            job.status = "FAILED"
-            audit(session, job.actor, "job.failed", job)
+        _schedule_failure(session, job, exc, now())
         await session.commit()
 
 
@@ -200,7 +233,15 @@ async def run_job() -> bool:
         raise
     except Exception as exc:
         await _fail_job(job_id, exc)
-        log.warning("job_failed", job_id=str(job_id), kind=kind)
+        decision = classify_failure(exc)
+        log.warning(
+            "job_failed",
+            job_id=str(job_id),
+            kind=kind,
+            error_code=decision.code,
+            error_category=decision.category,
+            retryable=decision.retryable,
+        )
     finally:
         renewer.cancel()
         try:

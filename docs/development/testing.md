@@ -34,9 +34,10 @@ API unit tests use temporary SQLite and mocked external clients where isolation 
 `WORKER_TEST_DATABASE_URL` enables a real PostgreSQL concurrency test: two
 workers race for one job and only one claim succeeds. Each test creates and
 removes its own UUID-named schema. Opt-in full CI provides a dedicated PostgreSQL service.
-Lease recovery, backoff, terminal failure, result persistence and cancellation
-also have unit coverage. Collection tests assert SQL query counts stay constant
-as the number of resources grows.
+Lease recovery, classified transient/permanent failures, capped exponential
+backoff with jitter, terminal failure, manual retry with retained history,
+result persistence and cancellation also have unit coverage. Collection tests
+assert SQL query counts stay constant as the number of resources grows.
 
 ## Live integration
 

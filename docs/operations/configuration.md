@@ -24,6 +24,9 @@ invalid. The web server validates its private API origin at request time.
 | `WORKER_CONCURRENCY`          | No             | Bounded worker concurrency, 1–32 (default 4)            |
 | `JOB_LEASE_SECONDS`           | No             | Renewable job lease, 30–3600 seconds (default 300)      |
 | `JOB_MAX_ATTEMPTS`            | No             | Maximum failed/expired job attempts (default 3)        |
+| `JOB_RETRY_BASE_SECONDS`      | No             | Initial automatic retry delay (default 2 seconds)      |
+| `JOB_RETRY_MAX_SECONDS`       | No             | Maximum exponential retry delay (default 60 seconds)   |
+| `JOB_RETRY_JITTER_RATIO`      | No             | Positive retry jitter ratio, 0–1 (default 0.2)         |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
 | `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |

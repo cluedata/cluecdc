@@ -99,6 +99,11 @@ def test_default_admin_is_development_only():
         Settings(environment="production", bootstrap_default_admin=True)
 
 
+def test_job_retry_delay_bounds_are_consistent():
+    with pytest.raises(ValidationError, match="JOB_RETRY_MAX_SECONDS"):
+        Settings(job_retry_base_seconds=30, job_retry_max_seconds=10)
+
+
 def test_production_refuses_documented_example_secrets():
     with pytest.raises(ValidationError, match="example SECRET_ENCRYPTION_KEY"):
         production_settings(

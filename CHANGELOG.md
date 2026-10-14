@@ -44,6 +44,10 @@ All notable changes to ClueCDC are documented here. The format follows
   one resource failure cannot cancel the worker batch; added live fault
   injection for Connect, API/worker, source, and destination recovery without
   connector recreation or implicit offset reset.
+- Added durable worker failure classification, bounded configurable exponential
+  backoff with jitter, attempt history and manual terminal-job retry; permanent
+  authentication, configuration, schema, and missing-history errors no longer
+  enter automatic retry loops.
 
 ## [0.2.0] - 2026-10-09
 
