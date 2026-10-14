@@ -24,6 +24,13 @@ All notable changes to ClueCDC are documented here. The format follows
   encrypted TLS/SASL material, verified certificates, ConfigProvider-only
   connector overrides, and independently configured secure Connect workers.
 
+### Added
+
+- Added an isolated live CDC integrity matrix covering PostgreSQL and MySQL
+  sources against both JDBC destinations, with snapshot/stream reconciliation,
+  transactions, CRUD, primary-key updates, NULL, UTF-8, decimal and timestamp
+  cases, plus event-semantic MinIO JSONL verification.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
