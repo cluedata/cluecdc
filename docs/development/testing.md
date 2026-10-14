@@ -43,6 +43,11 @@ collision rejection, connector lifecycle operation leases, stale-owner
 recovery, duplicate table-operation suppression, and reuse of a pending
 automatic job by manual retry. The PostgreSQL acceptance check races two
 independent metadata sessions and requires exactly one lifecycle lease winner.
+The v0.2.0 upgrade acceptance test restores populated metadata, downgrades only
+the isolated fixture to released revision `0003`, adds non-empty session/invite
+fixtures, takes a verified pre-upgrade backup, and runs `metadata_upgrade.py` to
+head twice. Counts, identity hashes, ciphertext hashes, secret decryption, drift
+checking, and idempotency must all pass before the fixture database is removed.
 
 ## Live integration
 

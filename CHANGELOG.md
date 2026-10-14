@@ -55,6 +55,9 @@ All notable changes to ClueCDC are documented here. The format follows
 - Added PostgreSQL metadata backup, archive/checksum validation, guarded
   isolated restore, Alembic compatibility checks, and encrypted-secret
   verification with a separately preserved key fingerprint.
+- Added a guarded v0.2.0 metadata upgrade preflight and runner that requires a
+  verified backup and compares entity identities, counts, ciphertext, secret
+  decryption, Alembic head, and schema drift before promotion.
 
 ## [0.2.0] - 2026-10-09
 
