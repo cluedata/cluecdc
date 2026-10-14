@@ -17,6 +17,9 @@ All notable changes to ClueCDC are documented here. The format follows
 - Expanded central response/audit redaction for transport credentials and
   private keys, verified in-place encrypted credential rotation, and removed
   unnecessary Kubernetes service-account token mounts from every workload.
+- Made login throttling metadata-backed across API replicas, invalidated
+  sessions after role changes, protected the last active Admin from demotion,
+  and added a regression test requiring server-side auth on every private API.
 
 ## [0.2.0] - 2026-10-09
 

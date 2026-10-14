@@ -1,7 +1,5 @@
 import hashlib
 import secrets
-import time
-from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
@@ -24,7 +22,7 @@ from app.core.auth import (
 from app.core.config import get_settings
 from app.core.database import session_dependency
 from app.core.errors import DomainError
-from app.models.entities import AuthSession, Invite, User
+from app.models.entities import AuditLog, AuthSession, Invite, User
 from app.repositories.metadata import audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["Authentication"])
@@ -33,7 +31,6 @@ Admin = Annotated[Principal, Depends(require("users.manage"))]
 PASSWORD_MIN_LENGTH = 8
 _hasher = PasswordHasher()
 _dummy_hash = _hasher.hash("not-a-real-password-value")
-_attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
 def normalize_email(value: str) -> str:
@@ -101,25 +98,33 @@ def _rate_key(email: str) -> str:
     return email
 
 
-def _rate_limited(key: str) -> bool:
-    current = time.monotonic()
-    attempts = _attempts[key]
-    while attempts and attempts[0] < current - 300:
-        attempts.popleft()
-    return len(attempts) >= 5
-
-
-def _record_failure(key: str) -> None:
-    if key not in _attempts and len(_attempts) >= 10_000:
-        _attempts.pop(next(iter(_attempts)))
-    _attempts[key].append(time.monotonic())
+async def _rate_limited(db: AsyncSession, email: str) -> bool:
+    """Use metadata audit state so limits cannot be bypassed by another API replica."""
+    cutoff = datetime.now(UTC) - timedelta(minutes=5)
+    last_success = await db.scalar(
+        select(func.max(AuditLog.created_at)).where(
+            AuditLog.action == "LOGIN_SUCCESS", AuditLog.actor == email
+        )
+    )
+    if last_success is not None:
+        cutoff = max(cutoff, aware(last_success))
+    failures = await db.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.action == "LOGIN_FAILED",
+            AuditLog.actor == email,
+            AuditLog.created_at >= cutoff,
+        )
+    )
+    return (failures or 0) >= 5
 
 
 @router.post("/auth/login")
 async def login(data: LoginInput, response: Response, db: DB):
     settings = get_settings()
     key = _rate_key(data.email)
-    if _rate_limited(key):
+    if await _rate_limited(db, key):
         audit_event(db, data.email, "LOGIN_FAILED", "users", data.email, {"rate_limited": True})
         await db.commit()
         raise DomainError("RATE_LIMITED", "Too many sign-in attempts. Try again later.", 429)
@@ -131,7 +136,6 @@ async def login(data: LoginInput, response: Response, db: DB):
     except (VerifyMismatchError, VerificationError):
         valid = False
     if not user or not valid or user.status != "ACTIVE":
-        _record_failure(key)
         audit_event(
             db,
             data.email,
@@ -155,7 +159,6 @@ async def login(data: LoginInput, response: Response, db: DB):
     user.last_login_at = datetime.now(UTC)
     audit_event(db, user.email, "LOGIN_SUCCESS", "users", str(user.id))
     await db.commit()
-    _attempts.pop(key, None)
     response.set_cookie(
         SESSION_COOKIE,
         raw_token,
@@ -318,7 +321,17 @@ async def change_role(user_id: UUID, data: RoleInput, db: DB, actor: Admin):
     if target is None:
         raise DomainError("NOT_FOUND", "User was not found", 404)
     before = target.role
+    if before == "ADMIN" and data.role != "ADMIN" and target.status == "ACTIVE":
+        active_admins = await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "ADMIN", User.status == "ACTIVE")
+        )
+        if (active_admins or 0) <= 1:
+            raise DomainError("LAST_ADMIN", "The last active Admin cannot be demoted", 409)
     target.role = data.role
+    if before != data.role:
+        await db.execute(delete(AuthSession).where(AuthSession.user_id == target.id))
     audit_event(
         db,
         actor.actor,

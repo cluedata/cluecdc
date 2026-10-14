@@ -25,6 +25,14 @@ Ops has read-only API access to existing Kafka and Connect inventory so the
 pipeline wizard can select runtime clusters. Standalone infrastructure pages
 and every infrastructure mutation remain hidden and Admin-only.
 
-Role changes take effect on the user's next API request because each session is
-resolved against the current user record. Disabling a user also invalidates all
-of that user's sessions.
+Role changes and account disabling invalidate all of the affected user's
+sessions. The sole active Admin cannot be demoted or deleted. Every non-public
+API route has a server-side principal/permission dependency; route-regression
+tests fail when a new endpoint omits that boundary.
+
+ClueCDC is a single-workspace control plane, so there is no tenant membership
+layer. Nested resource routes verify their parent relationship and return 404
+for mismatched identifiers. Generic webhook destinations reject loopback,
+private, link-local, metadata, and rebinding targets; source/database and MinIO
+connections intentionally permit private addresses because private data-plane
+access is their purpose and remain Admin-managed.

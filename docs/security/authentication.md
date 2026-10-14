@@ -46,7 +46,15 @@ session immediately.
 
 Disabled users cannot sign in, and disabling an account removes its current
 sessions. Login failures use the same response for unknown emails and incorrect
-passwords. A small per-process rate limit slows basic brute-force attempts.
+passwords. Five failures within five minutes block further attempts for that
+email during the window. The counter is derived from metadata audit records, so
+it applies across API replicas; a successful login resets the effective window.
+Role changes revoke that user's active sessions.
+
+In production, login and every cookie-authenticated state-changing request must
+carry an `Origin` in the configured allowlist. Missing and cross-site origins
+receive HTTP 403. This is enforced by the API independently of UI controls and
+does not trust forwarding headers.
 
 ## Production configuration
 
