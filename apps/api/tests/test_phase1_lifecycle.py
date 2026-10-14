@@ -27,6 +27,7 @@ from app.services.debezium import PostgresDebeziumConfigBuilder, signal_table_na
 from app.services.pipeline import (
     _apply_initial_snapshot_notifications,
     aggregate_pipeline_state,
+    table_capture_state,
 )
 from app.services.pipeline_tables import (
     _wait_connector_healthy,
@@ -73,6 +74,21 @@ def test_table_lifecycle_config_preserves_connector_identity():
 )
 def test_pipeline_health_aggregates_source_and_destination(capture, deliveries, expected):
     assert aggregate_pipeline_state(capture, deliveries) == expected
+
+
+@pytest.mark.parametrize(
+    "current,capture,desired,expected",
+    [
+        ("STREAMING", "UNKNOWN", "PAUSED", "PAUSED"),
+        ("PAUSED", "RUNNING", "PAUSED", "PAUSED"),
+        ("PAUSED", "RUNNING", "RUNNING", "STREAMING"),
+        ("STREAMING", "FAILED", "RUNNING", "FAILED"),
+        ("REMOVING", "UNKNOWN", "RUNNING", "REMOVING"),
+        ("REMOVED", "RUNNING", "RUNNING", "REMOVED"),
+    ],
+)
+def test_table_runtime_state_preserves_operator_intent(current, capture, desired, expected):
+    assert table_capture_state(current, capture, desired) == expected
 
 
 def test_initial_snapshot_state_uses_real_notifications():

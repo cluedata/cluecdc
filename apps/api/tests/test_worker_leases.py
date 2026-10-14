@@ -9,7 +9,17 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.errors import DomainError
-from app.models.entities import Base, Job, now
+from app.models.entities import (
+    Base,
+    ConnectCluster,
+    Connector,
+    Job,
+    KafkaCluster,
+    Pipeline,
+    PipelineDestination,
+    Source,
+    now,
+)
 from app.workers import worker
 
 
@@ -217,3 +227,91 @@ async def test_losing_lease_cancels_external_work_without_overwriting_new_owner(
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_reconcile_failure_is_isolated_per_resource(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    pipeline_ids = [uuid4(), uuid4()]
+    delivery_ids = [uuid4(), uuid4()]
+    async with db_factory() as db:
+        source = Source(
+            name="reconcile-source",
+            type="postgresql",
+            host="source",
+            port=5432,
+            database_name="commerce",
+            username="cdc",
+        )
+        kafka = KafkaCluster(name="reconcile-kafka", bootstrap_servers="kafka:9092")
+        db.add_all([source, kafka])
+        await db.flush()
+        connect = ConnectCluster(
+            name="reconcile-connect",
+            base_url="http://connect:8083",
+            kafka_cluster_id=kafka.id,
+        )
+        db.add(connect)
+        await db.flush()
+        connectors = [
+            Connector(
+                name=f"connector-{index}",
+                connect_cluster_id=connect.id,
+                connector_class="test.Connector",
+                config_json={},
+            )
+            for index in range(4)
+        ]
+        db.add_all(connectors)
+        await db.flush()
+        db.add_all(
+            Pipeline(
+                id=identifier,
+                name=f"pipeline-{index}",
+                source_id=source.id,
+                kafka_cluster_id=kafka.id,
+                connect_cluster_id=connect.id,
+                connector_id=connectors[index].id,
+                topic_prefix=f"topic-{index}",
+                snapshot_mode="initial",
+            )
+            for index, identifier in enumerate(pipeline_ids)
+        )
+        await db.flush()
+        db.add_all(
+            PipelineDestination(
+                id=identifier,
+                pipeline_id=pipeline_ids[index],
+                destination_id=source.id,
+                connector_id=connectors[index + 2].id,
+                name=f"delivery-{index}",
+            )
+            for index, identifier in enumerate(delivery_ids)
+        )
+        await db.commit()
+
+    observed: list[tuple[str, object]] = []
+
+    async def reconcile_pipeline(session, pipeline):
+        observed.append(("pipeline", pipeline.id))
+        if pipeline.id == pipeline_ids[0]:
+            raise RuntimeError("isolated pipeline failure")
+        return {}
+
+    async def reconcile_delivery(session, delivery):
+        observed.append(("delivery", delivery.id))
+        if delivery.id == delivery_ids[0]:
+            raise RuntimeError("isolated delivery failure")
+        return {}
+
+    async def sync(session):
+        observed.append(("snapshots", None))
+
+    monkeypatch.setattr(worker, "reconcile", reconcile_pipeline)
+    monkeypatch.setattr(worker, "reconcile_delivery", reconcile_delivery)
+    monkeypatch.setattr(worker, "sync_snapshot_operations", sync)
+
+    await worker._reconcile_batch()
+
+    assert {value for kind, value in observed if kind == "pipeline"} == set(pipeline_ids)
+    assert {value for kind, value in observed if kind == "delivery"} == set(delivery_ids)
+    assert ("snapshots", None) in observed

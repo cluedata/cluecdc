@@ -42,6 +42,19 @@ def aggregate_pipeline_state(capture_state: str, delivery_states: list[str]) -> 
     return "RUNNING"
 
 
+def table_capture_state(current: str, capture_state: str, desired_state: str) -> str:
+    """Project runtime state without erasing an operator's pause/remove intent."""
+    if current in {"REMOVING", "REMOVED"}:
+        return current
+    if desired_state in {"PAUSED", "STOPPED"} or capture_state in {"PAUSED", "STOPPED"}:
+        return "PAUSED"
+    if capture_state == "RUNNING":
+        return "STREAMING"
+    if capture_state in {"FAILED", "UNKNOWN"}:
+        return "FAILED"
+    return current
+
+
 async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, ConnectCluster]:
     source = await get(session, Source, data.source_id)
     if source.category != "DATABASE" or "SOURCE" not in source.capabilities_json:
@@ -315,14 +328,9 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         )
     ).all()
     for table in tables:
-        if capture_state == "RUNNING" and table.cdc_status not in {
-            "PAUSED",
-            "REMOVING",
-            "REMOVED",
-        }:
-            table.cdc_status = "STREAMING"
-        elif capture_state in {"FAILED", "UNKNOWN"}:
-            table.cdc_status = "FAILED"
+        table.cdc_status = table_capture_state(
+            table.cdc_status, capture_state, pipeline.desired_state
+        )
         mapped_states = [
             link.actual_state
             for link in links

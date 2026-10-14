@@ -235,20 +235,38 @@ async def _reconcile_batch() -> None:
     semaphore = asyncio.Semaphore(get_settings().worker_concurrency)
 
     async def pipeline_task(identifier: uuid.UUID) -> None:
-        async with semaphore, Session() as session:
-            pipeline = await session.get(Pipeline, identifier)
-            if pipeline is not None:
-                await reconcile(session, pipeline)
-                pipeline.updated_at = now()
-                await session.commit()
+        try:
+            async with semaphore, Session() as session:
+                pipeline = await session.get(Pipeline, identifier)
+                if pipeline is not None:
+                    await reconcile(session, pipeline)
+                    pipeline.updated_at = now()
+                    await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "pipeline_reconcile_failed",
+                pipeline_id=str(identifier),
+                error_type=type(exc).__name__,
+            )
 
     async def delivery_task(identifier: uuid.UUID) -> None:
-        async with semaphore, Session() as session:
-            delivery = await session.get(PipelineDestination, identifier)
-            if delivery is not None:
-                await reconcile_delivery(session, delivery)
-                delivery.updated_at = now()
-                await session.commit()
+        try:
+            async with semaphore, Session() as session:
+                delivery = await session.get(PipelineDestination, identifier)
+                if delivery is not None:
+                    await reconcile_delivery(session, delivery)
+                    delivery.updated_at = now()
+                    await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "delivery_reconcile_failed",
+                delivery_id=str(identifier),
+                error_type=type(exc).__name__,
+            )
 
     async with asyncio.TaskGroup() as group:
         for identifier in pipeline_ids:

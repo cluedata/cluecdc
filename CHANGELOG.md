@@ -40,6 +40,10 @@ All notable changes to ClueCDC are documented here. The format follows
 - Added non-mutating PostgreSQL logical-slot and retained-WAL diagnostics,
   MySQL binlog retention/position inventory, configurable outage-window checks,
   permission-limited warnings, and critical retention-risk alert recovery.
+- Hardened reconciliation so dependency outages preserve pause/stop intent and
+  one resource failure cannot cancel the worker batch; added live fault
+  injection for Connect, API/worker, source, and destination recovery without
+  connector recreation or implicit offset reset.
 
 ## [0.2.0] - 2026-10-09
 
