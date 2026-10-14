@@ -13,6 +13,11 @@ SENSITIVE_KEY_MARKERS = (
     "sasl.jaas.config",
     "ssl.key.pem",
     "ssl.keystore",
+    "ssl_ca_pem",
+    "ssl_certificate_pem",
+    "ssl_key_pem",
+    "sasl.username",
+    "sasl.password",
 )
 
 

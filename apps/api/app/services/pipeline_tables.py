@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import KafkaExplorer, source_connector_security
 from app.core.errors import DomainError, redact
 from app.models.entities import (
     ConnectCluster,
@@ -33,6 +33,7 @@ from app.schemas.requests import (
 from app.services import pipeline as pipeline_service
 from app.services.debezium import notification_topic
 from app.services.destinations import service as destination_service
+from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
 
 ADD_STEPS = [
@@ -350,8 +351,9 @@ async def _run_add(session: AsyncSession, operation: PipelineOperation) -> None:
         await _checkpoint(session, operation, "validate_source", ADD_STEPS)
     if not _completed(operation, "prepare_destination"):
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        credentials = await kafka_credentials(session, kafka)
         await session.commit()
-        await KafkaExplorer().ensure_topics(
+        await KafkaExplorer(credentials).ensure_topics(
             kafka, [table.topic_name, notification_topic(pipeline.topic_prefix)]
         )
         await _prepare_destinations(session, pipeline, table, operation)
@@ -423,8 +425,11 @@ async def _run_resync(session: AsyncSession, operation: PipelineOperation) -> No
         publication = provider.publication_manager(database, connector.config_json)
         await publication.add_table(signal_schema, signal_table)
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        credentials = await kafka_credentials(session, kafka)
         await session.commit()
-        await KafkaExplorer().ensure_topics(kafka, [notification_topic(pipeline.topic_prefix)])
+        await KafkaExplorer(credentials).ensure_topics(
+            kafka, [notification_topic(pipeline.topic_prefix)]
+        )
         if not connector.config_json.get("signal.data.collection"):
             await _update_source_connector(session, pipeline, connector, cluster)
         await _wait_connector_healthy(
@@ -568,6 +573,7 @@ async def _update_source_connector(
         kafka.bootstrap_servers,
         enable_signals=True,
     )
+    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     if any(
         config.get(key) != connector.config_json.get(key)
         for key in provider.immutable_connector_keys()
@@ -854,9 +860,10 @@ async def sync_snapshot_operations(session: AsyncSession) -> int:
         signal_id = operation.metadata_json.get("signal_id")
         if not topic or not signal_id:
             continue
+        credentials = await kafka_credentials(session, kafka)
         await session.commit()
         try:
-            records = await KafkaExplorer().notifications(kafka, topic)
+            records = await KafkaExplorer(credentials).notifications(kafka, topic)
         except DomainError:
             continue
         matching = [record for record in records if record.get("id") == signal_id]

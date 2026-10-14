@@ -34,6 +34,33 @@ spec:
           env:
             - name: BOOTSTRAP_SERVERS
               valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_BOOTSTRAP_SERVERS } }
+            - name: SECURITY_PROTOCOL
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SECURITY_PROTOCOL } }
+            - name: SASL_MECHANISM
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SASL_MECHANISM } }
+            - name: SASL_JAAS_CONFIG
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-sasl-jaas-config } }
+            - { name: SSL_TRUSTSTORE_TYPE, value: PEM }
+            - name: SSL_TRUSTSTORE_CERTIFICATES
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-ca-pem } }
+            - name: PRODUCER_SECURITY_PROTOCOL
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SECURITY_PROTOCOL } }
+            - name: PRODUCER_SASL_MECHANISM
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SASL_MECHANISM } }
+            - name: PRODUCER_SASL_JAAS_CONFIG
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-sasl-jaas-config } }
+            - { name: PRODUCER_SSL_TRUSTSTORE_TYPE, value: PEM }
+            - name: PRODUCER_SSL_TRUSTSTORE_CERTIFICATES
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-ca-pem } }
+            - name: CONSUMER_SECURITY_PROTOCOL
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SECURITY_PROTOCOL } }
+            - name: CONSUMER_SASL_MECHANISM
+              valueFrom: { configMapKeyRef: { name: cluecdc-config, key: KAFKA_SASL_MECHANISM } }
+            - name: CONSUMER_SASL_JAAS_CONFIG
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-sasl-jaas-config } }
+            - { name: CONSUMER_SSL_TRUSTSTORE_TYPE, value: PEM }
+            - name: CONSUMER_SSL_TRUSTSTORE_CERTIFICATES
+              valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: kafka-ca-pem } }
             - { name: GROUP_ID, value: cluecdc-connect }
             - { name: CONFIG_STORAGE_TOPIC, value: _cluecdc_connect_configs }
             - { name: OFFSET_STORAGE_TOPIC, value: _cluecdc_connect_offsets }

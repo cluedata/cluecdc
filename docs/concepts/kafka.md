@@ -4,4 +4,8 @@ Kafka is the durable transport between capture and delivery. A pipeline's topic 
 
 The included single KRaft broker is for development. Production needs an independently operated Kafka cluster with replication, authentication, authorization, encryption, retention planning, monitoring, and capacity management.
 
-ClueCDC does not currently provision SASL credentials or ACLs. Kafka security settings registered with the control plane must match the capabilities implemented by its adapter.
+ClueCDC registers encrypted Kafka TLS/SASL client credentials and applies
+compatible settings to its administration clients and managed connector
+clients. It does not create broker identities, certificates, or ACLs. Kafka
+Connect worker authentication and REST authentication are separate deployment
+boundaries and must be configured independently.

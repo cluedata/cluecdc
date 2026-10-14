@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
     integration_timeout_seconds: float = 10
     log_level: Literal["debug", "info", "warn", "warning", "error"] = "info"
+    allow_insecure_kafka: bool = False
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":

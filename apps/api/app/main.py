@@ -85,6 +85,11 @@ async def resolve_connect_secret(
         "credential",
         "token",
         "client_secret",
+        "username",
+        "ssl_ca_pem",
+        "ssl_certificate_pem",
+        "ssl_key_pem",
+        "ssl_key_password",
     }
     if key not in allowed or key not in value:
         raise DomainError("SECRET_KEY_NOT_FOUND", "Secret field was not found", 404)

@@ -26,6 +26,7 @@ invalid. The web server validates its private API origin at request time.
 | `JOB_MAX_ATTEMPTS`            | No             | Maximum failed/expired job attempts (default 3)        |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
+| `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |
 | `API_INTERNAL_URL`            | Web production | Private origin of the ClueCDC API                      |
 
 Compose port variables and demo database credentials are documented inline in

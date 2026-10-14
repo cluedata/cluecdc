@@ -47,6 +47,13 @@ key, or migrate credentials in a tested maintenance procedure before changing
 it. Rotating `CONNECT_SECRET_TOKEN` requires coordinated API/worker and every
 Kafka Connect worker restart.
 
+Register production Kafka clusters with `SSL` or `SASL_SSL`. Broker credentials
+stored by ClueCDC configure its own clients and connector-level producer,
+schema-history, and consumer overrides; they do not configure the Kafka Connect
+worker itself. Supply worker/internal-client SASL and TLS values independently
+through the deployment Secret, and protect Connect REST independently on its
+private network. Certificate verification is mandatory.
+
 Restrict `/metrics`, OpenAPI, Kafka Connect REST, brokers, and databases to private networks. ClueCDC does not yet provide SSO, OIDC, automated TLS, Kafka ACL provisioning, or a production external-secret integration.
 
 Report vulnerabilities using the private process in the repository `SECURITY.md`; never include credentials or customer event payloads in a public issue.

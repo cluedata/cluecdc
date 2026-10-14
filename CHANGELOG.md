@@ -20,6 +20,9 @@ All notable changes to ClueCDC are documented here. The format follows
 - Made login throttling metadata-backed across API replicas, invalidated
   sessions after role changes, protected the last active Admin from demotion,
   and added a regression test requiring server-side auth on every private API.
+- Added SSL and SASL_SSL/SASL_PLAINTEXT Kafka clients with PLAIN and SCRAM,
+  encrypted TLS/SASL material, verified certificates, ConfigProvider-only
+  connector overrides, and independently configured secure Connect workers.
 
 ## [0.2.0] - 2026-10-09
 

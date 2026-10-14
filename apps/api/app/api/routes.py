@@ -26,6 +26,7 @@ from app.models.entities import (
     PipelineOperation,
     PipelineTable,
     SchemaVersion,
+    SecretReference,
     SourceTable,
 )
 from app.providers import provider_metadata, provider_metadata_for
@@ -47,6 +48,7 @@ from app.services import pipeline as pipeline_service
 from app.services import pipeline_tables as pipeline_table_service
 from app.services import source as source_service
 from app.services.destinations import service as destination_service
+from app.services.secrets import kafka_credentials, secret_provider
 
 router = APIRouter(prefix="/api/v1")
 DB = Annotated[AsyncSession, Depends(session_dependency)]
@@ -382,19 +384,67 @@ async def table_schema(
 
 @router.get("/kafka/clusters")
 async def kafka_clusters(db: DB, user: Annotated[Principal, Depends(require("kafka.read"))]):
-    return await listing(db, KafkaCluster)
+    rows = (await db.scalars(select(KafkaCluster).order_by(KafkaCluster.created_at.desc()))).all()
+    return [_kafka_view(cluster) for cluster in rows]
+
+
+def _kafka_view(cluster: KafkaCluster) -> dict:
+    value = serialize(cluster)
+    value["security_config"] = value.pop("security_config_json")
+    value["credentials"] = {"configured": bool(cluster.secret_ref), "masked_value": "************"}
+    return value
+
+
+def _validate_kafka_transport(data: KafkaInput, secrets: dict[str, str]) -> None:
+    if (
+        get_settings().environment == "production"
+        and data.security_protocol in {"PLAINTEXT", "SASL_PLAINTEXT"}
+        and not get_settings().allow_insecure_kafka
+    ):
+        raise DomainError(
+            "INSECURE_KAFKA_DISABLED",
+            "Production requires encrypted Kafka transport unless explicitly allowed",
+            422,
+        )
+    if (
+        data.security_protocol.startswith("SASL_")
+        and not {"username", "password"} <= secrets.keys()
+    ):
+        raise DomainError(
+            "KAFKA_CREDENTIALS_REQUIRED",
+            "SASL requires a username and password",
+            422,
+        )
+
+
+def _applicable_kafka_secrets(data: KafkaInput, values: dict[str, str]) -> dict[str, str]:
+    allowed: set[str] = set()
+    if data.security_protocol.startswith("SASL_"):
+        allowed.update({"username", "password"})
+    if data.security_protocol in {"SSL", "SASL_SSL"}:
+        allowed.update({"ssl_ca_pem", "ssl_certificate_pem", "ssl_key_pem", "ssl_key_password"})
+    return {key: value for key, value in values.items() if key in allowed}
 
 
 @router.post("/kafka/clusters", status_code=201)
 async def create_kafka(
     data: KafkaInput, db: DB, user: Annotated[Principal, Depends(require("settings.manage"))]
 ):
-    cluster = KafkaCluster(**data.model_dump())
+    secrets = _applicable_kafka_secrets(data, data.secret_values())
+    _validate_kafka_transport(data, secrets)
+    cluster = KafkaCluster(
+        name=data.name,
+        bootstrap_servers=data.bootstrap_servers,
+        security_protocol=data.security_protocol,
+        security_config_json=data.security_config(secrets),
+    )
+    if secrets:
+        cluster.secret_ref = await secret_provider(db).put_secret(secrets)
     db.add(cluster)
     await db.flush()
     audit(db, user.actor, "kafka_cluster.created", cluster)
     await db.commit()
-    return serialize(cluster)
+    return _kafka_view(cluster)
 
 
 @router.put("/kafka/clusters/{identifier}")
@@ -405,17 +455,45 @@ async def update_kafka(
     user: Annotated[Principal, Depends(require("settings.manage"))],
 ):
     cluster = await get(db, KafkaCluster, identifier)
-    if await db.scalar(select(Pipeline.id).where(Pipeline.kafka_cluster_id == identifier).limit(1)):
+    old_secrets = (
+        await secret_provider(db).get_secret(cluster.secret_ref) if cluster.secret_ref else {}
+    )
+    secrets = _applicable_kafka_secrets(data, {**old_secrets, **data.secret_values()})
+    _validate_kafka_transport(data, secrets)
+    security_config = data.security_config(secrets)
+    endpoint_changed = (
+        data.bootstrap_servers != cluster.bootstrap_servers
+        or data.security_protocol != cluster.security_protocol
+        or security_config != cluster.security_config_json
+    )
+    if endpoint_changed and await db.scalar(
+        select(Pipeline.id).where(Pipeline.kafka_cluster_id == identifier).limit(1)
+    ):
         raise DomainError(
-            "CLUSTER_IN_USE", "Delete associated pipelines before changing Kafka configuration", 409
+            "CLUSTER_IN_USE",
+            "Delete associated pipelines before changing Kafka transport configuration",
+            409,
         )
     before = serialize(cluster)
-    for k, v in data.model_dump().items():
-        setattr(cluster, k, v)
+    cluster.name = data.name
+    cluster.bootstrap_servers = data.bootstrap_servers
+    cluster.security_protocol = data.security_protocol
+    cluster.security_config_json = security_config
+    if secrets:
+        if cluster.secret_ref:
+            await secret_provider(db).update_secret(cluster.secret_ref, secrets)
+        else:
+            cluster.secret_ref = await secret_provider(db).put_secret(secrets)
+    elif cluster.secret_ref:
+        old_secret = await db.get(SecretReference, cluster.secret_ref)
+        cluster.secret_ref = None
+        await db.flush()
+        if old_secret:
+            await db.delete(old_secret)
     cluster.status = "UNKNOWN"
     audit(db, user.actor, "kafka_cluster.updated", cluster, before)
     await db.commit()
-    return serialize(cluster)
+    return _kafka_view(cluster)
 
 
 @router.delete("/kafka/clusters/{identifier}")
@@ -423,8 +501,12 @@ async def delete_kafka(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("settings.manage"))]
 ):
     cluster = await get(db, KafkaCluster, identifier)
+    secret = await db.get(SecretReference, cluster.secret_ref) if cluster.secret_ref else None
     audit(db, user.actor, "kafka_cluster.deleted", cluster)
     await db.delete(cluster)
+    await db.flush()
+    if secret:
+        await db.delete(secret)
     await db.commit()
     return {"deleted": True}
 
@@ -936,7 +1018,7 @@ async def topics(
 ):
     cluster = await get(db, KafkaCluster, cluster_id)
     try:
-        result = await KafkaExplorer().topics(cluster)
+        result = await KafkaExplorer(await kafka_credentials(db, cluster)).topics(cluster)
         cluster.status = "HEALTHY"
         await db.commit()
         return result
@@ -959,11 +1041,17 @@ async def consumer_groups(
     if cluster_id and not clusters:
         raise DomainError("NOT_FOUND", "KafkaCluster was not found", 404)
 
+    credentials_by_cluster = {
+        cluster.id: await kafka_credentials(db, cluster) for cluster in clusters
+    }
+
     async def inspect(cluster: KafkaCluster) -> dict:
         try:
             return {
                 "cluster": cluster,
-                "groups": await KafkaExplorer().consumer_groups(cluster),
+                "groups": await KafkaExplorer(credentials_by_cluster[cluster.id]).consumer_groups(
+                    cluster
+                ),
                 "error": None,
             }
         except DomainError as error:
@@ -1036,7 +1124,8 @@ async def consumer_groups(
 async def topic(
     name: str, cluster_id: UUID, db: DB, user: Annotated[Principal, Depends(require("kafka.read"))]
 ):
-    results = await KafkaExplorer().topics(await get(db, KafkaCluster, cluster_id), name)
+    cluster = await get(db, KafkaCluster, cluster_id)
+    results = await KafkaExplorer(await kafka_credentials(db, cluster)).topics(cluster, name)
     if not results:
         raise DomainError("TOPIC_NOT_FOUND", "Kafka topic was not found", 404)
     result = results[0]
@@ -1076,7 +1165,9 @@ async def delete_topic(
     cluster = await get(db, KafkaCluster, cluster_id)
     audit_base = {"topic": name, "cluster_id": str(cluster.id), "cluster_name": cluster.name}
     try:
-        result = await KafkaExplorer().delete_topic(cluster, name)
+        result = await KafkaExplorer(await kafka_credentials(db, cluster)).delete_topic(
+            cluster, name
+        )
     except DomainError as exc:
         db.add(
             AuditLog(

@@ -98,6 +98,7 @@ class KafkaCluster(Entity, Base):
     name: Mapped[str] = mapped_column(String(120), unique=True)
     bootstrap_servers: Mapped[str] = mapped_column(String)
     security_protocol: Mapped[str] = mapped_column(String, default="PLAINTEXT")
+    security_config_json: Mapped[dict] = mapped_column(JSON, default=dict)
     secret_ref: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("secret_references.id"))
     status: Mapped[str] = mapped_column(String, default="UNKNOWN")
 

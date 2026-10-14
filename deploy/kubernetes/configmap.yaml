@@ -12,3 +12,5 @@ data:
   CORS_ORIGINS: '["https://cluecdc.example.com"]'
   API_INTERNAL_URL: http://cluecdc-api:8000
   KAFKA_BOOTSTRAP_SERVERS: kafka.example.internal:9092
+  KAFKA_SECURITY_PROTOCOL: SASL_SSL
+  KAFKA_SASL_MECHANISM: SCRAM-SHA-512

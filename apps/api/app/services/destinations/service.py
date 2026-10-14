@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import KafkaExplorer, connector_security
 from app.alerts.monitoring import observe_connector, observe_database_connection
 from app.core.errors import DomainError, redact
 from app.models.entities import (
@@ -30,7 +30,7 @@ from app.services import connections as connection_service
 from app.services.debezium import derive_actual_state
 from app.services.destinations.adapter import DestinationAdapter
 from app.services.destinations.providers import delivery_provider
-from app.services.secrets import secret_provider
+from app.services.secrets import kafka_credentials, secret_provider
 
 log = structlog.get_logger()
 
@@ -463,9 +463,12 @@ async def build(
         ).all()
     }
     kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    kafka_secret_values = await kafka_credentials(session, kafka)
     secret_values = await connection_service.credentials(session, destination)
     await session.commit()
-    known_topics = {topic["name"] for topic in await KafkaExplorer().topics(kafka)}
+    known_topics = {
+        topic["name"] for topic in await KafkaExplorer(kafka_secret_values).topics(kafka)
+    }
     if not strategy.needs_relational_metadata:
         pipeline_topics = set(selected)
         missing_pipeline = set(data.topics) - pipeline_topics
@@ -500,6 +503,7 @@ async def build(
             name,
             has_session_token=bool(secret_values.get("session_token")),
         )
+        config.update(connector_security(kafka, "consumer.override"))
         await client.validate(config, secrets=list(secret_values.values()))
         return config, cluster, metadata, None
     metadata = {}
@@ -577,6 +581,7 @@ async def build(
     await target.test_connection()
     await target.validate(data, metadata)
     config = strategy.build_config(destination, data, metadata, name)
+    config.update(connector_security(kafka, "consumer.override"))
     await client.validate(config)
     return config, cluster, metadata, target
 

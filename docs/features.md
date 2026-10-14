@@ -55,6 +55,8 @@ The API keeps these as explicit endpoints so automation can control each stage.
 - [x] Inspect Kafka topics, partitions, beginning/end offsets, and consumer groups.
 - [x] Delete a Kafka topic through a separately privileged destructive action.
 - [x] Discover Connect plugins and inspect connectors and task states.
+- [x] Kafka SSL, SASL/PLAIN, and SASL/SCRAM client configuration with encrypted
+  PEM/SASL values and connector ConfigProvider references.
 - [x] Resolve encrypted connector credentials at runtime through the private
   machine-authenticated ConfigProvider endpoint.
 
@@ -122,6 +124,7 @@ authorization contract.
 - [ ] SSO, OAuth/OIDC, LDAP, SAML, groups, and custom roles are not implemented.
 - [ ] ClueCDC does not send invitation email; an Admin shares the generated link.
 - [ ] CDC payload browsing through the ClueCDC API/UI is intentionally unavailable.
-- [ ] Automatic TLS, Kafka authentication/ACL provisioning, and production
-  external-secret integration remain deployment responsibilities.
+- [ ] Broker-side TLS identity, Kafka user/ACL provisioning, Connect REST
+  authentication, and production external-secret integration remain deployment
+  responsibilities.
 - [ ] The bundled Compose environment is for local use, not high availability.

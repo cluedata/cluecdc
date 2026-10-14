@@ -5,6 +5,11 @@ recognizes the last prototype revision `5e2d8a9f1c30`; upgrading from that speci
 revision converts the existing schema and preserves resource/credential IDs.
 Other historical revisions are not automatically supported.
 
+Patch migrations `0002` through `0004` add local authentication normalization
+and Kafka client security metadata without changing stored connection,
+pipeline, connector, alert, or audit identities. Kafka credential values remain
+in the pre-existing encrypted `secret_references` table.
+
 The audit checked Git tags, release documentation, migration references,
 Compose startup, Kubernetes initialization, CI and tests. There were no release
 tags or documented stable migration compatibility promise. The old chain

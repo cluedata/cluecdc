@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import KafkaExplorer, source_connector_security
 from app.alerts.monitoring import observe_connector
 from app.core.errors import DomainError, redact
 from app.models.entities import (
@@ -27,6 +27,7 @@ from app.providers.server_ids import assign_mysql_connector_server_id
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import PipelineInput, TableSelection
 from app.services.debezium import derive_actual_state, notification_topic
+from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
 
 log = structlog.get_logger()
@@ -78,6 +79,7 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
         f"cluecdc-preview-{data.topic_prefix}",
         kafka.bootstrap_servers,
     )
+    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     return config, cluster
 
 
@@ -199,8 +201,11 @@ async def prepare_topics(session: AsyncSession, pipeline: Pipeline, actor: str) 
         await session.scalars(select(PipelineTable).where(PipelineTable.pipeline_id == pipeline.id))
     ).all()
     cluster = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    credentials = await kafka_credentials(session, cluster)
     await session.commit()
-    result = await KafkaExplorer().ensure_topics(cluster, [table.topic_name for table in tables])
+    result = await KafkaExplorer(credentials).ensure_topics(
+        cluster, [table.topic_name for table in tables]
+    )
     cluster.status = "HEALTHY"
     audit(session, actor, "pipeline.topics_prepared", pipeline)
     return result
@@ -225,11 +230,14 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
         name,
         kafka.bootstrap_servers,
     )
+    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     client = KafkaConnectClient(cluster.base_url)
     # Close the metadata transaction before any Kafka/Connect network calls.
     await session.commit()
     await client.validate(config)
-    await KafkaExplorer().ensure_topics(kafka, [notification_topic(pipeline.topic_prefix)])
+    await KafkaExplorer(await kafka_credentials(session, kafka)).ensure_topics(
+        kafka, [notification_topic(pipeline.topic_prefix)]
+    )
     await prepare_topics(session, pipeline, actor)
     await session.commit()
     # POST preserves externally owned connectors; never overwrite on collision.
@@ -334,9 +342,10 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         table.snapshot_status in {"PENDING", "RUNNING"} for table in tables
     ):
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        credentials = await kafka_credentials(session, kafka)
         await session.commit()
         try:
-            notifications = await KafkaExplorer().notifications(
+            notifications = await KafkaExplorer(credentials).notifications(
                 kafka, notification_topic(pipeline.topic_prefix)
             )
             _apply_initial_snapshot_notifications(tables, notifications)

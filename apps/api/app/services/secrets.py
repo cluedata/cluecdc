@@ -6,7 +6,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import SecretReference
+from app.models.entities import KafkaCluster, SecretReference
 from app.repositories.metadata import get
 
 
@@ -43,3 +43,9 @@ class EncryptedDatabaseSecretProvider:
 def secret_provider(session: AsyncSession) -> SecretProvider:
     """Community provider seam; extensions can replace this factory at composition time."""
     return EncryptedDatabaseSecretProvider(session)
+
+
+async def kafka_credentials(session: AsyncSession, cluster: KafkaCluster) -> dict[str, str]:
+    if cluster.secret_ref is None:
+        return {}
+    return await secret_provider(session).get_secret(cluster.secret_ref)

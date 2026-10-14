@@ -1,8 +1,11 @@
 import asyncio
 import contextlib
 import json
+import os
 import ssl
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
@@ -47,24 +50,150 @@ def protected_topic_reason(name: str, metadata: dict | None = None) -> str | Non
     return None
 
 
-def options(cluster: KafkaCluster) -> dict:
+def _ssl_context(credentials: dict[str, str]) -> ssl.SSLContext:
+    context = ssl.create_default_context(cadata=credentials.get("ssl_ca_pem"))
+    certificate = credentials.get("ssl_certificate_pem")
+    private_key = credentials.get("ssl_key_pem")
+    if certificate and private_key:
+        with tempfile.TemporaryDirectory(prefix="cluecdc-kafka-tls-") as directory:
+            cert_path = Path(directory) / "client.crt"
+            key_path = Path(directory) / "client.key"
+            cert_path.write_text(certificate, encoding="utf-8")
+            key_path.write_text(private_key, encoding="utf-8")
+            os.chmod(cert_path, 0o600)
+            os.chmod(key_path, 0o600)
+            context.load_cert_chain(
+                certfile=cert_path,
+                keyfile=key_path,
+                password=credentials.get("ssl_key_password"),
+            )
+    return context
+
+
+def _sasl(cluster: KafkaCluster, credentials: dict[str, str]) -> tuple[str, str, str]:
+    mechanism = str(cluster.security_config_json.get("sasl_mechanism", ""))
+    username = credentials.get("username", "")
+    password = credentials.get("password", "")
+    if mechanism not in {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"} or not all(
+        [username, password]
+    ):
+        raise DomainError(
+            "KAFKA_SECURITY_CONFIGURATION_INVALID",
+            "Kafka SASL credentials or mechanism are missing",
+            422,
+        )
+    return mechanism, username, password
+
+
+def options(cluster: KafkaCluster, credentials: dict[str, str] | None = None) -> dict:
+    credentials = credentials or {}
     opts: dict[str, Any] = {
         "bootstrap_servers": cluster.bootstrap_servers.split(","),
         "security_protocol": cluster.security_protocol,
         "request_timeout_ms": 5000,
     }
-    if cluster.security_protocol == "SSL":
-        opts["ssl_context"] = ssl.create_default_context()
+    if cluster.security_protocol in {"SSL", "SASL_SSL"}:
+        opts["ssl_context"] = _ssl_context(credentials)
+    if cluster.security_protocol in {"SASL_PLAINTEXT", "SASL_SSL"}:
+        mechanism, username, password = _sasl(cluster, credentials)
+        opts.update(
+            {
+                "sasl_mechanism": mechanism,
+                "sasl_plain_username": username,
+                "sasl_plain_password": password,
+            }
+        )
     return opts
 
 
-def admin_options(cluster: KafkaCluster) -> dict:
+def admin_options(cluster: KafkaCluster, credentials: dict[str, str] | None = None) -> dict:
     """Translate a registered cluster into librdkafka configuration."""
-    return {
+    credentials = credentials or {}
+    result = {
         "bootstrap.servers": cluster.bootstrap_servers,
         "security.protocol": cluster.security_protocol.lower(),
         "socket.timeout.ms": 5000,
     }
+    if cluster.security_protocol in {"SSL", "SASL_SSL"}:
+        mapping = {
+            "ssl_ca_pem": "ssl.ca.pem",
+            "ssl_certificate_pem": "ssl.certificate.pem",
+            "ssl_key_pem": "ssl.key.pem",
+            "ssl_key_password": "ssl.key.password",
+        }
+        result.update(
+            {
+                target: credentials[source]
+                for source, target in mapping.items()
+                if source in credentials
+            }
+        )
+    if cluster.security_protocol in {"SASL_PLAINTEXT", "SASL_SSL"}:
+        mechanism, username, password = _sasl(cluster, credentials)
+        result.update(
+            {
+                "sasl.mechanism": mechanism,
+                "sasl.username": username,
+                "sasl.password": password,
+            }
+        )
+    return result
+
+
+def connector_security(cluster: KafkaCluster, prefix: str) -> dict[str, str]:
+    """Build ConfigProvider-only connector client settings; never embed a credential."""
+    result = {f"{prefix}.security.protocol": cluster.security_protocol}
+    reference = cluster.secret_ref
+    if cluster.security_protocol in {"SASL_PLAINTEXT", "SASL_SSL"}:
+        mechanism = str(cluster.security_config_json.get("sasl_mechanism", ""))
+        if reference is None or mechanism not in {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"}:
+            raise DomainError(
+                "KAFKA_SECURITY_CONFIGURATION_INVALID",
+                "Kafka SASL credentials or mechanism are missing",
+                422,
+            )
+        login_module = (
+            "org.apache.kafka.common.security.plain.PlainLoginModule"
+            if mechanism == "PLAIN"
+            else "org.apache.kafka.common.security.scram.ScramLoginModule"
+        )
+        result[f"{prefix}.sasl.mechanism"] = mechanism
+        result[f"{prefix}.sasl.jaas.config"] = (
+            f'{login_module} required username="${{cluecdc:{reference}:username}}" '
+            f'password="${{cluecdc:{reference}:password}}";'
+        )
+    if cluster.security_protocol in {"SSL", "SASL_SSL"} and reference is not None:
+        fields: dict[str, str] = {}
+        if cluster.security_config_json.get("has_custom_ca"):
+            fields.update(
+                {
+                    "ssl.truststore.type": "PEM",
+                    "ssl.truststore.certificates": f"${{cluecdc:{reference}:ssl_ca_pem}}",
+                }
+            )
+        if cluster.security_config_json.get("has_client_certificate"):
+            fields.update(
+                {
+                    "ssl.keystore.type": "PEM",
+                    "ssl.keystore.certificate.chain": (
+                        f"${{cluecdc:{reference}:ssl_certificate_pem}}"
+                    ),
+                    "ssl.keystore.key": f"${{cluecdc:{reference}:ssl_key_pem}}",
+                }
+            )
+        if cluster.security_config_json.get("has_key_password"):
+            fields["ssl.key.password"] = f"${{cluecdc:{reference}:ssl_key_password}}"
+        for key, value in fields.items():
+            result[f"{prefix}.{key}"] = value
+    return result
+
+
+def source_connector_security(cluster: KafkaCluster, *, mysql: bool) -> dict[str, str]:
+    result = connector_security(cluster, "producer.override")
+    if mysql:
+        result.update(connector_security(cluster, "schema.history.internal.producer"))
+        result.update(connector_security(cluster, "schema.history.internal.consumer"))
+    return result
 
 
 def enum_name(value: object, fallback: str = "UNKNOWN") -> str:
@@ -76,6 +205,9 @@ def enum_name(value: object, fallback: str = "UNKNOWN") -> str:
 
 
 class KafkaExplorer:
+    def __init__(self, credentials: dict[str, str] | None = None):
+        self.credentials = credentials or {}
+
     async def consumer_groups(self, cluster: KafkaCluster) -> list[dict]:
         """Return committed offsets and broker lag for topic-consuming groups."""
         try:
@@ -90,7 +222,7 @@ class KafkaExplorer:
 
     def _consumer_groups_sync(self, cluster: KafkaCluster) -> list[dict]:
         """Run librdkafka's blocking admin calls outside the application event loop."""
-        admin = AdminClient(admin_options(cluster))
+        admin = AdminClient(admin_options(cluster, self.credentials))
         listed = admin.list_consumer_groups(request_timeout=10).result(timeout=12)
         if listed.errors:
             raise listed.errors[0]
@@ -170,7 +302,7 @@ class KafkaExplorer:
 
     async def ensure_topics(self, cluster: KafkaCluster, names: list[str]) -> dict:
         names = sorted(set(names))
-        admin = AIOKafkaAdminClient(**options(cluster))
+        admin = AIOKafkaAdminClient(**options(cluster, self.credentials))
         try:
             async with asyncio.timeout(15):
                 await admin.start()
@@ -208,7 +340,7 @@ class KafkaExplorer:
                 await admin.close()
 
     async def topics(self, cluster: KafkaCluster, name: str | None = None) -> list[dict]:
-        admin = AIOKafkaAdminClient(**options(cluster))
+        admin = AIOKafkaAdminClient(**options(cluster, self.credentials))
         try:
             async with asyncio.timeout(10):
                 await admin.start()
@@ -268,7 +400,7 @@ class KafkaExplorer:
                 "INVALID_TOPIC_NAME", "Kafka topic names must be between 1 and 249 characters", 422
             )
 
-        admin = AIOKafkaAdminClient(**options(cluster))
+        admin = AIOKafkaAdminClient(**options(cluster, self.credentials))
         try:
             async with asyncio.timeout(15):
                 await admin.start()
@@ -383,7 +515,7 @@ class KafkaExplorer:
     ) -> list[dict]:
         """Read a bounded recent window of Debezium notification records."""
         consumer = AIOKafkaConsumer(
-            **options(cluster),
+            **options(cluster, self.credentials),
             group_id=None,
             enable_auto_commit=False,
             auto_offset_reset="latest",
