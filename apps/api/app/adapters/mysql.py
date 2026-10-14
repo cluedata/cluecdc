@@ -239,7 +239,8 @@ class MySQLAdapter:
             columns = await self._all(
                 connection,
                 "SELECT column_name AS name, column_type AS type, "
-                "is_nullable='YES' AS nullable, ordinal_position AS ordinal "
+                "is_nullable='YES' AS nullable, ordinal_position AS ordinal, "
+                "column_default IS NOT NULL AS has_default "
                 "FROM information_schema.columns WHERE table_schema=%s "
                 "AND table_name=%s ORDER BY ordinal_position",
                 (schema_name, table_name),
@@ -295,7 +296,8 @@ class MySQLAdapter:
                 columns = await self._all(
                     connection,
                     "SELECT column_name AS name, column_type AS type, "
-                    "is_nullable='YES' AS nullable, ordinal_position AS ordinal "
+                    "is_nullable='YES' AS nullable, ordinal_position AS ordinal, "
+                    "column_default IS NOT NULL AS has_default "
                     "FROM information_schema.columns WHERE table_schema=%s "
                     "AND table_name=%s ORDER BY ordinal_position",
                     (schema, table),

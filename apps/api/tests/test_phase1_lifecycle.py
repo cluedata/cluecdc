@@ -217,6 +217,33 @@ async def test_remove_final_table_requires_pipeline_deletion(db_factory):
             await enqueue_remove(db, table.id, RemovePipelineTableInput(), "tester")
 
 
+async def test_remove_rejects_concurrent_snapshot_operation(db_factory):
+    async with db_factory() as db:
+        _, _, _, pipeline = await _metadata(db)
+        table = PipelineTable(
+            pipeline_id=pipeline.id,
+            schema_name="public",
+            table_name="customers",
+            topic_name="commerce.public.customers",
+            cdc_status="STREAMING",
+        )
+        db.add(table)
+        await db.flush()
+        db.add(
+            PipelineOperation(
+                pipeline_id=pipeline.id,
+                table_id=table.id,
+                type="RESYNC_TABLE",
+                status="WAITING",
+                current_step="wait_snapshot",
+            )
+        )
+        await db.flush()
+
+        with pytest.raises(DomainError, match="active operation"):
+            await enqueue_remove(db, table.id, RemovePipelineTableInput(), "tester")
+
+
 async def test_snapshot_notification_completes_durable_operation(db_factory, monkeypatch):
     async with db_factory() as db:
         _, _, _, pipeline = await _metadata(db)

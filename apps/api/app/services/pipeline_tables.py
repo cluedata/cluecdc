@@ -170,6 +170,7 @@ async def enqueue_resync(
     actor: str,
 ) -> PipelineOperation:
     table = await get(session, PipelineTable, table_id)
+    await pipeline_service.locked(session, table.pipeline_id)
     if table.cdc_status == "REMOVED":
         raise DomainError("TABLE_REMOVED", "Removed tables cannot be resynced", 409)
     await _assert_no_active_operation(session, table.id)
@@ -201,8 +202,10 @@ async def enqueue_remove(
     actor: str,
 ) -> PipelineOperation:
     table = await get(session, PipelineTable, table_id)
+    await pipeline_service.locked(session, table.pipeline_id)
     if table.cdc_status == "REMOVED":
         raise DomainError("TABLE_REMOVED", "Table is already removed", 409)
+    await _assert_no_active_operation(session, table.id)
     remaining = await session.scalar(
         select(PipelineTable.id)
         .where(

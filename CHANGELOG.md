@@ -33,6 +33,10 @@ All notable changes to ClueCDC are documented here. The format follows
 - Added a restart/offset-recovery acceptance test across connector tasks,
   Kafka Connect, API, worker, Kafka and PostgreSQL outages; missing WAL, binlog,
   schema-history and Kafka offset failures now return redacted recovery hints.
+- Added live snapshot and schema-safety coverage for table add/remove,
+  resnapshot repair, interruption and cancellation; compatible destination
+  columns are provisioned additively while breaking and unsupported changes
+  remain explicit operator actions.
 
 ## [0.2.0] - 2026-10-09
 

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import httpx
@@ -13,14 +14,67 @@ from app.models.entities import (
     AuditLog,
     Connection,
     Connector,
+    Destination,
     PipelineDestination,
     SecretReference,
     SourceTable,
 )
+from app.schemas.requests import DeliveryInput
 from app.services.destinations.adapter import PostgresDestinationAdapter, supported_type
 from app.services.destinations.config import JDBC_CLASS
 from app.services.secrets import EncryptedDatabaseSecretProvider
 from tests.test_api import setup_pipeline
+
+
+async def test_auto_evolution_precreates_missing_required_column_as_nullable(monkeypatch):
+    executed = []
+
+    class Connection:
+        async def fetchrow(self, query, *args):
+            return {"oid": 42}
+
+        async def fetch(self, query, *args):
+            return [{"attname": "id"}]
+
+        async def execute(self, query):
+            executed.append(query)
+
+    @asynccontextmanager
+    async def connection():
+        yield Connection()
+
+    destination = Destination(
+        type="postgresql",
+        host="destination",
+        port=5432,
+        database_name="analytics",
+        username="delivery",
+        ssl_enabled=False,
+    )
+    adapter = PostgresDestinationAdapter(destination, "private")
+    monkeypatch.setattr(adapter.database, "connection", connection)
+    delivery = DeliveryInput(
+        pipeline_id="11111111-1111-4111-8111-111111111111",
+        mappings=[
+            {"topic": "capture.public.accounts", "schema_name": "public", "table_name": "accounts"}
+        ],
+    )
+    await adapter.prepare(
+        delivery,
+        {
+            "capture.public.accounts": {
+                "columns": [
+                    {"name": "id", "type": "bigint", "nullable": False},
+                    {"name": "status", "type": "text", "nullable": False},
+                ],
+                "primary_keys": ["id"],
+            }
+        },
+    )
+
+    assert len(executed) == 1
+    assert 'ADD COLUMN IF NOT EXISTS "status" text' in executed[0]
+    assert "NOT NULL" not in executed[0]
 
 
 @pytest.fixture
@@ -75,9 +129,13 @@ async def capture(client, db_factory, source_payload, respx_mock, monkeypatch):
     async def validate(self, data, metadata):
         return None
 
+    async def prepare(self, data, metadata):
+        return None
+
     monkeypatch.setattr("app.adapters.kafka.KafkaExplorer.topics", topics)
     monkeypatch.setattr(PostgresDestinationAdapter, "test_connection", test)
     monkeypatch.setattr(PostgresDestinationAdapter, "validate", validate)
+    monkeypatch.setattr(PostgresDestinationAdapter, "prepare", prepare)
     return {
         "pipeline_id": pipeline["id"],
         "mappings": [

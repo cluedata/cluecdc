@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.monitoring import observe_database_connection
 from app.models.entities import Connection, SchemaVersion, Source, SourceTable, now
 from app.providers import get_provider
+from app.providers.types import parse_type
 from app.repositories.metadata import audit, get
 from app.services.secrets import secret_provider
 
@@ -21,7 +22,38 @@ async def adapter(session: AsyncSession, source: Source):
     return get_provider(source.type).source_adapter(source, credentials["password"])
 
 
-def schema_diff(previous: dict, current: dict) -> list[dict]:
+def _type_change_classification(before: str, after: str, provider: str) -> str:
+    old = parse_type(provider, before)
+    new = parse_type(provider, after)
+    integer_width = {"INT8": 8, "INT16": 16, "INT24": 24, "INT32": 32, "INT64": 64}
+    if old.kind in integer_width and new.kind in integer_width:
+        return (
+            "NON_BREAKING"
+            if old.unsigned == new.unsigned and integer_width[new.kind] >= integer_width[old.kind]
+            else "BREAKING"
+        )
+    if old.kind == "DECIMAL" and new.kind == "DECIMAL":
+        old_integer = (old.precision or 0) - (old.scale or 0)
+        new_integer = (new.precision or 0) - (new.scale or 0)
+        return (
+            "NON_BREAKING"
+            if new_integer >= old_integer and (new.scale or 0) >= (old.scale or 0)
+            else "BREAKING"
+        )
+    string_types = {"STRING", "TEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT"}
+    if old.kind in string_types and new.kind in string_types:
+        if new.kind in {"TEXT", "LONGTEXT"}:
+            return "NON_BREAKING"
+        if old.kind == "STRING" and new.kind == "STRING":
+            return "NON_BREAKING" if (new.length or 0) >= (old.length or 0) else "BREAKING"
+    if old.kind == new.kind:
+        if old.precision is not None and new.precision is not None:
+            return "NON_BREAKING" if new.precision >= old.precision else "BREAKING"
+        return "POTENTIALLY_BREAKING"
+    return "BREAKING"
+
+
+def schema_diff(previous: dict, current: dict, provider: str = "postgresql") -> list[dict]:
     old = {c["name"]: c for c in previous.get("columns", [])}
     new = {c["name"]: c for c in current.get("columns", [])}
     changes = []
@@ -33,7 +65,7 @@ def schema_diff(previous: dict, current: dict) -> list[dict]:
                 "column": name,
                 "change": "column_added",
                 "classification": "NON_BREAKING"
-                if new[name]["nullable"]
+                if new[name]["nullable"] or new[name].get("has_default", False)
                 else "POTENTIALLY_BREAKING",
             }
         )
@@ -45,7 +77,9 @@ def schema_diff(previous: dict, current: dict) -> list[dict]:
                     "change": "type_changed",
                     "before": old[name]["type"],
                     "after": new[name]["type"],
-                    "classification": "POTENTIALLY_BREAKING",
+                    "classification": _type_change_classification(
+                        old[name]["type"], new[name]["type"], provider
+                    ),
                 }
             )
         if old[name]["nullable"] != new[name]["nullable"]:
@@ -54,6 +88,14 @@ def schema_diff(previous: dict, current: dict) -> list[dict]:
                     "column": name,
                     "change": "nullable_changed",
                     "classification": "BREAKING" if not new[name]["nullable"] else "NON_BREAKING",
+                }
+            )
+        if old[name].get("has_default", False) != new[name].get("has_default", False):
+            changes.append(
+                {
+                    "column": name,
+                    "change": "default_changed",
+                    "classification": "POTENTIALLY_BREAKING",
                 }
             )
     if previous.get("primary_key") != current.get("primary_key"):
@@ -158,7 +200,9 @@ async def discover(session: AsyncSession, source_id: UUID, actor: str) -> dict:
                     version=previous.version + 1 if previous else 1,
                     schema_json=schema,
                     schema_hash=digest,
-                    diff_json=schema_diff(previous.schema_json, schema) if previous else [],
+                    diff_json=schema_diff(previous.schema_json, schema, source.type)
+                    if previous
+                    else [],
                 )
             )
     for dropped in existing.values():

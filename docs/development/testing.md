@@ -63,6 +63,10 @@ python scripts/cdc-recovery.py \
   --api-url http://localhost:3000/api/v1 \
   --compose-project cluecdc-acceptance \
   --env-file .env.example --env-file .env.test.example
+python scripts/cdc-schema-safety.py \
+  --api-url http://localhost:3000/api/v1 \
+  --compose-project cluecdc-acceptance \
+  --env-file .env.example --env-file .env.test.example
 python scripts/demo-object-storage.py \
   --api-url http://localhost:3000/api/v1 \
   --compose-project cluecdc-acceptance \
@@ -86,6 +90,12 @@ distributed exactly-once delivery. Insert mode is not replay-idempotent. MySQL
 PostgreSQL `timestamptz` values are compared as UTC instants. Destination
 constraints, engine-specific types, triggers and generated values can still
 produce semantics that require application-specific reconciliation.
+
+The schema-safety acceptance test verifies initial and incremental snapshots,
+add/remove table isolation, restart during a 5,000-row snapshot, cancellation
+and concurrent-operation rejection. It also validates additive nullable and
+defaulted columns, widening/breaking schema classifications, explicit
+resnapshot backfill, and actionable rejection of unsupported destination types.
 
 The object-storage check mutates the real PostgreSQL source, waits for Debezium
 and the Aiven sink, decompresses generated MinIO objects and checks c/u/d event

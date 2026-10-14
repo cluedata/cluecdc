@@ -203,7 +203,7 @@ def test_schema_diff_is_deterministic():
     assert [d["classification"] for d in diffs] == [
         "BREAKING",
         "NON_BREAKING",
-        "POTENTIALLY_BREAKING",
+        "NON_BREAKING",
         "BREAKING",
         "BREAKING",
     ]

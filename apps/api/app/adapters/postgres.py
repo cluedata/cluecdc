@@ -186,8 +186,10 @@ class PostgresAdapter:
             columns = await conn.fetch(
                 """
                 SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
-                    NOT a.attnotnull AS nullable, a.attnum AS ordinal
+                    NOT a.attnotnull AS nullable, a.attnum AS ordinal,
+                    ad.adbin IS NOT NULL AS has_default
                 FROM pg_attribute a
+                LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
                 WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
                 ORDER BY a.attnum
                 """,
@@ -264,8 +266,11 @@ class PostgresAdapter:
                 columns = await conn.fetch(
                     """
                     SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
-                        NOT a.attnotnull AS nullable, a.attnum AS ordinal
-                    FROM pg_attribute a WHERE a.attrelid = $1 AND a.attnum > 0
+                        NOT a.attnotnull AS nullable, a.attnum AS ordinal,
+                        ad.adbin IS NOT NULL AS has_default
+                    FROM pg_attribute a
+                    LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
+                    WHERE a.attrelid = $1 AND a.attnum > 0
                         AND NOT a.attisdropped ORDER BY a.attnum
                 """,
                     row["oid"],
