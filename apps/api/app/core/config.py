@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     job_retry_base_seconds: float = Field(default=2, ge=0.1, le=300)
     job_retry_max_seconds: float = Field(default=60, ge=1, le=3600)
     job_retry_jitter_ratio: float = Field(default=0.2, ge=0, le=1)
+    connector_operation_lease_seconds: int = Field(default=300, ge=30, le=3600)
     cors_origins: list[str] = []
     integration_timeout_seconds: float = 10
     log_level: Literal["debug", "info", "warn", "warning", "error"] = "info"

@@ -122,6 +122,9 @@ class Connector(Entity, Base):
     desired_state: Mapped[str] = mapped_column(String, default="STOPPED")
     actual_state: Mapped[str] = mapped_column(String, default="UNKNOWN")
     runtime_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    operation_token: Mapped[str | None] = mapped_column(String(32), index=True)
+    operation_name: Mapped[str | None] = mapped_column(String(40))
+    operation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Pipeline(Entity, Base):

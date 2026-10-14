@@ -17,6 +17,7 @@ from app.models.entities import (
     SecretReference,
     Source,
     SourceTable,
+    now,
 )
 from app.schemas.requests import (
     AddPipelineTablesInput,
@@ -34,6 +35,7 @@ from app.services.pipeline_tables import (
     enqueue_add,
     enqueue_remove,
     retry_failed_operation,
+    run_operation,
     sync_snapshot_operations,
 )
 from app.services.publication import PostgresPublicationManager
@@ -366,6 +368,52 @@ async def test_retry_snapshot_operation_generates_a_new_signal(db_factory):
         assert "trigger_snapshot" not in operation.metadata_json["completed_steps"]
         assert table.snapshot_status == "PENDING"
         assert await db.scalar(select(Job).where(Job.resource_id == operation.id)) is not None
+
+
+async def test_duplicate_job_does_not_run_active_pipeline_operation(db_factory):
+    async with db_factory() as db:
+        _, _, _, pipeline = await _metadata(db)
+        operation = PipelineOperation(
+            pipeline_id=pipeline.id,
+            type="RESYNC_TABLE",
+            status="RUNNING",
+            current_step="trigger_snapshot",
+            metadata_json={},
+            started_at=now(),
+        )
+        db.add(operation)
+        await db.commit()
+        result = await run_operation(db, operation.id)
+        assert result["status"] == "RUNNING"
+        assert result["current_step"] == "trigger_snapshot"
+
+
+async def test_manual_operation_retry_reuses_pending_automatic_job(db_factory):
+    async with db_factory() as db:
+        _, _, _, pipeline = await _metadata(db)
+        operation = PipelineOperation(
+            pipeline_id=pipeline.id,
+            type="RESYNC_TABLE",
+            status="FAILED",
+            current_step="validate_source",
+            metadata_json={"completed_steps": []},
+        )
+        db.add(operation)
+        await db.flush()
+        pending = Job(
+            kind="pipeline_operation",
+            resource_id=operation.id,
+            actor="automatic",
+            attempt_count=2,
+        )
+        db.add(pending)
+        await db.flush()
+
+        await retry_failed_operation(db, operation, "operator")
+
+        jobs = (await db.scalars(select(Job).where(Job.resource_id == operation.id))).all()
+        assert len(jobs) == 1
+        assert jobs[0].actor == "operator" and jobs[0].attempt_count == 0
 
 
 async def test_publication_manager_add_is_idempotent_and_validated():

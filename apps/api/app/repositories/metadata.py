@@ -19,6 +19,7 @@ def serialize(entity: Any) -> dict:
             "config_encrypted",
             "password_hash",
             "token_hash",
+            "operation_token",
         }
     }
 

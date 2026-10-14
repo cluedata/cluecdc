@@ -38,6 +38,11 @@ Lease recovery, classified transient/permanent failures, capped exponential
 backoff with jitter, terminal failure, manual retry with retained history,
 result persistence and cancellation also have unit coverage. Collection tests
 assert SQL query counts stay constant as the number of resources grows.
+Concurrency coverage verifies deterministic deploy adoption, exact-config
+collision rejection, connector lifecycle operation leases, stale-owner
+recovery, duplicate table-operation suppression, and reuse of a pending
+automatic job by manual retry. The PostgreSQL acceptance check races two
+independent metadata sessions and requires exactly one lifecycle lease winner.
 
 ## Live integration
 

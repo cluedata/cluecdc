@@ -27,6 +27,7 @@ invalid. The web server validates its private API origin at request time.
 | `JOB_RETRY_BASE_SECONDS`      | No             | Initial automatic retry delay (default 2 seconds)      |
 | `JOB_RETRY_MAX_SECONDS`       | No             | Maximum exponential retry delay (default 60 seconds)   |
 | `JOB_RETRY_JITTER_RATIO`      | No             | Positive retry jitter ratio, 0–1 (default 0.2)         |
+| `CONNECTOR_OPERATION_LEASE_SECONDS` | No        | Expiry for a crashed lifecycle operation (default 300) |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
 | `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |

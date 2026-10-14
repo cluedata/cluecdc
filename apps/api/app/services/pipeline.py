@@ -26,6 +26,10 @@ from app.providers import get_provider
 from app.providers.server_ids import assign_mysql_connector_server_id
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import PipelineInput, TableSelection
+from app.services.connector_operations import claim as claim_connector_operation
+from app.services.connector_operations import complete as complete_connector_operation
+from app.services.connector_operations import owned as owned_connector_operation
+from app.services.connector_operations import release as release_connector_operation
 from app.services.debezium import derive_actual_state, notification_topic
 from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
@@ -245,6 +249,7 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
     )
     config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     client = KafkaConnectClient(cluster.base_url)
+    cluster_id = cluster.id
     # Close the metadata transaction before any Kafka/Connect network calls.
     await session.commit()
     await client.validate(config)
@@ -254,7 +259,7 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
     await prepare_topics(session, pipeline, actor)
     await session.commit()
     # POST preserves externally owned connectors; never overwrite on collision.
-    await client.create(name, config)
+    created_external = await client.create_idempotent(name, config)
     try:
         pipeline = await locked(session, pipeline_id)
         if pipeline.connector_id:
@@ -276,12 +281,20 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
         await session.commit()
     except Exception:
         await session.rollback()
-        try:
-            await client.operate(name, "delete")
-        except DomainError:
-            log.error(
-                "deployment_compensation_failed", connector_name=name, pipeline_id=str(pipeline_id)
+        owner = await session.scalar(
+            select(Connector.id).where(
+                Connector.connect_cluster_id == cluster_id, Connector.name == name
             )
+        )
+        if created_external and owner is None:
+            try:
+                await client.operate(name, "delete")
+            except DomainError:
+                log.error(
+                    "deployment_compensation_failed",
+                    connector_name=name,
+                    pipeline_id=str(pipeline_id),
+                )
         raise
     log.info(
         "pipeline_operation",
@@ -465,15 +478,19 @@ async def operate(
     client = KafkaConnectClient(cluster.base_url)
     connector_name = connector.name
     connector_id = connector.id
-    await session.commit()
+    token, _ = await claim_connector_operation(session, connector_id, operation)
     if operation == "delete":
         try:
             await client.operate(connector_name, "delete")
         except DomainError as exc:
             if exc.code != "CONNECTOR_NOT_FOUND":
+                await release_connector_operation(session, connector_id, token)
                 raise
+        except Exception:
+            await release_connector_operation(session, connector_id, token)
+            raise
         pipeline = await locked(session, pipeline_id)
-        connector = await get(session, Connector, connector_id)
+        connector = await owned_connector_operation(session, connector_id, token)
         for incident in (
             await session.scalars(
                 select(PipelineEvent).where(
@@ -488,9 +505,13 @@ async def operate(
         await session.flush()
         await session.delete(connector)
         return {"deleted": True}
-    await client.operate(connector_name, operation, task)
+    try:
+        await client.operate(connector_name, operation, task)
+    except Exception:
+        await release_connector_operation(session, connector_id, token)
+        raise
     pipeline = await locked(session, pipeline_id)
-    connector = await get(session, Connector, connector_id)
+    connector = await owned_connector_operation(session, connector_id, token)
     if operation in {"pause", "resume"}:
         pipeline.desired_state = connector.desired_state = (
             "PAUSED" if operation == "pause" else "RUNNING"
@@ -501,6 +522,7 @@ async def operate(
         "restart": "restarted",
         "restart-task": "task_restarted",
     }[operation]
+    complete_connector_operation(connector, token)
     audit(session, actor, f"pipeline.{action}", pipeline)
     await session.commit()
     pipeline = await get(session, Pipeline, pipeline_id)

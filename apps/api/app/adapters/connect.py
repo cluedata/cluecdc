@@ -118,6 +118,7 @@ class KafkaConnectClient:
                 ) from exc
             result = "success"
             return redact(data, secrets) if secrets else data
+
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise DomainError(
                 "CONNECT_UNAVAILABLE", "Kafka Connect is unavailable or timed out", 503
@@ -135,6 +136,30 @@ class KafkaConnectClient:
                 result=result,
                 duration=round(time.monotonic() - started, 3),
             )
+
+    async def create_idempotent(self, name: str, config: dict) -> bool:
+        """Create a connector or adopt an exact deterministic prior attempt."""
+        try:
+            await self.create(name, config)
+            return True
+        except DomainError as error:
+            if error.code != "CONNECT_CONFLICT":
+                raise
+        try:
+            deployed = await self.raw_config(name)
+        except DomainError:
+            raise DomainError(
+                "CONNECT_DEPLOY_CONFLICT",
+                "Kafka Connect is busy or the connector name is already reserved",
+                409,
+            ) from None
+        if deployed != config:
+            raise DomainError(
+                "CONNECT_DEPLOY_CONFLICT",
+                "An existing connector with this name has different configuration",
+                409,
+            )
+        return False
 
     @staticmethod
     def path(name: str) -> str:
@@ -157,8 +182,16 @@ class KafkaConnectClient:
     async def info(self, name: str):
         return await self.request("GET", self.path(name))
 
+    async def raw_config(self, name: str) -> dict:
+        data = await self.request("GET", self.path(name) + "/config")
+        if not isinstance(data, dict):
+            raise DomainError(
+                "CONNECT_INVALID_RESPONSE", "Connector configuration was malformed", 502
+            )
+        return data
+
     async def config(self, name: str):
-        return redact(await self.request("GET", self.path(name) + "/config"))
+        return redact(await self.raw_config(name))
 
     async def validate(self, config: dict, secrets: List[str] | None = None):
         password = config.get("database.password") or config.get("connection.password", "")

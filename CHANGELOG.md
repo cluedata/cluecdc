@@ -48,6 +48,10 @@ All notable changes to ClueCDC are documented here. The format follows
   backoff with jitter, attempt history and manual terminal-job retry; permanent
   authentication, configuration, schema, and missing-history errors no longer
   enter automatic retry loops.
+- Serialized connector lifecycle mutations with expiring durable leases, made
+  capture and delivery deploy retries adopt only exact deterministic connector
+  configurations, and suppressed duplicate table-operation execution without
+  holding database locks across external calls.
 
 ## [0.2.0] - 2026-10-09
 

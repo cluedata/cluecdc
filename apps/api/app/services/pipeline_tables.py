@@ -1,11 +1,13 @@
 import asyncio
 import uuid
+from datetime import UTC, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
 from app.adapters.kafka import KafkaExplorer, source_connector_security
+from app.core.config import get_settings
 from app.core.errors import DomainError, redact
 from app.models.entities import (
     ConnectCluster,
@@ -252,8 +254,18 @@ async def run_operation(session: AsyncSession, operation_id: uuid.UUID) -> dict:
         raise DomainError("NOT_FOUND", "Pipeline operation was not found", 404)
     if operation.status in {"SUCCEEDED", "CANCELLED"}:
         return serialize(operation)
+    started_at = operation.started_at
+    if started_at is not None and started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    if (
+        operation.status == "RUNNING"
+        and started_at is not None
+        and started_at >= now() - timedelta(seconds=get_settings().job_lease_seconds)
+    ):
+        # A duplicate job can complete without running the external steps twice.
+        return serialize(operation)
     operation.status = "RUNNING"
-    operation.started_at = operation.started_at or now()
+    operation.started_at = now()
     await session.commit()
     try:
         if operation.type == "ADD_TABLE":
@@ -716,7 +728,26 @@ async def retry_failed_operation(
     operation.error_code = None
     operation.error_message = None
     operation.finished_at = None
-    session.add(Job(kind="pipeline_operation", resource_id=operation.id, actor=actor))
+    existing_job = await session.scalar(
+        select(Job)
+        .where(
+            Job.kind == "pipeline_operation",
+            Job.resource_id == operation.id,
+            Job.status.in_(["PENDING", "RUNNING"]),
+        )
+        .with_for_update()
+        .limit(1)
+    )
+    if existing_job is not None:
+        if existing_job.status == "RUNNING":
+            raise DomainError(
+                "OPERATION_ACTIVE", "The failed operation is already being retried", 409
+            )
+        existing_job.actor = actor
+        existing_job.attempt_count = 0
+        existing_job.next_attempt_at = now()
+    else:
+        session.add(Job(kind="pipeline_operation", resource_id=operation.id, actor=actor))
     audit(session, actor, "operation.retry_requested", operation)
     return operation
 
