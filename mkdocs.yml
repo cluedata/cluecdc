@@ -131,6 +131,7 @@ nav:
       - Kafka Topics: operations/kafka-topics.md
       - Connector Management: operations/connector-management.md
       - Error Handling: operations/error-handling.md
+      - Metadata Backup and Restore: operations/backup-restore.md
       - Troubleshooting and Recovery: operations/troubleshooting.md
       - API Reference: api/overview.md
   - Deployment:

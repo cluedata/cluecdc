@@ -20,7 +20,13 @@ metadata merge after querying the source. Runtime observations close database
 transactions before network calls. Notification dispatch follows the same
 claim/call/persist pattern.
 
-Config validation precedes pipeline persistence. Deployment validates again, creates the external connector without overwriting existing names, and persists the connector association. Persistence failure triggers compensating connector deletion. **There is an unavoidable crash/ambiguous-timeout window between an external REST side effect and metadata commit.** This release reports conflicts/unavailable results and logs failed compensation; automated orphan adoption and full outbox reconciliation are future work. Operators should inspect Connect inventory before retrying ambiguous deployments.
+Config validation precedes pipeline persistence. Deployment validates again,
+uses a deterministic connector identity without overwriting existing names, and
+persists the connector association. Persistence failure removes only an
+unowned connector created by that request. A retry after the external side
+effect adopts the connector only when its complete configuration exactly
+matches; ambiguous timeouts with a different or unreadable configuration remain
+operator-visible. Full transactional outbox reconciliation remains future work.
 
 Developer mode can assign an explicit local Admin principal for isolated tests.
 The development Compose stack instead uses an idempotently created public demo

@@ -52,6 +52,9 @@ All notable changes to ClueCDC are documented here. The format follows
   capture and delivery deploy retries adopt only exact deterministic connector
   configurations, and suppressed duplicate table-operation execution without
   holding database locks across external calls.
+- Added PostgreSQL metadata backup, archive/checksum validation, guarded
+  isolated restore, Alembic compatibility checks, and encrypted-secret
+  verification with a separately preserved key fingerprint.
 
 ## [0.2.0] - 2026-10-09
 
