@@ -1,5 +1,20 @@
 from typing import Any
 
+SENSITIVE_KEY_MARKERS = (
+    "password",
+    "passwd",
+    "credential",
+    "token",
+    "secret",
+    "access_key",
+    "access.key",
+    "private_key",
+    "private.key",
+    "sasl.jaas.config",
+    "ssl.key.pem",
+    "ssl.keystore",
+)
+
 
 class DomainError(Exception):
     def __init__(self, code: str, message: str, status: int = 400, details: Any = None):
@@ -13,17 +28,7 @@ def redact(value: Any, secrets: list[str] | None = None) -> Any:
     if isinstance(value, dict):
         return {
             k: "[REDACTED]"
-            if any(
-                word in k.lower()
-                for word in (
-                    "password",
-                    "credential",
-                    "token",
-                    "secret",
-                    "access_key",
-                    "access.key",
-                )
-            )
+            if any(word in k.lower() for word in SENSITIVE_KEY_MARKERS)
             else redact(v, secrets)
             for k, v in value.items()
         }

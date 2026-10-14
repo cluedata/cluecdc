@@ -40,6 +40,27 @@ def test_config_exact_table_regex_and_isolated_slot():
     assert redact({"message": "password private"}, ["private"])["message"] == "password [REDACTED]"
 
 
+def test_redaction_covers_nested_transport_and_private_key_secrets():
+    value = redact(
+        {
+            "nested": [
+                {"sasl.jaas.config": "user and password"},
+                {"ssl.key.pem": "private key"},
+                {"client_secret": "oauth secret"},
+            ],
+            "safe": "visible",
+        }
+    )
+    assert value == {
+        "nested": [
+            {"sasl.jaas.config": "[REDACTED]"},
+            {"ssl.key.pem": "[REDACTED]"},
+            {"client_secret": "[REDACTED]"},
+        ],
+        "safe": "visible",
+    }
+
+
 @pytest.mark.parametrize(
     "status,expected",
     [

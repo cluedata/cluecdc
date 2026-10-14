@@ -12,6 +12,12 @@ Required Secret name: `cluecdc-secrets`. Required keys:
 - `connect-secret-token`
 - `session-secret` (at least 32 random characters)
 
+Provision that Secret outside this repository with your cluster's approved
+secret workflow. The checked-in manifests intentionally contain neither a
+Secret object nor plaintext values. Pods consume named keys through kubelet and
+have service-account token automounting disabled; no ClueCDC Role grants Secret
+list/get access.
+
 Create environment overlays for images, ingress, storage class, Kafka addresses,
 TLS, network policies, external secrets, and resource sizing.
 

@@ -14,6 +14,9 @@ All notable changes to ClueCDC are documented here. The format follows
 - Enforced production origin checks for cookie-authenticated writes, hardened
   cookie expiry and browser response headers, and added a TLS-terminating
   Kubernetes Ingress baseline without trusting client forwarding headers.
+- Expanded central response/audit redaction for transport credentials and
+  private keys, verified in-place encrypted credential rotation, and removed
+  unnecessary Kubernetes service-account token mounts from every workload.
 
 ## [0.2.0] - 2026-10-09
 

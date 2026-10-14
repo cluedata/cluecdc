@@ -24,6 +24,7 @@ spec:
       labels:
         app.kubernetes.io/name: kafka-connect
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: connect
           image: ghcr.io/cluedata/cluecdc-connect:0.2.0

@@ -26,6 +26,7 @@ spec:
       labels:
         app.kubernetes.io/name: cluecdc-api
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
       initContainers:

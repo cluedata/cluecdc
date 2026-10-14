@@ -12,6 +12,7 @@ spec:
       labels:
         app.kubernetes.io/name: cluecdc-worker
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true

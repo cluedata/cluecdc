@@ -25,7 +25,7 @@ from app.api.destinations import router as destination_router
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.database import Session, engine, session_dependency
-from app.core.errors import DomainError
+from app.core.errors import DomainError, redact
 from app.core.logging import configure_logging
 from app.services.secrets import secret_provider
 
@@ -187,7 +187,7 @@ def _apply_security_headers(request: Request, response: Response) -> None:
 @app.exception_handler(DomainError)
 async def domain_error(request: Request, exc: DomainError):
     return JSONResponse(
-        {"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+        {"error": {"code": exc.code, "message": exc.message, "details": redact(exc.details)}},
         status_code=exc.status,
     )
 

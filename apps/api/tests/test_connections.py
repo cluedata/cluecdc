@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from app.models.entities import Base, Connection, Destination, Source
+from app.models.entities import Base, Connection, Destination, SecretReference, Source
+from app.services.secrets import EncryptedDatabaseSecretProvider
 
 
 def database_payload() -> dict:
@@ -41,6 +42,22 @@ async def test_database_connection_is_the_only_persisted_endpoint(client, db_fac
         assert source is not None
         assert "sources" not in Base.metadata.tables
         assert "destinations" not in Base.metadata.tables
+        secret_ref = source.secret_ref
+        original_ciphertext = (await db.get(SecretReference, secret_ref)).ciphertext
+
+    rotated_payload = database_payload() | {"credentials": {"password": "rotated-private-password"}}
+    rotated = await client.put(f"/api/v1/connections/{value['id']}", json=rotated_payload)
+    assert rotated.status_code == 200
+    assert "rotated-private-password" not in rotated.text
+    async with db_factory() as db:
+        source = await db.get(Source, UUID(value["id"]))
+        assert source.secret_ref == secret_ref
+        stored = await db.get(SecretReference, secret_ref)
+        assert stored.ciphertext != original_ciphertext
+        assert "rotated-private-password" not in stored.ciphertext
+        assert await EncryptedDatabaseSecretProvider(db).get_secret(secret_ref) == {
+            "password": "rotated-private-password"
+        }
 
     updated_payload = database_payload() | {
         "name": "Commerce PostgreSQL Updated",
@@ -51,6 +68,9 @@ async def test_database_connection_is_the_only_persisted_endpoint(client, db_fac
     updated = await client.put(f"/api/v1/connections/{value['id']}", json=updated_payload)
     assert updated.status_code == 200
     assert updated.json()["config"]["host"] == "postgres.internal"
+    audit = await client.get(f"/api/v1/audit?resource_id={value['id']}")
+    assert "private-password" not in audit.text
+    assert "rotated-private-password" not in audit.text
 
     removed = await client.delete(f"/api/v1/connections/{value['id']}")
     assert removed.status_code == 200
