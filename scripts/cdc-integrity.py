@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import uuid
 from collections.abc import Callable
@@ -28,6 +29,13 @@ def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-url", default="http://localhost:3000/api/v1")
     parser.add_argument("--compose-project", default="cluecdc")
+    parser.add_argument(
+        "--kafka-config-env", help="Environment variable holding Kafka fixture JSON"
+    )
+    parser.add_argument("--connect-internal-url", default="http://kafka-connect:8083")
+    parser.add_argument(
+        "--artifact", type=pathlib.Path, default=ROOT / "artifacts/cdc-integrity.json"
+    )
     parser.add_argument(
         "--env-file",
         action="append",
@@ -337,20 +345,35 @@ def main() -> None:
     missing = [key for key in required if not environment.get(key)]
     if missing:
         raise AcceptanceError("Missing acceptance credentials: " + ", ".join(missing))
-    api = ApiClient(args.api_url, [environment[key] for key in required])
+    kafka_config = (
+        json.loads(os.environ[args.kafka_config_env]) if args.kafka_config_env else {}
+    )
+    api = ApiClient(
+        args.api_url,
+        [environment[key] for key in required]
+        + [
+            value
+            for key, value in kafka_config.items()
+            if key in {"password", "ssl_ca_pem", "ssl_certificate_pem", "ssl_key_pem"}
+        ],
+    )
     compose = Compose(args.compose_project, env_files)
     run = uuid.uuid4().hex[:8]
     source_tables = create_source_fixtures(compose, run)
 
     kafka = api.create(
         "/kafka/clusters",
-        {"name": f"Integrity Kafka {run}", "bootstrap_servers": "kafka:29092"},
+        {
+            "name": f"Integrity Kafka {run}",
+            "bootstrap_servers": "kafka:29092",
+            **kafka_config,
+        },
     )
     connect = api.create(
         "/connect/clusters",
         {
             "name": f"Integrity Connect {run}",
-            "base_url": "http://kafka-connect:8083",
+            "base_url": args.connect_internal_url,
             "kafka_cluster_id": kafka["id"],
         },
     )
@@ -533,11 +556,8 @@ def main() -> None:
         "delivery_ids": [delivery["id"] for delivery in deliveries],
         "semantics": "JDBC materialized state with at-least-once replay and idempotent upsert",
     }
-    artifacts = ROOT / "artifacts"
-    artifacts.mkdir(exist_ok=True)
-    (artifacts / "cdc-integrity.json").write_text(
-        json.dumps(artifact, indent=2) + "\n", encoding="utf-8"
-    )
+    args.artifact.parent.mkdir(parents=True, exist_ok=True)
+    args.artifact.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
     print("CDC integrity matrix PASSED", flush=True)
 
 

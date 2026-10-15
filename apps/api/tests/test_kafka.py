@@ -169,6 +169,30 @@ def test_kafka_sasl_client_and_connector_options(protocol, mechanism):
     assert source_generated["schema.history.internal.consumer.sasl.mechanism"] == mechanism
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "producer.override",
+        "consumer.override",
+        "schema.history.internal.producer",
+        "schema.history.internal.consumer",
+    ],
+)
+def test_inline_tls_connector_credentials_use_only_secret_references(prefix):
+    """SEC-03: each source/history/sink client gets inline PEM through the secret provider."""
+    secured = KafkaCluster(
+        bootstrap_servers="broker:9093",
+        security_protocol="SSL",
+        secret_ref=UUID(int=1),
+        security_config_json={"has_custom_ca": True, "has_client_certificate": True},
+    )
+    overrides = connector_security(secured, prefix)
+    assert f"{prefix}.ssl.truststore.location" not in overrides
+    assert f"{prefix}.ssl.keystore.location" not in overrides
+    assert overrides[f"{prefix}.ssl.truststore.certificates"].startswith("${cluecdc:")
+    assert overrides[f"{prefix}.ssl.keystore.key"].startswith("${cluecdc:")
+
+
 def test_kafka_security_input_rejects_incompatible_credentials():
     with pytest.raises(ValueError, match="supported mechanism"):
         KafkaInput(

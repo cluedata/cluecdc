@@ -29,11 +29,35 @@ continues to use PLAINTEXT for development.
 Kafka Connect worker authentication is separate deployment configuration: its
 worker and internal producer/consumer properties must match the broker. Kafka
 Connect REST authentication is another independent boundary and is never
-inferred from broker credentials. The Kustomize baseline demonstrates
-SASL_SSL/SCRAM worker configuration through Kubernetes Secret references.
+inferred from broker credentials. The unreferenced development Connect manifest
+demonstrates SASL_SSL/SCRAM worker configuration through Kubernetes Secret
+references; the production base uses independently operated Connect.
+
+For the pinned Debezium image, worker properties use `CONNECT_SECURITY_PROTOCOL`,
+`CONNECT_SASL_MECHANISM`, and `CONNECT_SASL_JAAS_CONFIG`, with equivalent
+`CONNECT_PRODUCER_*` and `CONNECT_CONSUMER_*` properties. Unprefixed security
+variables are ignored by its entrypoint. Set `CONNECT_SSL_TRUSTSTORE_TYPE=PEM`
+(also for producer/consumer) and provision CA material through protected files.
+The entrypoint parses environment values line by line. For workers hosting
+ClueCDC connectors, use inline PEM via Kafka's built-in `FileConfigProvider`:
+enable `CONNECT_CONFIG_PROVIDERS=cluecdc,file`, configure
+`CONNECT_CONFIG_PROVIDERS_FILE_CLASS=org.apache.kafka.common.config.provider.FileConfigProvider`,
+and set `CONNECT_SSL_TRUSTSTORE_CERTIFICATES=${file:/path/ca.properties:ca}`
+(also for producer/consumer). Mount `ca.properties` through a Secret whose
+`ca` property contains the PEM with Java-properties escaped newlines (`\n`).
+Do not also set a worker truststore location. Kafka rejects inherited file
+locations combined with a connector's inline PEM, and Connect rejects null
+overrides that would clear them. Use the same inline approach for a worker
+keystore when connector-level client certificates are required. Hostname and
+certificate verification remain enabled. The reference manifest expects the
+Secret key `kafka-ca-properties` for this properties file.
 
 Unit tests verify PLAIN/SCRAM option mapping, TLS verification defaults,
 invalid-CA rejection, encrypted storage, redacted APIs, and connector secret
 references. Before production, run the live authenticated-cluster suite against
 the exact broker CA, SASL mechanism, ACLs, and Connect image used by the target
-environment.
+environment. `scripts/kafka_security_acceptance.py` creates short-lived TLS/mTLS
+and SASL fixtures in an isolated integration network, checks both Python Kafka
+clients and negative authentication/trust cases, and runs the four JDBC CDC
+paths through a separate SCRAM-SHA-512/SASL_SSL Connect cluster. Fixture keys and
+credentials are temporary and excluded from report artifacts.
