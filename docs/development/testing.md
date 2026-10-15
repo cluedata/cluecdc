@@ -13,6 +13,12 @@ on documentation changes pushed to `main`, or when manually triggered.
 The Documentation workflow builds and publishes the site only; correctness and
 security coverage comes from the CI workflow.
 
+The separate **Hardening acceptance** workflow is manually dispatched for
+expensive fault injection and is also called by the Release workflow. Both
+container publication and GitHub Release creation depend on it; a failed live
+gate cannot be bypassed by a successful unit/build job. Preparation never
+dispatches a workflow, pushes a tag, or publishes an image automatically.
+
 ## Fast checks
 
 ```bash
@@ -141,3 +147,59 @@ content. At-least-once retries may create duplicate events, so downstream
 consumers must deduplicate by topic, partition and offset.
 
 Documentation is validated with `mkdocs build --strict`.
+
+## Combined hardening gate (TEST-01)
+
+```bash
+python scripts/hardening_acceptance.py
+```
+
+The runner creates its own UUID-scoped Compose project and selects unused
+loopback ports. It refuses existing project resources, waits for health with
+explicit deadlines, runs integrity → connector recovery → schema/snapshot →
+retention → failure injection → object storage → secret boundaries → populated
+backup/restore/upgrade → production runtime → authenticated Kafka acceptance,
+and removes only resources and volumes owned by that invocation. Existing
+Compose projects and their volumes are preserved. Do not direct individual
+failure-injection scripts at shared or external infrastructure.
+
+`artifacts/hardening-gate.json` records the candidate SHA, timestamps, stage
+results, durations and cleanup outcome. Docker/daemon unavailability produces
+`INFRASTRUCTURE_UNAVAILABLE` and exit code 2; executed assertion, build, startup
+or data mismatch failures produce `FAIL` and exit code 1. Neither is success.
+Bounded sanitized service logs aid diagnosis; raw metadata archives and
+temporary TLS private keys are excluded from CI artifact upload.
+
+The CI invocation also supplies `--env-file .env --browser` after creating a
+disposable `.env` from the examples and bootstrapping secrets. This runs the
+existing demo fixtures and Playwright suite inside the owned project. It does
+not overwrite a developer's `.env`; use a disposable checkout for that workflow.
+
+| Requirement/category | Primary verification | Execution |
+| --- | --- | --- |
+| Unit, API security, RBAC | API pytest and web Vitest | PR CI and release validation |
+| SEC-03 TLS/SASL, authenticated source/sink | `kafka_security_acceptance.py` | Live hardening/release gate |
+| SEC-04 secret boundaries | `verify-secrets.py` | Smoke and live hardening gate |
+| CDC-01 integrity/object storage | `cdc-integrity.py`, `demo-object-storage.py` | Live hardening gate |
+| CDC-02 connector restart/offset recovery | `cdc-recovery.py` | Live hardening gate |
+| CDC-03 schema/snapshot safety | `cdc-schema-safety.py` | Live hardening gate |
+| CDC-04 retention diagnostics | `cdc-retention-safety.py` | Live hardening gate |
+| REL-01 failure injection | `cdc-failure-recovery.py` | Live hardening gate |
+| REL-02/03 retry, job/operation ownership | pytest, PostgreSQL lease races | PR CI and release validation |
+| OPS-01/02 migration/backup/restore | `metadata_acceptance.py`, Alembic checks | Live hardening gate |
+| OPS-03 manifests and container lifecycle | `deployment_validation.py`, kubeconform, `deployment_runtime.py` | PR/release and live gate |
+| Browser integration | existing Playwright suite | Smoke CI and release hardening gate |
+
+`metadata_acceptance.py` copies populated live fixture metadata into a new
+database, downgrades only that copy to v0.2.0 revision `0003`, ensures sessions
+and invites are nonempty, takes a verified backup, runs the guarded upgrade
+twice, restores into another empty database, verifies decryption, and rejects
+wrong keys/nonempty restore targets. Only exact databases created by the run
+are removed. The original database is never downgraded or reset.
+
+Kubernetes validation renders the exact base or `--kustomize-dir` overlay,
+checks resource/probe/security/Secret/network boundaries, and validates all
+resources against Kubernetes schemas. The runtime harness additionally checks
+production settings and read-only containers with random secrets and a separate
+PostgreSQL instance. Cluster rollout, ingress TLS and CNI policy enforcement
+still require target-cluster evidence before a pilot is approved.

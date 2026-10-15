@@ -69,10 +69,14 @@ class ApiClient:
                 payload = json.loads(raw_error).get("error", {})
                 code = payload.get("code", "HTTP_ERROR")
                 message = payload.get("message", "Request failed")
+                details = json.dumps(payload.get("details", {}), ensure_ascii=False)
             except json.JSONDecodeError:
-                code, message = "HTTP_ERROR", "Request failed"
+                code, message, details = "HTTP_ERROR", "Request failed", "{}"
+            diagnostic = f"{code} {message}; details={details}"
+            for secret in self.sensitive_values:
+                diagnostic = diagnostic.replace(secret, "[REDACTED]")
             raise AcceptanceError(
-                f"{method} {path} failed with HTTP {error.code}: {code} {message}"
+                f"{method} {path} failed with HTTP {error.code}: {diagnostic[:2000]}"
             ) from None
         if any(secret in raw for secret in self.sensitive_values):
             raise AcceptanceError(f"{method} {path} exposed a configured secret")

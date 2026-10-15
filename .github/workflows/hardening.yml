@@ -1,0 +1,45 @@
+name: Hardening acceptance
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: npm ci
+      - name: Prepare disposable browser fixtures
+        run: |
+          cp .env.example .env
+          cat .env.test.example >> .env
+          python scripts/bootstrap.py
+      - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
+      - name: Run isolated security, CDC, recovery and operations gates
+        run: python scripts/hardening_acceptance.py --env-file .env --browser
+      # Upload only sanitized reports; database archives, ciphertext and generated TLS keys stay private.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hardening-acceptance-${{ github.run_id }}
+          path: |
+            artifacts/*.json
+            artifacts/hardening-diagnostics.log
+            apps/web/test-results/
+          if-no-files-found: error

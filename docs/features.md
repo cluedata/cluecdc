@@ -114,8 +114,9 @@ authorization contract.
 - [x] PostgreSQL metadata with explicit Alembic migrations and drift checking.
 - [x] Six-service loopback Docker Compose runtime with optional development and
   integration-test overlays.
-- [x] Kubernetes Kustomize baseline for API, web, worker, metadata PostgreSQL,
-  and a two-worker distributed Connect cluster using external Kafka.
+- [x] Kubernetes Kustomize production application base with external PostgreSQL,
+  Kafka and Kafka Connect, restricted containers, probes and private ingress policies.
+- [x] Verified metadata backup/restore and guarded populated v0.2.0 upgrades.
 - [x] Automated unit, type, lint, build, migration, container, live CDC, object
   storage, and browser checks in the repository workflows/release gate.
 
@@ -128,3 +129,5 @@ authorization contract.
   authentication, and production external-secret integration remain deployment
   responsibilities.
 - [ ] The bundled Compose environment is for local use, not high availability.
+- [ ] Target-cluster NetworkPolicy, external dependency identities/ACLs and
+  rollout behavior require environment-specific validation before pilot use.

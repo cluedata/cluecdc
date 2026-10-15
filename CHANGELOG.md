@@ -6,6 +6,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - Unreleased
+
 ### Security
 
 - Added centralized production configuration validation for HTTPS/CORS origins,
@@ -63,6 +65,9 @@ All notable changes to ClueCDC are documented here. The format follows
   restricted containers, bounded writable scratch volumes, ingress isolation,
   versioned images, startup probes, and graceful shutdown. Added offline policy
   validation and isolated production container acceptance checks.
+- Added disposable TLS/mTLS/SASL Kafka, metadata recovery/upgrade and combined
+  hardening acceptance harnesses. The release workflow requires the live
+  hardening gate before image publication or release creation.
 
 ## [0.2.0] - 2026-10-09
 

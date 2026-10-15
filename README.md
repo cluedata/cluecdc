@@ -68,6 +68,7 @@ worker; production may isolate or scale worker clusters independently.
 - [x] Structured logs, correlation IDs, health endpoints, and Prometheus metrics
 - [x] FastAPI/OpenAPI API, Next.js UI, background worker, and Alembic migrations
 - [x] Docker Compose local stack and a documented Kubernetes deployment baseline
+- [x] Metadata backup/restore, guarded upgrades, and isolated CDC/recovery acceptance gates
 
 ClueCDC deliberately does not relay CDC payloads through its API. Topic screens
 show broker metadata; inspect records directly in Kafka or the configured
