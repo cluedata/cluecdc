@@ -1,11 +1,11 @@
 # Release checklist
 
-Use this checklist from a reviewed, clean `main` checkout. Do not mark an item
+Use this checklist from a reviewed, clean default-branch checkout. Do not mark an item
 complete unless it was verified against the release candidate commit.
 
 ## Code
 
-- [ ] Main branch is clean
+- [ ] Default branch is clean; candidate SHA is recorded
 - [ ] CI passes
 - [ ] Backend build passes
 - [ ] Frontend build passes
@@ -51,22 +51,27 @@ complete unless it was verified against the release candidate commit.
 - [ ] Runtime dependency scans pass and accepted development findings are reviewed
 - [ ] Security policy and private reporting link are present
 - [ ] Container and deployment defaults were reviewed
+- [ ] Container vulnerability review is recorded (dependency audits are not image scans)
 - [ ] Production schema/policy checks and read-only/SIGTERM runtime tests pass
 - [ ] Target-cluster rollout, ingress and CNI NetworkPolicy enforcement pass
 - [ ] Reusable Hardening acceptance workflow passes for the exact candidate SHA
 
 ## Release
 
-- [ ] Version is `0.2.1`
-- [ ] Release notes are prepared
-- [ ] Release workflow is ready
-- [ ] `v0.2.1` Git tag has not been created during release preparation
+- [ ] `npm run release:plan` matches package, changelog, notes and deployment images
+- [ ] New version is unused locally and remotely; no release tag has been moved
+- [ ] Release notes are finalized and changelog date is `YYYY-MM-DD`
+- [ ] `check-release-version.py --require-final` passes
+- [ ] Release candidate workflow passes for the exact approved commit
+- [ ] Candidate source archive, metadata, checksums and both hardening reports are reviewed
+- [ ] Release workflow and GitHub/GHCR package access are ready
+- [ ] `v<VERSION>` Git tag has not been created during release preparation
 - [ ] Maintainer has approved the exact commit to tag
 
 ## Post-release
 
 - [ ] GitHub Release is visible
-- [ ] `0.2.1`, `0.2`, and `latest` Docker image tags are available
+- [ ] Exact version Docker images are available; stable releases advance minor/latest aliases only
 - [ ] Published image labels and digests are correct
 - [ ] Documentation is available
 - [ ] Quick start is verified against released images/source

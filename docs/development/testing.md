@@ -166,7 +166,9 @@ Compose projects and their volumes are preserved. Do not direct individual
 failure-injection scripts at shared or external infrastructure.
 
 `artifacts/hardening-gate.json` records the candidate SHA, timestamps, stage
-results, durations and cleanup outcome. Docker/daemon unavailability produces
+results, durations and cleanup outcome. It updates at stage boundaries, including
+timeout failures, so an interrupted run cannot leave a previous PASS report.
+Docker/daemon unavailability produces
 `INFRASTRUCTURE_UNAVAILABLE` and exit code 2; executed assertion, build, startup
 or data mismatch failures produce `FAIL` and exit code 1. Neither is success.
 Bounded sanitized service logs aid diagnosis; raw metadata archives and
@@ -176,6 +178,25 @@ The CI invocation also supplies `--env-file .env --browser` after creating a
 disposable `.env` from the examples and bootstrapping secrets. This runs the
 existing demo fixtures and Playwright suite inside the owned project. It does
 not overwrite a developer's `.env`; use a disposable checkout for that workflow.
+
+CI first builds five local images with Bake and independent GitHub Actions
+cache scopes (API/worker share one image). It then passes
+`--prebuilt-image-prefix cluecdc-hardening-ci`, requiring locally loaded
+`PREFIX-{api,web,connect,minio,bootstrap}:ci` images and starting with `--no-build`.
+Build these from the candidate checkout; the ordinary local command still builds
+from source. Missing images fail before stack creation. Cache misses trigger a
+normal build; optional cache-export failures do not bypass any acceptance gate.
+No image is pushed by this preparation job. The pinned MinIO source build is
+cached rather than replaced with an unverified binary.
+
+Security fixtures stage private files over stdin into an owned Docker volume
+with explicit read-group access; Linux host `0700` temporary directories are
+not bind-mounted into a different container UID. Broker/Connect containers stay
+non-root with read-only fixture mounts. A stopped process fails readiness
+immediately, reporting exit/OOM state. Inspect `kafka-security.json` for phase,
+duration and cleanup, and the sanitized `kafka-security-diagnostics.log` on
+failure; both are included in the CI artifact. Private keys/config files and
+database archives remain excluded. Diagnostic timeouts do not skip cleanup.
 
 | Requirement/category | Primary verification | Execution |
 | --- | --- | --- |

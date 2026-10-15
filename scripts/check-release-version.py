@@ -3,37 +3,26 @@
 from __future__ import annotations
 
 import argparse
-import re
-from pathlib import Path
-
-import tomllib
-
-ROOT = Path(__file__).resolve().parent.parent
-SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$")
+from release_metadata import validate_metadata
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", help="Git tag to compare, for example v0.2.0")
+    parser.add_argument("--tag", help="Git tag to compare with the package version")
+    parser.add_argument(
+        "--require-final",
+        action="store_true",
+        help="Reject draft notes and an undated changelog",
+    )
     args = parser.parse_args()
 
-    metadata = tomllib.loads(
-        (ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8")
-    )
-    version = metadata["project"]["version"]
-    if not SEMVER.fullmatch(version):
-        raise SystemExit(f"Invalid project version: {version}")
-    if args.tag and args.tag != f"v{version}":
-        raise SystemExit(f"Tag {args.tag!r} does not match project version v{version}")
-
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    if f"## [{version}]" not in changelog:
-        raise SystemExit(f"CHANGELOG.md has no [{version}] release section")
-    notes = ROOT / "docs" / "releases" / f"v{version}.md"
-    if not notes.is_file():
-        raise SystemExit(f"Missing release notes: {notes.relative_to(ROOT)}")
-
-    print(f"Release metadata is consistent for v{version}.")
+    try:
+        metadata = validate_metadata(tag=args.tag, require_final=args.require_final)
+    except (ValueError, OSError) as error:
+        parser.exit(1, f"{error}\n")
+    print(f"Release metadata is consistent for {metadata['tag']}.")
+    for warning in metadata["warnings"]:
+        print(f"WARNING: {warning}")
     return 0
 
 

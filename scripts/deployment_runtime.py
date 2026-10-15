@@ -15,11 +15,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def docker(*args: str, environment: dict[str, str] | None = None) -> str:
+def docker(
+    *args: str,
+    environment: dict[str, str] | None = None,
+    stdin: str | None = None,
+) -> str:
     result = subprocess.run(
         ["docker", *args],
         capture_output=True,
         text=True,
+        input=stdin,
         env=environment,
         timeout=180,
         check=False,

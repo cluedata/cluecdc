@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -31,8 +32,35 @@ jobs:
           cat .env.test.example >> .env
           python scripts/bootstrap.py
       - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
+      - uses: docker/setup-buildx-action@v3
+      - name: Build disposable images with per-target caches
+        uses: docker/bake-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          files: |
+            compose.yaml
+            compose.test.yaml
+          targets: cluecdc-api,cluecdc-web,kafka-connect,minio,minio-bootstrap
+          load: true
+          set: |
+            cluecdc-api.tags=cluecdc-hardening-ci-api:ci
+            cluecdc-web.tags=cluecdc-hardening-ci-web:ci
+            kafka-connect.tags=cluecdc-hardening-ci-connect:ci
+            minio.tags=cluecdc-hardening-ci-minio:ci
+            minio-bootstrap.tags=cluecdc-hardening-ci-bootstrap:ci
+            cluecdc-api.cache-from=type=gha,scope=hardening-api
+            cluecdc-api.cache-to=type=gha,scope=hardening-api,mode=max,ignore-error=true
+            cluecdc-web.cache-from=type=gha,scope=hardening-web
+            cluecdc-web.cache-to=type=gha,scope=hardening-web,mode=max,ignore-error=true
+            kafka-connect.cache-from=type=gha,scope=hardening-connect
+            kafka-connect.cache-to=type=gha,scope=hardening-connect,mode=max,ignore-error=true
+            minio.cache-from=type=gha,scope=hardening-minio
+            minio.cache-to=type=gha,scope=hardening-minio,mode=max,ignore-error=true
+            minio-bootstrap.cache-from=type=gha,scope=hardening-bootstrap
+            minio-bootstrap.cache-to=type=gha,scope=hardening-bootstrap,mode=max,ignore-error=true
       - name: Run isolated security, CDC, recovery and operations gates
-        run: python scripts/hardening_acceptance.py --env-file .env --browser
+        run: python scripts/hardening_acceptance.py --env-file .env --browser --prebuilt-image-prefix cluecdc-hardening-ci
       # Upload only sanitized reports; database archives, ciphertext and generated TLS keys stay private.
       - uses: actions/upload-artifact@v4
         if: always()
@@ -41,6 +69,7 @@ jobs:
           path: |
             artifacts/*.json
             artifacts/hardening-diagnostics.log
+            artifacts/kafka-security-diagnostics.log
             apps/web/test-results/
           if-no-files-found: error
 

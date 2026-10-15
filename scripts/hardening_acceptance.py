@@ -16,6 +16,37 @@ from pathlib import Path
 
 from cdc_acceptance_support import ROOT, Compose, load_environment
 
+PREBUILT_SERVICES = {
+    "cluecdc-api": "api",
+    "cluecdc-worker": "api",
+    "cluecdc-web": "web",
+    "kafka-connect": "connect",
+    "minio": "minio",
+    "minio-bootstrap": "bootstrap",
+}
+
+
+def prepare_prebuilt_images(compose: Compose, prefix: str, output: Path) -> None:
+    services = {
+        service: {"image": f"{prefix}-{suffix}:ci"}
+        for service, suffix in PREBUILT_SERVICES.items()
+    }
+    # Require local images; do not silently pull or build a missing CI image.
+    subprocess.run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            *sorted({item["image"] for item in services.values()}),
+        ],
+        capture_output=True,
+        check=True,
+        timeout=30,
+    )
+    with output.open("x", encoding="utf-8") as stream:
+        json.dump({"services": services}, stream)
+    compose.command.extend(["-f", str(output)])
+
 
 def available_port() -> int:
     with socket.socket() as connection:
@@ -26,6 +57,10 @@ def available_port() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", action="append", type=Path)
+    parser.add_argument(
+        "--prebuilt-image-prefix",
+        help="Use locally loaded PREFIX-{api,web,connect,minio,bootstrap}:ci images",
+    )
     parser.add_argument(
         "--browser", action="store_true", help="Also run demo fixtures and Playwright"
     )
@@ -85,21 +120,38 @@ def main() -> int:
             ).strip()
         ),
         "browser_requested": args.browser,
+        "build_mode": "prebuilt" if args.prebuilt_image_prefix else "source",
         "project": project,
         "status": "RUNNING",
         "stages": [],
     }
+
+    def save_report() -> None:
+        (artifacts / "hardening-gate.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+
+    save_report()
 
     def stage(category: str, command: list[str], timeout: int = 1200) -> None:
         print(f"Running {category}", flush=True)
         started = time.monotonic()
         entry = {"category": category, "status": "RUNNING"}
         report["stages"].append(entry)
-        result = subprocess.run(command, cwd=ROOT, check=False, timeout=timeout)
-        entry.update(
-            status="PASS" if result.returncode == 0 else "FAIL",
-            seconds=round(time.monotonic() - started, 1),
-        )
+        save_report()
+        try:
+            result = subprocess.run(command, cwd=ROOT, check=False, timeout=timeout)
+            entry["status"] = "PASS" if result.returncode == 0 else "FAIL"
+        except (OSError, subprocess.SubprocessError) as error:
+            entry.update(status="FAIL", failure_type=type(error).__name__)
+            raise
+        finally:
+            entry["seconds"] = round(time.monotonic() - started, 1)
+            save_report()
+            print(
+                f"Finished {category}: {entry['status']} ({entry['seconds']}s)",
+                flush=True,
+            )
         if result.returncode:
             raise RuntimeError(f"{category} failed with exit code {result.returncode}")
 
@@ -117,13 +169,18 @@ def main() -> int:
         stage(category or name, [*command, *extra])
 
     ready_to_cleanup = False
+    image_override: Path | None = None
     try:
         if shutil.which("docker") is None:
             report["status"] = "INFRASTRUCTURE_UNAVAILABLE"
             return 2
-        probe = subprocess.run(
-            ["docker", "info"], capture_output=True, check=False, timeout=30
-        )
+        try:
+            probe = subprocess.run(
+                ["docker", "info"], capture_output=True, check=False, timeout=30
+            )
+        except (OSError, subprocess.SubprocessError):
+            report["status"] = "INFRASTRUCTURE_UNAVAILABLE"
+            return 2
         if probe.returncode:
             report["status"] = "INFRASTRUCTURE_UNAVAILABLE"
             return 2
@@ -140,6 +197,12 @@ def main() -> int:
             ).strip()
             if existing:
                 raise RuntimeError("Refusing to use an existing Compose project")
+        if args.prebuilt_image_prefix:
+            override_directory = ROOT / ".codex-tmp"
+            override_directory.mkdir(exist_ok=True)
+            candidate = override_directory / f"{project}-images.json"
+            prepare_prebuilt_images(compose, args.prebuilt_image_prefix, candidate)
+            image_override = candidate
         ready_to_cleanup = True
         stage(
             "integration-startup",
@@ -147,7 +210,7 @@ def main() -> int:
                 *compose.command,
                 "up",
                 "-d",
-                "--build",
+                "--no-build" if args.prebuilt_image_prefix else "--build",
                 "--wait",
                 "--wait-timeout",
                 "300",
@@ -248,36 +311,45 @@ def main() -> int:
     finally:
         if ready_to_cleanup:
             # Logs may contain test fixture configuration. Persist only sanitized diagnostics.
-            logs = subprocess.run(
-                [*compose.command, "logs", "--no-color", "--tail", "100"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=60,
-            )
-            diagnostic = logs.stdout + logs.stderr
+            try:
+                logs = subprocess.run(
+                    [*compose.command, "logs", "--no-color", "--tail", "100"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                )
+                diagnostic = logs.stdout + logs.stderr
+            except (OSError, subprocess.SubprocessError):
+                diagnostic = "Service diagnostics unavailable"
             for key, value in environment.items():
                 if value and any(
                     token in key
                     for token in ("PASSWORD", "SECRET", "TOKEN", "ACCESS_KEY")
                 ):
                     diagnostic = diagnostic.replace(value, "[REDACTED]")
-            (artifacts / "hardening-diagnostics.log").write_text(
-                diagnostic, encoding="utf-8"
-            )
-            cleanup = subprocess.run(
-                [*compose.command, "down", "--volumes", "--remove-orphans"],
-                capture_output=True,
-                check=False,
-                timeout=180,
-            )
-            report["cleanup"] = "PASS" if cleanup.returncode == 0 else "FAIL"
-            if cleanup.returncode:
+            try:
+                (artifacts / "hardening-diagnostics.log").write_text(
+                    diagnostic, encoding="utf-8"
+                )
+            except OSError:
+                report["diagnostics"] = "UNAVAILABLE"
+            try:
+                cleanup = subprocess.run(
+                    [*compose.command, "down", "--volumes", "--remove-orphans"],
+                    capture_output=True,
+                    check=False,
+                    timeout=180,
+                )
+                report["cleanup"] = "PASS" if cleanup.returncode == 0 else "FAIL"
+            except (OSError, subprocess.SubprocessError):
+                report["cleanup"] = "FAIL"
+            if report["cleanup"] == "FAIL":
                 report["status"] = "FAIL"
+        if image_override is not None:
+            image_override.unlink(missing_ok=True)
         report["finished_at"] = datetime.now(UTC).isoformat()
-        (artifacts / "hardening-gate.json").write_text(
-            json.dumps(report, indent=2) + "\n", encoding="utf-8"
-        )
+        save_report()
         print(
             f"Hardening gate: {report['status']}; cleanup: {report.get('cleanup', 'not started')}",
             flush=True,

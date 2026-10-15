@@ -61,3 +61,9 @@ and SASL fixtures in an isolated integration network, checks both Python Kafka
 clients and negative authentication/trust cases, and runs the four JDBC CDC
 paths through a separate SCRAM-SHA-512/SASL_SSL Connect cluster. Fixture keys and
 credentials are temporary and excluded from report artifacts.
+
+The test harness uses a private Docker-owned volume and supplemental read group
+for its broker/Connect files, avoiding Linux runner/container UID mismatches.
+It does not make private keys world-readable or run those services as root.
+Exited fixtures fail readiness immediately; sanitized diagnostics and phase/
+cleanup results are retained while the volume and containers are removed.
