@@ -123,6 +123,77 @@ class PostgresAdapter:
                 "or pre-create the publication",
                 "warning",
             )
+            retention_risk = False
+            slot_details: list[dict] = []
+            monitoring_limited = False
+            try:
+                slots = await conn.fetch(
+                    "SELECT slot_name, active, restart_lsn::text AS restart_lsn, wal_status, "
+                    "CASE WHEN restart_lsn IS NULL THEN NULL ELSE "
+                    "pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint END "
+                    "AS retained_wal_bytes FROM pg_replication_slots "
+                    "WHERE slot_type='logical' AND database=current_database() "
+                    "ORDER BY slot_name"
+                )
+                slot_details = [
+                    {
+                        "slot_name": row["slot_name"],
+                        "active": bool(row["active"]),
+                        "restart_lsn": row["restart_lsn"],
+                        "wal_status": row["wal_status"],
+                        "retained_wal_bytes": row["retained_wal_bytes"],
+                    }
+                    for row in slots
+                ]
+                lost = [slot for slot in slot_details if slot["wal_status"] == "lost"]
+                inactive = [slot for slot in slot_details if not slot["active"]]
+                retention_risk = bool(lost or inactive)
+                check(
+                    "replication_slot_health",
+                    {
+                        "logical_slots": len(slot_details),
+                        "inactive_slots": len(inactive),
+                        "lost_slots": len(lost),
+                    },
+                    "No lost or unexpectedly inactive slots",
+                    not lost,
+                    "A lost slot cannot resume; assess the consistency boundary and plan an "
+                    "explicit resnapshot",
+                )
+                check(
+                    "inactive_replication_slots",
+                    len(inactive),
+                    0,
+                    not inactive,
+                    "Identify the owning connector and resume it, or have a DBA review the "
+                    "slot before any manual cleanup",
+                    "warning",
+                )
+                retained = [
+                    slot["retained_wal_bytes"]
+                    for slot in slot_details
+                    if slot["retained_wal_bytes"] is not None
+                ]
+                check(
+                    "retained_wal_bytes",
+                    max(retained, default=0),
+                    "Measured bytes per logical slot; no time capacity inferred",
+                    not inactive,
+                    "Monitor source disk capacity and investigate inactive slots; retained "
+                    "bytes cannot be converted to a safe outage duration without workload data",
+                    "warning",
+                )
+            except asyncpg.PostgresError:
+                monitoring_limited = True
+                check(
+                    "replication_slot_monitoring",
+                    "permission_limited",
+                    "Visible logical slot state",
+                    False,
+                    "Grant a monitoring role access to replication slot metadata or monitor "
+                    "slots externally",
+                    "warning",
+                )
             checks.append(
                 {
                     "key": "publication_table_ownership",
@@ -144,7 +215,13 @@ class PostgresAdapter:
                 if any(c["status"] == "warning" for c in checks)
                 else "passed"
             )
-            return {"status": status, "checks": checks}
+            return {
+                "status": status,
+                "checks": checks,
+                "replication_slots": slot_details,
+                "retention_risk": retention_risk,
+                "monitoring_limited": monitoring_limited,
+            }
 
     async def inspect_table(self, schema_name: str, table_name: str) -> dict:
         """Inspect one table immediately before a lifecycle operation."""
@@ -186,8 +263,10 @@ class PostgresAdapter:
             columns = await conn.fetch(
                 """
                 SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
-                    NOT a.attnotnull AS nullable, a.attnum AS ordinal
+                    NOT a.attnotnull AS nullable, a.attnum AS ordinal,
+                    ad.adbin IS NOT NULL AS has_default
                 FROM pg_attribute a
+                LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
                 WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
                 ORDER BY a.attnum
                 """,
@@ -264,8 +343,11 @@ class PostgresAdapter:
                 columns = await conn.fetch(
                     """
                     SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
-                        NOT a.attnotnull AS nullable, a.attnum AS ordinal
-                    FROM pg_attribute a WHERE a.attrelid = $1 AND a.attnum > 0
+                        NOT a.attnotnull AS nullable, a.attnum AS ordinal,
+                        ad.adbin IS NOT NULL AS has_default
+                    FROM pg_attribute a
+                    LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
+                    WHERE a.attrelid = $1 AND a.attnum > 0
                         AND NOT a.attisdropped ORDER BY a.attnum
                 """,
                     row["oid"],

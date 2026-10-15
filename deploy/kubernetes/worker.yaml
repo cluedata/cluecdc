@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: cluecdc-worker
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: cluecdc-worker
@@ -12,21 +12,41 @@ spec:
       labels:
         app.kubernetes.io/name: cluecdc-worker
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/cluedata/cluecdc-api:0.2.0
+          image: ghcr.io/cluedata/cluecdc-api:0.2.1
+          imagePullPolicy: IfNotPresent
           command: ["python", "-m", "app.worker"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           readinessProbe:
             exec: { command: ["python", "-m", "app.worker_health"] }
-            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             exec: { command: ["python", "-m", "app.worker_health"] }
-            initialDelaySeconds: 20
             periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            exec: { command: ["python", "-m", "app.worker_health"] }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
           envFrom:
             - configMapRef: { name: cluecdc-config }
           env:
@@ -41,3 +61,9 @@ spec:
           resources:
             requests: { cpu: 200m, memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

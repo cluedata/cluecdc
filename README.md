@@ -53,6 +53,7 @@ worker; production may isolate or scale worker clusters independently.
 - [x] AWS S3 and MinIO delivery as gzip or plain JSONL CDC envelopes
 - [x] Delivery preview, deploy, mapping update, pause, resume, restart, task restart, and removal
 - [x] Kafka cluster, topic, partition, offset, and consumer-group metadata inspection
+- [x] Kafka SSL/SASL client settings with encrypted PLAIN/SCRAM credentials
 - [x] Kafka Connect cluster, plugin, connector, and task inventory
 
 ### Operations, access, and platform
@@ -67,6 +68,7 @@ worker; production may isolate or scale worker clusters independently.
 - [x] Structured logs, correlation IDs, health endpoints, and Prometheus metrics
 - [x] FastAPI/OpenAPI API, Next.js UI, background worker, and Alembic migrations
 - [x] Docker Compose local stack and a documented Kubernetes deployment baseline
+- [x] Metadata backup/restore, guarded upgrades, and isolated CDC/recovery acceptance gates
 
 ClueCDC deliberately does not relay CDC payloads through its API. Topic screens
 show broker metadata; inspect records directly in Kafka or the configured
@@ -151,9 +153,9 @@ release gate. It validates and builds but never tags, publishes, or pushes.
 
 ## Roadmap
 
-Priorities before `v1.0.0` are production identity/SSO, TLS and external-secret
-integration, broader Kafka security support, HA deployment guidance, and more
-connector coverage. Planned work is not presented as current functionality.
+Priorities before `v1.0.0` are production identity/SSO, external-secret
+integration, HA deployment guidance, and more connector coverage. Planned work
+is not presented as current functionality.
 
 ## Project policies
 

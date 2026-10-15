@@ -129,7 +129,8 @@ class MySQLAdapter:
                 for row in await self._all(
                     connection,
                     "SHOW GLOBAL VARIABLES WHERE Variable_name IN "
-                    "('log_bin','binlog_format','binlog_row_image','server_id')",
+                    "('log_bin','binlog_format','binlog_row_image','server_id',"
+                    "'binlog_expire_logs_seconds','expire_logs_days')",
                 )
             }
             checks.extend(
@@ -200,6 +201,75 @@ class MySQLAdapter:
                     "warning",
                 )
             )
+            expire_seconds = int(variables.get("binlog_expire_logs_seconds", "0") or 0)
+            if expire_seconds <= 0:
+                expire_days = float(variables.get("expire_logs_days", "0") or 0)
+                expire_seconds = int(expire_days * 86400)
+            expected_outage = self.source.provider_options.get("max_connector_outage_seconds")
+            retention_risk = bool(
+                expire_seconds > 0
+                and isinstance(expected_outage, int)
+                and not isinstance(expected_outage, bool)
+                and expected_outage >= expire_seconds
+            )
+            retention_expected = (
+                f"> {expected_outage} seconds"
+                if isinstance(expected_outage, int) and not isinstance(expected_outage, bool)
+                else "Configure max_connector_outage_seconds to compare"
+            )
+            checks.append(
+                self._check(
+                    "binlog_retention_window",
+                    expire_seconds if expire_seconds > 0 else "no automatic expiration",
+                    retention_expected,
+                    expected_outage is None or not retention_risk,
+                    "Increase binlog retention beyond the maximum supported connector outage",
+                    "warning",
+                )
+            )
+            monitoring_limited = False
+            binlog_position: dict | None = None
+            binlog_inventory: dict | None = None
+            try:
+                try:
+                    raw_position = await self._one(connection, "SHOW BINARY LOG STATUS")
+                except aiomysql.MySQLError:
+                    raw_position = await self._one(connection, "SHOW MASTER STATUS")
+                if raw_position:
+                    binlog_position = {
+                        "file": raw_position.get("File"),
+                        "position": raw_position.get("Position"),
+                    }
+                logs = await self._all(connection, "SHOW BINARY LOGS")
+                binlog_inventory = {
+                    "count": len(logs),
+                    "oldest_file": logs[0].get("Log_name") if logs else None,
+                    "current_file": logs[-1].get("Log_name") if logs else None,
+                    "total_bytes": sum(int(row.get("File_size", 0)) for row in logs),
+                }
+                checks.append(
+                    self._check(
+                        "binlog_position_visibility",
+                        bool(binlog_position),
+                        True,
+                        bool(binlog_position),
+                        "Grant REPLICATION CLIENT so the current binlog position can be monitored",
+                        "warning",
+                    )
+                )
+            except aiomysql.MySQLError:
+                monitoring_limited = True
+                checks.append(
+                    self._check(
+                        "binlog_position_visibility",
+                        "permission_limited",
+                        "Current binlog position and inventory",
+                        False,
+                        "Grant a monitoring role REPLICATION CLIENT or monitor binlog position "
+                        "and inventory externally",
+                        "warning",
+                    )
+                )
             status = (
                 "failed"
                 if any(c["status"] == "failed" for c in checks)
@@ -212,6 +282,11 @@ class MySQLAdapter:
                 "status": status,
                 "checks": checks,
                 "server_id": variables.get("server_id"),
+                "binlog_retention_seconds": expire_seconds,
+                "binlog_position": binlog_position,
+                "binlog_inventory": binlog_inventory,
+                "retention_risk": retention_risk,
+                "monitoring_limited": monitoring_limited,
             }
 
     async def inspect_table(self, schema_name: str, table_name: str) -> dict:
@@ -239,7 +314,8 @@ class MySQLAdapter:
             columns = await self._all(
                 connection,
                 "SELECT column_name AS name, column_type AS type, "
-                "is_nullable='YES' AS nullable, ordinal_position AS ordinal "
+                "is_nullable='YES' AS nullable, ordinal_position AS ordinal, "
+                "column_default IS NOT NULL AS has_default "
                 "FROM information_schema.columns WHERE table_schema=%s "
                 "AND table_name=%s ORDER BY ordinal_position",
                 (schema_name, table_name),
@@ -295,7 +371,8 @@ class MySQLAdapter:
                 columns = await self._all(
                     connection,
                     "SELECT column_name AS name, column_type AS type, "
-                    "is_nullable='YES' AS nullable, ordinal_position AS ordinal "
+                    "is_nullable='YES' AS nullable, ordinal_position AS ordinal, "
+                    "column_default IS NOT NULL AS has_default "
                     "FROM information_schema.columns WHERE table_schema=%s "
                     "AND table_name=%s ORDER BY ordinal_position",
                     (schema, table),

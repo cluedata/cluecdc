@@ -15,9 +15,7 @@ kind: Deployment
 metadata:
   name: cluecdc-api
 spec:
-  replicas: 1
-  strategy:
-    type: Recreate
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: cluecdc-api
@@ -26,12 +24,26 @@ spec:
       labels:
         app.kubernetes.io/name: cluecdc-api
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/cluedata/cluecdc-api:0.2.0
+          image: ghcr.io/cluedata/cluecdc-api:0.2.1
+          imagePullPolicy: IfNotPresent
           command: ["alembic", "upgrade", "head"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           envFrom:
             - configMapRef: { name: cluecdc-config }
           env:
@@ -43,10 +55,19 @@ spec:
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: connect-secret-token } }
             - name: SESSION_SECRET
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: session-secret } }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
       containers:
         - name: api
-          image: ghcr.io/cluedata/cluecdc-api:0.2.0
-          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          image: ghcr.io/cluedata/cluecdc-api:0.2.1
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "25"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8000
@@ -63,12 +84,25 @@ spec:
               valueFrom: { secretKeyRef: { name: cluecdc-secrets, key: session-secret } }
           readinessProbe:
             httpGet: { path: /health/ready, port: http }
-            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet: { path: /health/live, port: http }
-            initialDelaySeconds: 20
             periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
           resources:
             requests: { cpu: 200m, memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

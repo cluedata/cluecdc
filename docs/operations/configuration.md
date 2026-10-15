@@ -7,7 +7,7 @@ invalid. The web server validates its private API origin at request time.
 | Variable                      | Required       | Purpose                                                |
 | ----------------------------- | -------------- | ------------------------------------------------------ |
 | `ENVIRONMENT`                 | No             | `development`, `test`, or `production`                 |
-| `DATABASE_URL`                | API            | Async SQLAlchemy metadata URL; Compose constructs it   |
+| `DATABASE_URL`                | API            | Async SQLAlchemy metadata URL; production requires authenticated PostgreSQL |
 | `SECRET_ENCRYPTION_KEY`       | Yes            | URL-safe 32-byte Fernet key                            |
 | `CONNECT_SECRET_TOKEN`        | Yes            | 32+ character machine credential for secret resolution |
 | `AUTH_MODE`                   | No             | `session`; `developer`/`token` remain for compatibility |
@@ -19,13 +19,18 @@ invalid. The web server validates its private API origin at request time.
 | `INVITE_TTL_SECONDS`          | No             | Invite lifetime (default 86400)                         |
 | `PUBLIC_URL`                  | Yes            | External web origin used in generated invite links     |
 | `AUTH_TOKENS_JSON`            | Legacy token mode | SHA-256 token hash to actor/role JSON mapping        |
-| `CORS_ORIGINS`                | No             | JSON array of explicitly allowed web origins           |
+| `CORS_ORIGINS`                | Production     | JSON array of explicit HTTPS origins including `PUBLIC_URL` |
 | `LOG_LEVEL`                   | No             | `debug`, `info`, `warn`/`warning`, or `error`          |
 | `WORKER_CONCURRENCY`          | No             | Bounded worker concurrency, 1–32 (default 4)            |
 | `JOB_LEASE_SECONDS`           | No             | Renewable job lease, 30–3600 seconds (default 300)      |
 | `JOB_MAX_ATTEMPTS`            | No             | Maximum failed/expired job attempts (default 3)        |
+| `JOB_RETRY_BASE_SECONDS`      | No             | Initial automatic retry delay (default 2 seconds)      |
+| `JOB_RETRY_MAX_SECONDS`       | No             | Maximum exponential retry delay (default 60 seconds)   |
+| `JOB_RETRY_JITTER_RATIO`      | No             | Positive retry jitter ratio, 0–1 (default 0.2)         |
+| `CONNECTOR_OPERATION_LEASE_SECONDS` | No        | Expiry for a crashed lifecycle operation (default 300) |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
+| `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |
 | `API_INTERNAL_URL`            | Web production | Private origin of the ClueCDC API                      |
 
 Compose port variables and demo database credentials are documented inline in
@@ -37,3 +42,9 @@ Never put raw bearer tokens in `AUTH_TOKENS_JSON`; store SHA-256 hashes. Never
 commit `.env`. Back up `SESSION_SECRET` and `SECRET_ENCRYPTION_KEY` with
 metadata: changing the session secret signs out every user, while losing the
 encryption key makes stored connection secrets unrecoverable.
+
+Production validation runs while the API, worker, CLI, or migration process
+loads configuration. It rejects wildcard or non-HTTPS CORS entries, URLs with
+credentials or paths, missing metadata credentials, known development values,
+low-diversity secrets, and reuse of one value for multiple security secrets.
+Validation messages identify the setting but never include its value.

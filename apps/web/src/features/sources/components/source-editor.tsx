@@ -166,6 +166,23 @@ export function SourceEditor({
               })}
             />
           </Field>
+          <Field
+            label="Maximum connector outage (seconds)"
+            hint="Optional recovery objective used to evaluate source-log retention."
+          >
+            <Input
+              type="number"
+              min={300}
+              max={31536000}
+              {...form.register(
+                "provider_options.max_connector_outage_seconds",
+                {
+                  setValueAs: (value) =>
+                    value === "" ? undefined : Number(value),
+                },
+              )}
+            />
+          </Field>
         </div>
       </details>
       {save.isError && (

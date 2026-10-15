@@ -43,6 +43,13 @@ export interface KafkaCluster extends Entity {
   name: string;
   bootstrap_servers: string;
   security_protocol: string;
+  security_config?: {
+    sasl_mechanism?: string;
+    has_custom_ca?: boolean;
+    has_client_certificate?: boolean;
+    has_key_password?: boolean;
+  };
+  credentials?: { configured: boolean; masked_value: string };
   status: string;
 }
 export interface ConnectCluster extends Entity {

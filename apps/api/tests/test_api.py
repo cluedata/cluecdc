@@ -1,14 +1,14 @@
 import hashlib
 import json
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.errors import DomainError
-from app.models.entities import SecretReference, SourceTable
+from app.models.entities import Job, SecretReference, SourceTable
 from app.services.secrets import EncryptedDatabaseSecretProvider
 
 
@@ -61,6 +61,31 @@ async def test_unknown_pipeline_and_duplicate_source(client, source_payload):
     assert (await client.get(f"/api/v1/pipelines/{uuid4()}")).status_code == 404
     assert (await client.post("/api/v1/sources", json=source_payload)).status_code == 201
     assert (await client.post("/api/v1/sources", json=source_payload)).status_code == 409
+
+
+async def test_operator_can_retry_terminal_job_without_losing_failure_history(
+    client, db_factory, source_payload
+):
+    source = (await client.post("/api/v1/sources", json=source_payload)).json()
+    queued = (await client.post(f"/api/v1/sources/{source['id']}/discover")).json()
+    async with db_factory() as db:
+        job = await db.get(Job, UUID(queued["id"]))
+        job.status = "FAILED"
+        job.attempt_count = 3
+        job.error = "Source rejected the supplied credentials"
+        job.error_code = "SOURCE_AUTH_FAILED"
+        job.error_category = "AUTHENTICATION"
+        job.retryable = False
+        job.failure_history_json = [{"attempt": 3, "code": "SOURCE_AUTH_FAILED"}]
+        await db.commit()
+
+    response = await client.post(f"/api/v1/jobs/{queued['id']}/retry")
+    assert response.status_code == 202
+    retried = response.json()
+    assert retried["status"] == "PENDING" and retried["attempt_count"] == 0
+    assert retried["error_code"] == "SOURCE_AUTH_FAILED"
+    assert retried["failure_history_json"] == [{"attempt": 3, "code": "SOURCE_AUTH_FAILED"}]
+    assert (await client.post(f"/api/v1/jobs/{queued['id']}/retry")).status_code == 409
 
 
 async def test_mysql_source_accepts_unique_explicit_server_id(client, source_payload):

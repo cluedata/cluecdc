@@ -7,8 +7,9 @@ from sqlalchemy import select
 
 from app.api.auth import token_hash
 from app.cli import create_admin, ensure_default_admin
+from app.core.auth import session_token_hash
 from app.core.config import get_settings
-from app.models.entities import Invite, User
+from app.models.entities import AuthSession, Invite, User
 
 PASSWORD = "a long test passphrase"
 
@@ -81,11 +82,131 @@ async def test_login_session_logout_and_generic_failures(client, db_factory):
     assert (await client.get("/api/v1/auth/session")).status_code == 401
 
 
+async def test_logout_requires_authentication_and_revokes_only_current_session(client, db_factory):
+    """SEC-05: logout is authenticated and cannot revoke another browser's session."""
+    await add_user(db_factory, "admin@example.com", "ADMIN")
+    assert (await client.post("/api/v1/auth/logout")).status_code == 401
+    await sign_in(client, "admin@example.com")
+    first_token = client.cookies.get("cluecdc_session")
+    await sign_in(client, "admin@example.com")
+    second_token = client.cookies.get("cluecdc_session")
+    assert first_token != second_token
+    assert (await client.post("/api/v1/auth/logout")).status_code == 204
+    assert (await client.get("/api/v1/auth/session")).status_code == 401
+    assert (
+        await client.get(
+            "/api/v1/auth/session", headers={"Cookie": f"cluecdc_session={first_token}"}
+        )
+    ).status_code == 200
+
+
+async def test_production_cookie_and_csrf_origin_enforcement(client, db_factory, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "public_url", "https://cluecdc.example.com")
+    monkeypatch.setattr(settings, "cors_origins", ["https://cluecdc.example.com"])
+    await add_user(db_factory, "admin@example.com", "ADMIN")
+
+    rejected_login = await sign_in(client, "admin@example.com")
+    assert rejected_login.status_code == 403
+    assert rejected_login.json()["error"]["code"] == "CSRF_ORIGIN_REJECTED"
+
+    logged_in = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.com", "password": PASSWORD},
+        headers={"Origin": "https://cluecdc.example.com"},
+    )
+    assert logged_in.status_code == 200
+    cookie = logged_in.headers["set-cookie"]
+    assert all(value in cookie for value in ["HttpOnly", "Secure", "SameSite=lax", "Path=/"])
+    assert "Max-Age=" in cookie and "expires=" in cookie.lower()
+    cookie_header = f"cluecdc_session={client.cookies.get('cluecdc_session')}"
+
+    forged = await client.post(
+        "/api/v1/auth/logout",
+        headers={
+            "Cookie": cookie_header,
+            "Origin": "https://evil.example",
+            "X-Forwarded-Host": "cluecdc.example.com",
+            "X-Forwarded-Proto": "https",
+        },
+    )
+    assert forged.status_code == 403
+    assert (
+        await client.get("/api/v1/auth/session", headers={"Cookie": cookie_header})
+    ).status_code == 200
+
+    logout = await client.post(
+        "/api/v1/auth/logout",
+        headers={"Origin": "https://cluecdc.example.com", "Cookie": cookie_header},
+    )
+    assert logout.status_code == 204
+
+
+async def test_api_security_headers_are_set(client):
+    response = await client.get("/api/v1/session")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+
+
 async def test_disabled_user_cannot_login(client, db_factory):
     await add_user(db_factory, "disabled@example.com", "OPS", "DISABLED")
     response = await sign_in(client, "disabled@example.com")
     assert response.status_code == 401
     assert response.json()["error"]["message"] == "Invalid email or password."
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/sources",
+        "/api/v1/pipelines",
+        "/api/v1/kafka/clusters",
+        "/api/v1/alerts",
+        "/api/v1/audit",
+        "/api/v1/users",
+    ],
+)
+async def test_protected_api_families_reject_unauthenticated_requests(client, path):
+    assert (await client.get(path)).status_code == 401
+
+
+async def test_expired_and_disabled_sessions_are_rejected(client, db_factory):
+    user = await add_user(db_factory, "viewer@example.com", "VIEWER")
+    expired_token = "expired-session-token"
+    async with db_factory() as db:
+        db.add(
+            AuthSession(
+                token_hash=session_token_hash(expired_token),
+                user_id=user.id,
+                expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            )
+        )
+        await db.commit()
+    expired = await client.get(
+        "/api/v1/auth/session", headers={"Cookie": f"cluecdc_session={expired_token}"}
+    )
+    assert expired.status_code == 401
+
+    assert (await sign_in(client, user.email)).status_code == 200
+    active_cookie = f"cluecdc_session={client.cookies.get('cluecdc_session')}"
+    async with db_factory() as db:
+        stored = await db.get(User, user.id)
+        stored.status = "DISABLED"
+        await db.commit()
+    disabled = await client.get("/api/v1/auth/session", headers={"Cookie": active_cookie})
+    assert disabled.status_code == 401
+
+
+async def test_login_rate_limit_is_shared_through_metadata(client, db_factory):
+    await add_user(db_factory, "admin@example.com", "ADMIN")
+    for _ in range(5):
+        assert (await sign_in(client, "admin@example.com", "wrong-password")).status_code == 401
+    blocked = await sign_in(client, "admin@example.com")
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "RATE_LIMITED"
 
 
 async def test_admin_invites_and_invite_is_single_use(client, db_factory):
@@ -233,6 +354,29 @@ async def test_role_changes_and_role_boundaries(client, db_factory):
             json={"pipeline_id": str(uuid4())},
         )
     ).status_code == 403
+
+
+async def test_role_change_revokes_existing_sessions(client, db_factory):
+    admin = await add_user(db_factory, "admin@example.com", "ADMIN")
+    target = await add_user(db_factory, "ops@example.com", "OPS")
+    assert (await sign_in(client, target.email)).status_code == 200
+    target_cookie = f"cluecdc_session={client.cookies.get('cluecdc_session')}"
+    client.cookies.clear()
+    assert (await sign_in(client, admin.email)).status_code == 200
+
+    changed = await client.patch(f"/api/v1/users/{target.id}/role", json={"role": "VIEWER"})
+    assert changed.status_code == 200
+    assert (
+        await client.get("/api/v1/auth/session", headers={"Cookie": target_cookie})
+    ).status_code == 401
+
+
+async def test_last_active_admin_cannot_be_demoted(client, db_factory):
+    admin = await add_user(db_factory, "admin@example.com", "ADMIN")
+    assert (await sign_in(client, admin.email)).status_code == 200
+    response = await client.patch(f"/api/v1/users/{admin.id}/role", json={"role": "VIEWER"})
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "LAST_ADMIN"
 
 
 async def test_admin_can_delete_another_user_but_not_self(client, db_factory):

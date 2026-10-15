@@ -30,11 +30,32 @@ def main() -> int:
     parser.add_argument(
         "--skip-docker", action="store_true", help="Skip container builds"
     )
+    parser.add_argument(
+        "--preparation",
+        action="store_true",
+        help="Allow the hardening preparation branch",
+    )
+    parser.add_argument(
+        "--skip-live",
+        action="store_true",
+        help="Preparation only: omit live gates and report incomplete validation",
+    )
+    parser.add_argument(
+        "--live-env-file",
+        action="append",
+        help="Disposable integration dotenv file (repeatable)",
+    )
     args = parser.parse_args()
 
     branch = output("git", "branch", "--show-current")
-    if branch not in {"main", "master"}:
+    if branch not in {"main", "master"} and not (
+        args.preparation and branch == "release/v0.2.1-hardening"
+    ):
         raise SystemExit(f"Release checks must run from main or master, not {branch!r}")
+    if args.skip_live and not args.preparation:
+        raise SystemExit(
+            "--skip-live is allowed only with --preparation; release gates are mandatory"
+        )
     if not args.allow_dirty and output("git", "status", "--porcelain"):
         raise SystemExit(
             "Working tree is not clean (use --allow-dirty while preparing changes)"
@@ -45,10 +66,13 @@ def main() -> int:
 
     run(sys.executable, "scripts/check-release-version.py")
     run(sys.executable, "scripts/check-repository.py")
-    run("docker", "compose", "config", "--quiet")
+    run(sys.executable, "scripts/deployment_validation.py")
+    run("docker", "compose", "--env-file", ".env.example", "config", "--quiet")
     run(
         "docker",
         "compose",
+        "--env-file",
+        ".env.example",
         "-f",
         "compose.yaml",
         "-f",
@@ -59,6 +83,10 @@ def main() -> int:
     run(
         "docker",
         "compose",
+        "--env-file",
+        ".env.example",
+        "--env-file",
+        ".env.test.example",
         "-f",
         "compose.yaml",
         "-f",
@@ -108,7 +136,16 @@ def main() -> int:
             ".",
         )
 
-    print("\nRelease checks passed. No tag, image, or release was published.")
+    if not args.skip_live:
+        live = [sys.executable, "scripts/hardening_acceptance.py"]
+        for file in args.live_env_file or []:
+            live.extend(["--env-file", file])
+        run(*live)
+    print(
+        "\nPreparation checks passed; live gates skipped."
+        if args.skip_live
+        else "\nRelease checks passed. No tag, image, or release was published."
+    )
     return 0
 
 

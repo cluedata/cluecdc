@@ -29,7 +29,12 @@ async function proxy(
   );
   url.search = request.nextUrl.search;
   const headers = new Headers({ "Content-Type": "application/json" });
-  for (const name of ["authorization", "cookie", "x-correlation-id"]) {
+  for (const name of [
+    "authorization",
+    "cookie",
+    "origin",
+    "x-correlation-id",
+  ]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }

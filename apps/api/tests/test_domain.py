@@ -2,6 +2,7 @@ import re
 from uuid import uuid4
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 from app.core.config import Settings
@@ -37,6 +38,27 @@ def test_config_exact_table_regex_and_isolated_slot():
     assert len(config["slot.name"]) < 63
     assert redact(config)["database.password"] == "[REDACTED]"
     assert redact({"message": "password private"}, ["private"])["message"] == "password [REDACTED]"
+
+
+def test_redaction_covers_nested_transport_and_private_key_secrets():
+    value = redact(
+        {
+            "nested": [
+                {"sasl.jaas.config": "user and password"},
+                {"ssl.key.pem": "private key"},
+                {"client_secret": "oauth secret"},
+            ],
+            "safe": "visible",
+        }
+    )
+    assert value == {
+        "nested": [
+            {"sasl.jaas.config": "[REDACTED]"},
+            {"ssl.key.pem": "[REDACTED]"},
+            {"client_secret": "[REDACTED]"},
+        ],
+        "safe": "visible",
+    }
 
 
 @pytest.mark.parametrize(
@@ -77,15 +99,71 @@ def test_default_admin_is_development_only():
         Settings(environment="production", bootstrap_default_admin=True)
 
 
+def test_job_retry_delay_bounds_are_consistent():
+    with pytest.raises(ValidationError, match="JOB_RETRY_MAX_SECONDS"):
+        Settings(job_retry_base_seconds=30, job_retry_max_seconds=10)
+
+
 def test_production_refuses_documented_example_secrets():
-    with pytest.raises(ValidationError, match="example development secrets"):
-        Settings(
-            environment="production",
-            auth_mode="token",
-            auth_tokens_json='{"hash":{"actor":"operator","role":"Admin"}}',
+    with pytest.raises(ValidationError, match="example SECRET_ENCRYPTION_KEY"):
+        production_settings(
             secret_encryption_key="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-            connect_secret_token="local-connect-token-change-before-production-0001",
         )
+
+
+def production_settings(**overrides):
+    values = {
+        "environment": "production",
+        "auth_mode": "session",
+        "bootstrap_default_admin": False,
+        "database_url": "postgresql+asyncpg://cluecdc:unique-metadata-password@db/cluecdc",
+        "secret_encryption_key": Fernet.generate_key().decode(),
+        "connect_secret_token": "connect-token-0123456789-ABCDEF-unique",
+        "session_secret": "session-secret-0123456789-ABCDEF-unique",
+        "public_url": "https://cluecdc.example.com",
+        "cors_origins": ["https://cluecdc.example.com"],
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_safe_production_configuration_is_accepted_and_normalized():
+    settings = production_settings(
+        public_url="https://CLUECDC.example.com:443/",
+        cors_origins=["https://cluecdc.example.com"],
+    )
+    assert settings.public_url == "https://cluecdc.example.com"
+    assert settings.cors_origins == ["https://cluecdc.example.com"]
+
+
+@pytest.mark.parametrize(
+    "overrides,error",
+    [
+        ({"public_url": "http://cluecdc.example.com"}, "PUBLIC_URL"),
+        ({"public_url": "https://user@example.com"}, "PUBLIC_URL"),
+        ({"cors_origins": []}, "CORS origin"),
+        ({"cors_origins": ["*"]}, "wildcard"),
+        ({"cors_origins": ["https://other.example.com"]}, "include PUBLIC_URL"),
+        ({"session_secret": "a" * 40}, "SESSION_SECRET"),
+        (
+            {"database_url": "sqlite+aiosqlite:///metadata.db"},
+            "Production DATABASE_URL",
+        ),
+        (
+            {"database_url": "postgresql+asyncpg://cluecdc@db/cluecdc"},
+            "Production DATABASE_URL",
+        ),
+    ],
+)
+def test_unsafe_production_configuration_is_rejected(overrides, error):
+    with pytest.raises(ValidationError, match=error):
+        production_settings(**overrides)
+
+
+def test_production_security_secrets_must_be_unique():
+    shared = "shared-secret-0123456789-ABCDEF-unique"
+    with pytest.raises(ValidationError, match="must be unique"):
+        production_settings(session_secret=shared, connect_secret_token=shared)
 
 
 @pytest.mark.parametrize(
@@ -130,7 +208,7 @@ def test_schema_diff_is_deterministic():
     assert [d["classification"] for d in diffs] == [
         "BREAKING",
         "NON_BREAKING",
-        "POTENTIALLY_BREAKING",
+        "NON_BREAKING",
         "BREAKING",
         "BREAKING",
     ]

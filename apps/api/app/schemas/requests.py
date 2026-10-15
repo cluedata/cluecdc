@@ -22,9 +22,14 @@ class SourceInput(BaseModel):
     @model_validator(mode="after")
     def validate_provider_options(self) -> "SourceInput":
         allowed = (
-            {"connection_timeout_seconds", "ssl_mode"}
+            {"connection_timeout_seconds", "ssl_mode", "max_connector_outage_seconds"}
             if self.type == "postgresql"
-            else {"server_id", "connection_timeout_seconds", "ssl_mode"}
+            else {
+                "server_id",
+                "connection_timeout_seconds",
+                "ssl_mode",
+                "max_connector_outage_seconds",
+            }
         )
         unknown = set(self.provider_options) - allowed
         if unknown:
@@ -39,13 +44,25 @@ class SourceInput(BaseModel):
         timeout = self.provider_options.get("connection_timeout_seconds", 10)
         if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 120:
             raise ValueError("Connection timeout must be between 1 and 120 seconds")
+        outage = self.provider_options.get("max_connector_outage_seconds")
+        if outage is not None and (
+            not isinstance(outage, int) or isinstance(outage, bool) or not 300 <= outage <= 31536000
+        ):
+            raise ValueError("Maximum connector outage must be between 300 and 31536000 seconds")
         return self
 
 
 class KafkaInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     bootstrap_servers: str = Field(min_length=1, max_length=1000)
-    security_protocol: Literal["PLAINTEXT", "SSL"] = "PLAINTEXT"
+    security_protocol: Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"] = "PLAINTEXT"
+    sasl_mechanism: Literal["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"] | None = None
+    username: SecretStr | None = Field(default=None, max_length=512)
+    password: SecretStr | None = Field(default=None, max_length=4096)
+    ssl_ca_pem: SecretStr | None = Field(default=None, max_length=262144)
+    ssl_certificate_pem: SecretStr | None = Field(default=None, max_length=262144)
+    ssl_key_pem: SecretStr | None = Field(default=None, max_length=262144)
+    ssl_key_password: SecretStr | None = Field(default=None, max_length=4096)
 
     @field_validator("bootstrap_servers")
     @classmethod
@@ -53,6 +70,57 @@ class KafkaInput(BaseModel):
         if not all(re.fullmatch(r"[a-zA-Z0-9_.-]+:\d{1,5}", s) for s in value.split(",")):
             raise ValueError("Use comma-separated hostname:port addresses")
         return value
+
+    @model_validator(mode="after")
+    def validate_security(self) -> "KafkaInput":
+        sasl = self.security_protocol.startswith("SASL_")
+        tls = self.security_protocol in {"SSL", "SASL_SSL"}
+        username = self.username.get_secret_value() if self.username else ""
+        password = self.password.get_secret_value() if self.password else ""
+        tls_values = [
+            self.ssl_ca_pem,
+            self.ssl_certificate_pem,
+            self.ssl_key_pem,
+            self.ssl_key_password,
+        ]
+        if sasl and not self.sasl_mechanism:
+            raise ValueError("SASL requires a supported mechanism")
+        if not sasl and (self.sasl_mechanism or username or password):
+            raise ValueError("SASL credentials require a SASL security protocol")
+        if not tls and any(value is not None for value in tls_values):
+            raise ValueError("TLS credentials require SSL or SASL_SSL")
+        if bool(self.ssl_certificate_pem) != bool(self.ssl_key_pem):
+            raise ValueError("TLS client certificate and private key must be supplied together")
+        if self.ssl_key_password and not self.ssl_key_pem:
+            raise ValueError("TLS key password requires a client private key")
+        return self
+
+    def security_config(self, values: dict[str, str] | None = None) -> dict[str, str | bool]:
+        values = self.secret_values() if values is None else values
+        result: dict[str, str | bool] = {}
+        if self.sasl_mechanism:
+            result["sasl_mechanism"] = self.sasl_mechanism
+        result["has_custom_ca"] = bool(values.get("ssl_ca_pem"))
+        result["has_client_certificate"] = bool(
+            values.get("ssl_certificate_pem") and values.get("ssl_key_pem")
+        )
+        result["has_key_password"] = bool(values.get("ssl_key_password"))
+        return result
+
+    def secret_values(self) -> dict[str, str]:
+        values = {
+            "username": self.username,
+            "password": self.password,
+            "ssl_ca_pem": self.ssl_ca_pem,
+            "ssl_certificate_pem": self.ssl_certificate_pem,
+            "ssl_key_pem": self.ssl_key_pem,
+            "ssl_key_password": self.ssl_key_password,
+        }
+        return {
+            key: value.get_secret_value()
+            for key, value in values.items()
+            if value is not None and value.get_secret_value()
+        }
 
 
 class ConnectInput(BaseModel):

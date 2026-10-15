@@ -1,1 +1,2 @@
 scripts/commerce-workload/*.py text eol=crlf
+*.sh text eol=lf

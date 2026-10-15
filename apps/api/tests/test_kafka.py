@@ -1,14 +1,25 @@
 import json
+import ssl
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from aiokafka import TopicPartition
 from confluent_kafka import TopicPartition as ConfluentTopicPartition
+from sqlalchemy import select
 
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import (
+    KafkaExplorer,
+    admin_options,
+    connector_security,
+    options,
+    source_connector_security,
+)
 from app.core.errors import DomainError
-from app.models.entities import KafkaCluster
+from app.models.entities import KafkaCluster, SecretReference
+from app.schemas.requests import KafkaInput
+from app.services.secrets import EncryptedDatabaseSecretProvider
 
 
 class Consumer:
@@ -115,6 +126,163 @@ class Future:
 
 def cluster():
     return KafkaCluster(bootstrap_servers="kafka:9092", security_protocol="PLAINTEXT")
+
+
+@pytest.mark.parametrize(
+    "protocol,mechanism",
+    [
+        ("SASL_PLAINTEXT", "PLAIN"),
+        ("SASL_SSL", "SCRAM-SHA-256"),
+        ("SASL_SSL", "SCRAM-SHA-512"),
+    ],
+)
+def test_kafka_sasl_client_and_connector_options(protocol, mechanism):
+    secured = KafkaCluster(
+        bootstrap_servers="broker:9093",
+        security_protocol=protocol,
+        security_config_json={"sasl_mechanism": mechanism},
+    )
+    secured.secret_ref = UUID("11111111-1111-1111-1111-111111111111")
+    credentials = {"username": "kafka-user", "password": "kafka-password"}
+
+    async_options = options(secured, credentials)
+    assert async_options["sasl_mechanism"] == mechanism
+    assert async_options["sasl_plain_username"] == "kafka-user"
+    assert async_options["sasl_plain_password"] == "kafka-password"
+    if protocol == "SASL_SSL":
+        assert async_options["ssl_context"].check_hostname is True
+        assert async_options["ssl_context"].verify_mode.name == "CERT_REQUIRED"
+
+    sync_options = admin_options(secured, credentials)
+    assert sync_options["sasl.mechanism"] == mechanism
+    assert sync_options["sasl.username"] == "kafka-user"
+    assert sync_options["sasl.password"] == "kafka-password"
+
+    generated = connector_security(secured, "consumer.override")
+    assert generated["consumer.override.sasl.mechanism"] == mechanism
+    assert "kafka-user" not in json.dumps(generated)
+    assert "kafka-password" not in json.dumps(generated)
+    assert "${cluecdc:" in generated["consumer.override.sasl.jaas.config"]
+    source_generated = source_connector_security(secured, mysql=True)
+    assert source_generated["producer.override.security.protocol"] == protocol
+    assert source_generated["schema.history.internal.producer.sasl.mechanism"] == mechanism
+    assert source_generated["schema.history.internal.consumer.sasl.mechanism"] == mechanism
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "producer.override",
+        "consumer.override",
+        "schema.history.internal.producer",
+        "schema.history.internal.consumer",
+    ],
+)
+def test_inline_tls_connector_credentials_use_only_secret_references(prefix):
+    """SEC-03: each source/history/sink client gets inline PEM through the secret provider."""
+    secured = KafkaCluster(
+        bootstrap_servers="broker:9093",
+        security_protocol="SSL",
+        secret_ref=UUID(int=1),
+        security_config_json={"has_custom_ca": True, "has_client_certificate": True},
+    )
+    overrides = connector_security(secured, prefix)
+    assert f"{prefix}.ssl.truststore.location" not in overrides
+    assert f"{prefix}.ssl.keystore.location" not in overrides
+    assert overrides[f"{prefix}.ssl.truststore.certificates"].startswith("${cluecdc:")
+    assert overrides[f"{prefix}.ssl.keystore.key"].startswith("${cluecdc:")
+
+
+def test_kafka_security_input_rejects_incompatible_credentials():
+    with pytest.raises(ValueError, match="supported mechanism"):
+        KafkaInput(
+            name="secure",
+            bootstrap_servers="broker:9093",
+            security_protocol="SASL_SSL",
+        )
+    with pytest.raises(ValueError, match="TLS credentials require"):
+        KafkaInput(
+            name="plain",
+            bootstrap_servers="broker:9092",
+            security_protocol="PLAINTEXT",
+            ssl_ca_pem="not-allowed",
+        )
+
+
+def test_kafka_tls_rejects_invalid_custom_ca():
+    secured = KafkaCluster(
+        bootstrap_servers="broker:9093",
+        security_protocol="SSL",
+        security_config_json={"has_custom_ca": True},
+    )
+    with pytest.raises(ssl.SSLError):
+        options(secured, {"ssl_ca_pem": "not-a-certificate"})
+    with pytest.raises(ValueError, match="supplied together"):
+        KafkaInput(
+            name="tls",
+            bootstrap_servers="broker:9093",
+            security_protocol="SSL",
+            ssl_certificate_pem="certificate-only",
+        )
+
+
+async def test_kafka_api_encrypts_and_masks_sasl_credentials(client, db_factory):
+    payload = {
+        "name": "secured Kafka",
+        "bootstrap_servers": "broker:9093",
+        "security_protocol": "SASL_SSL",
+        "sasl_mechanism": "SCRAM-SHA-512",
+        "username": "kafka-user",
+        "password": "kafka-password",
+    }
+    response = await client.post("/api/v1/kafka/clusters", json=payload)
+    assert response.status_code == 201
+    assert "kafka-user" not in response.text
+    assert "kafka-password" not in response.text
+    assert response.json()["credentials"]["configured"] is True
+    listed = await client.get("/api/v1/kafka/clusters")
+    assert "kafka-user" not in listed.text and "kafka-password" not in listed.text
+
+    async with db_factory() as db:
+        secret = await db.scalar(select(SecretReference))
+        secret_id = secret.id
+        values = await EncryptedDatabaseSecretProvider(db).get_secret(secret.id)
+        assert values == {"username": "kafka-user", "password": "kafka-password"}
+        assert "kafka-user" not in secret.ciphertext
+        assert "kafka-password" not in secret.ciphertext
+
+    rotated_payload = {key: value for key, value in payload.items() if key != "username"}
+    rotated_payload["password"] = "rotated-kafka-password"
+    rotated = await client.put(
+        f"/api/v1/kafka/clusters/{response.json()['id']}", json=rotated_payload
+    )
+    assert rotated.status_code == 200
+    assert "rotated-kafka-password" not in rotated.text
+    async with db_factory() as db:
+        secret = await db.get(SecretReference, secret_id)
+        assert await EncryptedDatabaseSecretProvider(db).get_secret(secret.id) == {
+            "username": "kafka-user",
+            "password": "rotated-kafka-password",
+        }
+
+
+async def test_production_plaintext_kafka_requires_explicit_override(client, monkeypatch):
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "allow_insecure_kafka", False)
+    payload = {
+        "name": "plaintext Kafka",
+        "bootstrap_servers": "broker:9092",
+        "security_protocol": "PLAINTEXT",
+    }
+    rejected = await client.post("/api/v1/kafka/clusters", json=payload)
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "INSECURE_KAFKA_DISABLED"
+
+    monkeypatch.setattr(settings, "allow_insecure_kafka", True)
+    assert (await client.post("/api/v1/kafka/clusters", json=payload)).status_code == 201
 
 
 @pytest.fixture(autouse=True)

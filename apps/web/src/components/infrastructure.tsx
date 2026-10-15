@@ -35,6 +35,13 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [protocol, setProtocol] = useState("PLAINTEXT");
+  const [mechanism, setMechanism] = useState("SCRAM-SHA-512");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [caPem, setCaPem] = useState("");
+  const [certificatePem, setCertificatePem] = useState("");
+  const [keyPem, setKeyPem] = useState("");
+  const [keyPassword, setKeyPassword] = useState("");
   const [kafkaId, setKafkaId] = useState("");
   const key = `${kind}-clusters`;
   const query = useQuery({
@@ -47,15 +54,35 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
     enabled: kind === "connect",
   });
   const save = useMutation({
-    mutationFn: () =>
-      api<Cluster>(`/${kind}/clusters${editing ? `/${editing.id}` : ""}`, {
-        method: editing ? "PUT" : "POST",
-        body: JSON.stringify(
-          kind === "kafka"
-            ? { name, bootstrap_servers: address, security_protocol: protocol }
-            : { name, base_url: address, kafka_cluster_id: kafkaId },
-        ),
-      }),
+    mutationFn: () => {
+      const kafkaBody: Record<string, string> = {
+        name,
+        bootstrap_servers: address,
+        security_protocol: protocol,
+      };
+      if (protocol.startsWith("SASL_")) {
+        kafkaBody.sasl_mechanism = mechanism;
+        if (username) kafkaBody.username = username;
+        if (password) kafkaBody.password = password;
+      }
+      if (["SSL", "SASL_SSL"].includes(protocol)) {
+        if (caPem) kafkaBody.ssl_ca_pem = caPem;
+        if (certificatePem) kafkaBody.ssl_certificate_pem = certificatePem;
+        if (keyPem) kafkaBody.ssl_key_pem = keyPem;
+        if (keyPassword) kafkaBody.ssl_key_password = keyPassword;
+      }
+      return api<Cluster>(
+        `/${kind}/clusters${editing ? `/${editing.id}` : ""}`,
+        {
+          method: editing ? "PUT" : "POST",
+          body: JSON.stringify(
+            kind === "kafka"
+              ? kafkaBody
+              : { name, base_url: address, kafka_cluster_id: kafkaId },
+          ),
+        },
+      );
+    },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: [key] });
       setOpen(false);
@@ -97,6 +124,17 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
         ? cluster.security_protocol
         : "PLAINTEXT",
     );
+    setMechanism(
+      cluster && "security_config" in cluster
+        ? cluster.security_config?.sasl_mechanism || "SCRAM-SHA-512"
+        : "SCRAM-SHA-512",
+    );
+    setUsername("");
+    setPassword("");
+    setCaPem("");
+    setCertificatePem("");
+    setKeyPem("");
+    setKeyPassword("");
     save.reset();
     setOpen(true);
   };
@@ -253,6 +291,8 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
               >
                 <option>PLAINTEXT</option>
                 <option>SSL</option>
+                <option>SASL_PLAINTEXT</option>
+                <option>SASL_SSL</option>
               </select>
             </Field>
           ) : (
@@ -270,6 +310,89 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
                 ))}
               </select>
             </Field>
+          )}
+          {kind === "kafka" && protocol.startsWith("SASL_") && (
+            <>
+              <Field label="SASL mechanism">
+                <select
+                  value={mechanism}
+                  onChange={(e) => setMechanism(e.target.value)}
+                >
+                  <option>PLAIN</option>
+                  <option>SCRAM-SHA-256</option>
+                  <option>SCRAM-SHA-512</option>
+                </select>
+              </Field>
+              <Field
+                label="SASL username"
+                hint={
+                  editing ? "Leave blank to retain the stored value" : undefined
+                }
+              >
+                <Input
+                  required={!editing}
+                  autoComplete="off"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="SASL password"
+                hint={
+                  editing ? "Leave blank to retain the stored value" : undefined
+                }
+              >
+                <Input
+                  required={!editing}
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </Field>
+            </>
+          )}
+          {kind === "kafka" && ["SSL", "SASL_SSL"].includes(protocol) && (
+            <>
+              <Field
+                label="Trusted CA (PEM)"
+                hint="Optional; blank uses platform trust"
+              >
+                <textarea
+                  value={caPem}
+                  onChange={(e) => setCaPem(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Client certificate (PEM)"
+                hint="Optional mTLS certificate chain"
+              >
+                <textarea
+                  value={certificatePem}
+                  onChange={(e) => setCertificatePem(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Client private key (PEM)"
+                hint="Required with a client certificate"
+              >
+                <textarea
+                  value={keyPem}
+                  onChange={(e) => setKeyPem(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Private-key password"
+                hint="Optional; leave blank to retain"
+              >
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={keyPassword}
+                  onChange={(e) => setKeyPassword(e.target.value)}
+                />
+              </Field>
+            </>
           )}
           {save.isError && (
             <div className="full-width">

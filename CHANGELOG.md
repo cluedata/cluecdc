@@ -6,6 +6,69 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - Unreleased
+
+### Security
+
+- Added centralized production configuration validation for HTTPS/CORS origins,
+  authenticated PostgreSQL metadata, unique high-entropy service secrets, and
+  known development credential rejection without exposing configured values.
+- Enforced production origin checks for cookie-authenticated writes, hardened
+  cookie expiry and browser response headers, and added a TLS-terminating
+  Kubernetes Ingress baseline without trusting client forwarding headers.
+- Expanded central response/audit redaction for transport credentials and
+  private keys, verified in-place encrypted credential rotation, and removed
+  unnecessary Kubernetes service-account token mounts from every workload.
+- Made login throttling metadata-backed across API replicas, invalidated
+  sessions after role changes, protected the last active Admin from demotion,
+  and added a regression test requiring server-side auth on every private API.
+- Added SSL and SASL_SSL/SASL_PLAINTEXT Kafka clients with PLAIN and SCRAM,
+  encrypted TLS/SASL material, verified certificates, ConfigProvider-only
+  connector overrides, and independently configured secure Connect workers.
+
+### Added
+
+- Added an isolated live CDC integrity matrix covering PostgreSQL and MySQL
+  sources against both JDBC destinations, with snapshot/stream reconciliation,
+  transactions, CRUD, primary-key updates, NULL, UTF-8, decimal and timestamp
+  cases, plus event-semantic MinIO JSONL verification.
+- Added a restart/offset-recovery acceptance test across connector tasks,
+  Kafka Connect, API, worker, Kafka and PostgreSQL outages; missing WAL, binlog,
+  schema-history and Kafka offset failures now return redacted recovery hints.
+- Added live snapshot and schema-safety coverage for table add/remove,
+  resnapshot repair, interruption and cancellation; compatible destination
+  columns are provisioned additively while breaking and unsupported changes
+  remain explicit operator actions.
+- Added non-mutating PostgreSQL logical-slot and retained-WAL diagnostics,
+  MySQL binlog retention/position inventory, configurable outage-window checks,
+  permission-limited warnings, and critical retention-risk alert recovery.
+- Hardened reconciliation so dependency outages preserve pause/stop intent and
+  one resource failure cannot cancel the worker batch; added live fault
+  injection for Connect, API/worker, source, and destination recovery without
+  connector recreation or implicit offset reset.
+- Added durable worker failure classification, bounded configurable exponential
+  backoff with jitter, attempt history and manual terminal-job retry; permanent
+  authentication, configuration, schema, and missing-history errors no longer
+  enter automatic retry loops.
+- Serialized connector lifecycle mutations with expiring durable leases, made
+  capture and delivery deploy retries adopt only exact deterministic connector
+  configurations, and suppressed duplicate table-operation execution without
+  holding database locks across external calls.
+- Added PostgreSQL metadata backup, archive/checksum validation, guarded
+  isolated restore, Alembic compatibility checks, and encrypted-secret
+  verification with a separately preserved key fingerprint.
+- Added a guarded v0.2.0 metadata upgrade preflight and runner that requires a
+  verified backup and compares entity identities, counts, ciphertext, secret
+  decryption, Alembic head, and schema drift before promotion.
+
+- Hardened the production Kustomize application base for external dependencies,
+  restricted containers, bounded writable scratch volumes, ingress isolation,
+  versioned images, startup probes, and graceful shutdown. Added offline policy
+  validation and isolated production container acceptance checks.
+- Added disposable TLS/mTLS/SASL Kafka, metadata recovery/upgrade and combined
+  hardening acceptance harnesses. The release workflow requires the live
+  hardening gate before image publication or release creation.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

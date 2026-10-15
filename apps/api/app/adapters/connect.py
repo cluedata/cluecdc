@@ -11,8 +11,44 @@ from app.core.errors import DomainError, redact
 log = structlog.get_logger()
 
 
-def failure_hint(trace: object) -> str:
+def failure_hint(trace: object, connector_type: str = "sink") -> str:
     text = str(trace).lower()
+    if connector_type == "source":
+        source_hints = [
+            (
+                (
+                    "requested wal segment has already been removed",
+                    "replication slot does not exist",
+                    "wal position is no longer available",
+                ),
+                "PostgreSQL replication position is unavailable; restore retained WAL/slot "
+                "or plan an explicit resnapshot",
+            ),
+            (
+                (
+                    "could not find first log file name in binary log index file",
+                    "the connector is trying to read binlog starting at",
+                    "binlog event is not available",
+                    "purged binary log",
+                ),
+                "MySQL binlog position is no longer retained; restore the binlog or plan "
+                "an explicit resnapshot",
+            ),
+            (
+                ("schema history", "database history topic"),
+                "Debezium schema history is unavailable; restore the history topic or plan "
+                "an explicit resnapshot",
+            ),
+            (
+                ("offset out of range", "no offset available"),
+                "Kafka source offset is unavailable; inspect Kafka retention before an "
+                "explicit resnapshot",
+            ),
+        ]
+        for needles, message in source_hints:
+            if any(needle in text for needle in needles):
+                return message
+        return "Source task failed; inspect Kafka Connect worker logs"
     hints = [
         (
             ("constraintviolationexception", "violates check constraint", "duplicate key"),
@@ -82,6 +118,7 @@ class KafkaConnectClient:
                 ) from exc
             result = "success"
             return redact(data, secrets) if secrets else data
+
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise DomainError(
                 "CONNECT_UNAVAILABLE", "Kafka Connect is unavailable or timed out", 503
@@ -99,6 +136,30 @@ class KafkaConnectClient:
                 result=result,
                 duration=round(time.monotonic() - started, 3),
             )
+
+    async def create_idempotent(self, name: str, config: dict) -> bool:
+        """Create a connector or adopt an exact deterministic prior attempt."""
+        try:
+            await self.create(name, config)
+            return True
+        except DomainError as error:
+            if error.code != "CONNECT_CONFLICT":
+                raise
+        try:
+            deployed = await self.raw_config(name)
+        except DomainError:
+            raise DomainError(
+                "CONNECT_DEPLOY_CONFLICT",
+                "Kafka Connect is busy or the connector name is already reserved",
+                409,
+            ) from None
+        if deployed != config:
+            raise DomainError(
+                "CONNECT_DEPLOY_CONFLICT",
+                "An existing connector with this name has different configuration",
+                409,
+            )
+        return False
 
     @staticmethod
     def path(name: str) -> str:
@@ -121,8 +182,16 @@ class KafkaConnectClient:
     async def info(self, name: str):
         return await self.request("GET", self.path(name))
 
+    async def raw_config(self, name: str) -> dict:
+        data = await self.request("GET", self.path(name) + "/config")
+        if not isinstance(data, dict):
+            raise DomainError(
+                "CONNECT_INVALID_RESPONSE", "Connector configuration was malformed", 502
+            )
+        return data
+
     async def config(self, name: str):
-        return redact(await self.request("GET", self.path(name) + "/config"))
+        return redact(await self.raw_config(name))
 
     async def validate(self, config: dict, secrets: List[str] | None = None):
         password = config.get("database.password") or config.get("connection.password", "")
@@ -183,11 +252,7 @@ class KafkaConnectClient:
         for task in data["tasks"]:
             trace = task.pop("trace", None)
             if trace:
-                task["error"] = (
-                    failure_hint(trace)
-                    if data.get("type") == "sink"
-                    else "Task failed; inspect Kafka Connect worker logs"
-                )
+                task["error"] = failure_hint(trace, str(data.get("type", "sink")))
         if data["connector"].pop("trace", None):
             data["connector"]["error"] = "Connector failed; inspect Kafka Connect worker logs"
         return data

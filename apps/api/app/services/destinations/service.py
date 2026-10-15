@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import KafkaExplorer, connector_security
 from app.alerts.monitoring import observe_connector, observe_database_connection
 from app.core.errors import DomainError, redact
 from app.models.entities import (
@@ -27,10 +27,14 @@ from app.repositories.metadata import audit, get, serialize
 from app.schemas.connections import ConnectionInput
 from app.schemas.requests import DeliveryInput, DestinationInput
 from app.services import connections as connection_service
+from app.services.connector_operations import claim as claim_connector_operation
+from app.services.connector_operations import complete as complete_connector_operation
+from app.services.connector_operations import owned as owned_connector_operation
+from app.services.connector_operations import release as release_connector_operation
 from app.services.debezium import derive_actual_state
 from app.services.destinations.adapter import DestinationAdapter
 from app.services.destinations.providers import delivery_provider
-from app.services.secrets import secret_provider
+from app.services.secrets import kafka_credentials, secret_provider
 
 log = structlog.get_logger()
 
@@ -463,9 +467,12 @@ async def build(
         ).all()
     }
     kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    kafka_secret_values = await kafka_credentials(session, kafka)
     secret_values = await connection_service.credentials(session, destination)
     await session.commit()
-    known_topics = {topic["name"] for topic in await KafkaExplorer().topics(kafka)}
+    known_topics = {
+        topic["name"] for topic in await KafkaExplorer(kafka_secret_values).topics(kafka)
+    }
     if not strategy.needs_relational_metadata:
         pipeline_topics = set(selected)
         missing_pipeline = set(data.topics) - pipeline_topics
@@ -500,6 +507,7 @@ async def build(
             name,
             has_session_token=bool(secret_values.get("session_token")),
         )
+        config.update(connector_security(kafka, "consumer.override"))
         await client.validate(config, secrets=list(secret_values.values()))
         return config, cluster, metadata, None
     metadata = {}
@@ -577,6 +585,7 @@ async def build(
     await target.test_connection()
     await target.validate(data, metadata)
     config = strategy.build_config(destination, data, metadata, name)
+    config.update(connector_security(kafka, "consumer.override"))
     await client.validate(config)
     return config, cluster, metadata, target
 
@@ -615,7 +624,10 @@ def stored_configuration(data: DeliveryInput) -> dict:
 async def deploy(
     session: AsyncSession, destination: Destination, data: DeliveryInput, actor: str
 ) -> dict:
-    identifier = uuid.uuid4()
+    identifier = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"cluecdc-delivery:{destination.id}:{data.pipeline_id}:{data.name}",
+    )
     name = "cluecdc-delivery-" + identifier.hex
     if await session.scalar(
         select(PipelineDestination.id).where(
@@ -627,10 +639,13 @@ async def deploy(
             "DELIVERY_EXISTS", "A delivery with this name already exists on the destination", 409
         )
     config, cluster, metadata, target = await build(session, destination, data, name)
+    # Close metadata reads before destination or Kafka Connect network calls.
+    await session.commit()
     if target is not None:
         await target.prepare(data, metadata)
     client = KafkaConnectClient(cluster.base_url)
-    await client.create(name, config)
+    cluster_id = cluster.id
+    created_external = await client.create_idempotent(name, config)
     try:
         connector = Connector(
             name=name,
@@ -669,10 +684,16 @@ async def deploy(
         await session.commit()
     except Exception:
         await session.rollback()
-        try:
-            await client.operate(name, "delete")
-        except DomainError:
-            log.error("destination_compensation_failed", connector_name=name)
+        owner = await session.scalar(
+            select(Connector.id).where(
+                Connector.connect_cluster_id == cluster_id, Connector.name == name
+            )
+        )
+        if created_external and owner is None:
+            try:
+                await client.operate(name, "delete")
+            except DomainError:
+                log.error("destination_compensation_failed", connector_name=name)
         raise
     return await delivery_view(session, delivery)
 
@@ -764,12 +785,19 @@ async def operate(
         raise DomainError("NOT_DEPLOYED", "Delivery has no connector", 409)
     connector = await get(session, Connector, delivery.connector_id)
     cluster = await get(session, ConnectCluster, connector.connect_cluster_id)
-    await session.commit()
+    connector_id = connector.id
+    connector_name = connector.name
+    token, _ = await claim_connector_operation(session, connector_id, operation)
     try:
-        await KafkaConnectClient(cluster.base_url).operate(connector.name, operation, task)
+        await KafkaConnectClient(cluster.base_url).operate(connector_name, operation, task)
     except DomainError as error:
         if operation != "delete" or error.code != "CONNECTOR_NOT_FOUND":
+            await release_connector_operation(session, connector_id, token)
             raise
+    except Exception:
+        await release_connector_operation(session, connector_id, token)
+        raise
+    connector = await owned_connector_operation(session, connector_id, token)
     if operation == "delete":
         for incident in (
             await session.scalars(
@@ -790,6 +818,7 @@ async def operate(
         delivery.desired_state = connector.desired_state = (
             "PAUSED" if operation == "pause" else "RUNNING"
         )
+    complete_connector_operation(connector, token)
     action = {
         "pause": "paused",
         "resume": "resumed",

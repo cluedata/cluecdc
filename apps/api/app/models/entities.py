@@ -98,6 +98,7 @@ class KafkaCluster(Entity, Base):
     name: Mapped[str] = mapped_column(String(120), unique=True)
     bootstrap_servers: Mapped[str] = mapped_column(String)
     security_protocol: Mapped[str] = mapped_column(String, default="PLAINTEXT")
+    security_config_json: Mapped[dict] = mapped_column(JSON, default=dict)
     secret_ref: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("secret_references.id"))
     status: Mapped[str] = mapped_column(String, default="UNKNOWN")
 
@@ -121,6 +122,9 @@ class Connector(Entity, Base):
     desired_state: Mapped[str] = mapped_column(String, default="STOPPED")
     actual_state: Mapped[str] = mapped_column(String, default="UNKNOWN")
     runtime_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    operation_token: Mapped[str | None] = mapped_column(String(32), index=True)
+    operation_name: Mapped[str | None] = mapped_column(String(40))
+    operation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Pipeline(Entity, Base):
@@ -476,9 +480,14 @@ class Job(Entity, Base):
     status: Mapped[str] = mapped_column(String, default="PENDING", index=True)
     result_json: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_category: Mapped[str | None] = mapped_column(String(80))
+    retryable: Mapped[bool | None] = mapped_column(Boolean)
+    failure_history_json: Mapped[list] = mapped_column(JSON, default=list)
     claimed_by: Mapped[str | None] = mapped_column(String(120), index=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

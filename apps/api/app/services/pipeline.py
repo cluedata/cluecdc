@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
-from app.adapters.kafka import KafkaExplorer
+from app.adapters.kafka import KafkaExplorer, source_connector_security
 from app.alerts.monitoring import observe_connector
 from app.core.errors import DomainError, redact
 from app.models.entities import (
@@ -26,7 +26,12 @@ from app.providers import get_provider
 from app.providers.server_ids import assign_mysql_connector_server_id
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import PipelineInput, TableSelection
+from app.services.connector_operations import claim as claim_connector_operation
+from app.services.connector_operations import complete as complete_connector_operation
+from app.services.connector_operations import owned as owned_connector_operation
+from app.services.connector_operations import release as release_connector_operation
 from app.services.debezium import derive_actual_state, notification_topic
+from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
 
 log = structlog.get_logger()
@@ -39,6 +44,19 @@ def aggregate_pipeline_state(capture_state: str, delivery_states: list[str]) -> 
     if any(state != "RUNNING" for state in delivery_states):
         return "DEGRADED"
     return "RUNNING"
+
+
+def table_capture_state(current: str, capture_state: str, desired_state: str) -> str:
+    """Project runtime state without erasing an operator's pause/remove intent."""
+    if current in {"REMOVING", "REMOVED"}:
+        return current
+    if desired_state in {"PAUSED", "STOPPED"} or capture_state in {"PAUSED", "STOPPED"}:
+        return "PAUSED"
+    if capture_state == "RUNNING":
+        return "STREAMING"
+    if capture_state in {"FAILED", "UNKNOWN"}:
+        return "FAILED"
+    return current
 
 
 async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, ConnectCluster]:
@@ -78,6 +96,7 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
         f"cluecdc-preview-{data.topic_prefix}",
         kafka.bootstrap_servers,
     )
+    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     return config, cluster
 
 
@@ -199,8 +218,11 @@ async def prepare_topics(session: AsyncSession, pipeline: Pipeline, actor: str) 
         await session.scalars(select(PipelineTable).where(PipelineTable.pipeline_id == pipeline.id))
     ).all()
     cluster = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    credentials = await kafka_credentials(session, cluster)
     await session.commit()
-    result = await KafkaExplorer().ensure_topics(cluster, [table.topic_name for table in tables])
+    result = await KafkaExplorer(credentials).ensure_topics(
+        cluster, [table.topic_name for table in tables]
+    )
     cluster.status = "HEALTHY"
     audit(session, actor, "pipeline.topics_prepared", pipeline)
     return result
@@ -225,15 +247,19 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
         name,
         kafka.bootstrap_servers,
     )
+    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
     client = KafkaConnectClient(cluster.base_url)
+    cluster_id = cluster.id
     # Close the metadata transaction before any Kafka/Connect network calls.
     await session.commit()
     await client.validate(config)
-    await KafkaExplorer().ensure_topics(kafka, [notification_topic(pipeline.topic_prefix)])
+    await KafkaExplorer(await kafka_credentials(session, kafka)).ensure_topics(
+        kafka, [notification_topic(pipeline.topic_prefix)]
+    )
     await prepare_topics(session, pipeline, actor)
     await session.commit()
     # POST preserves externally owned connectors; never overwrite on collision.
-    await client.create(name, config)
+    created_external = await client.create_idempotent(name, config)
     try:
         pipeline = await locked(session, pipeline_id)
         if pipeline.connector_id:
@@ -255,12 +281,20 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
         await session.commit()
     except Exception:
         await session.rollback()
-        try:
-            await client.operate(name, "delete")
-        except DomainError:
-            log.error(
-                "deployment_compensation_failed", connector_name=name, pipeline_id=str(pipeline_id)
+        owner = await session.scalar(
+            select(Connector.id).where(
+                Connector.connect_cluster_id == cluster_id, Connector.name == name
             )
+        )
+        if created_external and owner is None:
+            try:
+                await client.operate(name, "delete")
+            except DomainError:
+                log.error(
+                    "deployment_compensation_failed",
+                    connector_name=name,
+                    pipeline_id=str(pipeline_id),
+                )
         raise
     log.info(
         "pipeline_operation",
@@ -307,14 +341,9 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         )
     ).all()
     for table in tables:
-        if capture_state == "RUNNING" and table.cdc_status not in {
-            "PAUSED",
-            "REMOVING",
-            "REMOVED",
-        }:
-            table.cdc_status = "STREAMING"
-        elif capture_state in {"FAILED", "UNKNOWN"}:
-            table.cdc_status = "FAILED"
+        table.cdc_status = table_capture_state(
+            table.cdc_status, capture_state, pipeline.desired_state
+        )
         mapped_states = [
             link.actual_state
             for link in links
@@ -334,9 +363,10 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         table.snapshot_status in {"PENDING", "RUNNING"} for table in tables
     ):
         kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        credentials = await kafka_credentials(session, kafka)
         await session.commit()
         try:
-            notifications = await KafkaExplorer().notifications(
+            notifications = await KafkaExplorer(credentials).notifications(
                 kafka, notification_topic(pipeline.topic_prefix)
             )
             _apply_initial_snapshot_notifications(tables, notifications)
@@ -448,15 +478,19 @@ async def operate(
     client = KafkaConnectClient(cluster.base_url)
     connector_name = connector.name
     connector_id = connector.id
-    await session.commit()
+    token, _ = await claim_connector_operation(session, connector_id, operation)
     if operation == "delete":
         try:
             await client.operate(connector_name, "delete")
         except DomainError as exc:
             if exc.code != "CONNECTOR_NOT_FOUND":
+                await release_connector_operation(session, connector_id, token)
                 raise
+        except Exception:
+            await release_connector_operation(session, connector_id, token)
+            raise
         pipeline = await locked(session, pipeline_id)
-        connector = await get(session, Connector, connector_id)
+        connector = await owned_connector_operation(session, connector_id, token)
         for incident in (
             await session.scalars(
                 select(PipelineEvent).where(
@@ -471,9 +505,13 @@ async def operate(
         await session.flush()
         await session.delete(connector)
         return {"deleted": True}
-    await client.operate(connector_name, operation, task)
+    try:
+        await client.operate(connector_name, operation, task)
+    except Exception:
+        await release_connector_operation(session, connector_id, token)
+        raise
     pipeline = await locked(session, pipeline_id)
-    connector = await get(session, Connector, connector_id)
+    connector = await owned_connector_operation(session, connector_id, token)
     if operation in {"pause", "resume"}:
         pipeline.desired_state = connector.desired_state = (
             "PAUSED" if operation == "pause" else "RUNNING"
@@ -484,6 +522,7 @@ async def operate(
         "restart": "restarted",
         "restart-task": "task_restarted",
     }[operation]
+    complete_connector_operation(connector, token)
     audit(session, actor, f"pipeline.{action}", pipeline)
     await session.commit()
     pipeline = await get(session, Pipeline, pipeline_id)

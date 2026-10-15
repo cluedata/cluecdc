@@ -141,32 +141,63 @@ class PostgresDestinationAdapter:
                     )
 
     async def prepare(self, data: DeliveryInput, metadata: dict) -> None:
-        if not data.auto_create or data.auto_evolve:
+        if not data.auto_create:
             return
-        # The JDBC plugin combines create/evolve. For create-only, provision once using
-        # the validated source schema and let JDBC perform only DML afterward.
         async with self.database.connection() as connection:
+            if data.auto_evolve:
+                # Debezium JDBC refuses to add a required column without a destination
+                # default, even when the source has a default. Add only missing columns
+                # as nullable before updating the connector. Existing rows then have an
+                # explicit, observable NULL until an operator resnapshots the table.
+                for mapping in data.mappings:
+                    table = await connection.fetchrow(
+                        "SELECT c.oid FROM pg_class c JOIN pg_namespace n ON "
+                        "n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2 "
+                        "AND c.relkind='r'",
+                        mapping.schema_name,
+                        mapping.table_name,
+                    )
+                    if not table:
+                        continue
+                    existing = {
+                        row["attname"]
+                        for row in await connection.fetch(
+                            "SELECT attname FROM pg_attribute WHERE attrelid=$1 "
+                            "AND attnum>0 AND NOT attisdropped",
+                            table["oid"],
+                        )
+                    }
+                    for column in metadata[mapping.topic]["columns"]:
+                        if column["name"] not in existing:
+                            await connection.execute(
+                                f"ALTER TABLE {self._quote(mapping.schema_name)}."
+                                f"{self._quote(mapping.table_name)} ADD COLUMN IF NOT EXISTS "
+                                f"{self._quote(column['name'])} {column['type']}"
+                            )
+                return
+            # The JDBC plugin combines create/evolve. For create-only, provision once using
+            # the validated source schema and let JDBC perform only DML afterward.
             async with connection.transaction():
                 for mapping in data.mappings:
                     table = metadata[mapping.topic]
-
-                    def quote(value: str) -> str:
-                        return '"' + value.replace('"', '""') + '"'
-
                     fields = [
-                        f"{quote(column['name'])} {column['type']}"
+                        f"{self._quote(column['name'])} {column['type']}"
                         + (" NOT NULL" if not column["nullable"] else "")
                         for column in table["columns"]
                     ]
                     fields.append(
                         "PRIMARY KEY ("
-                        + ",".join(quote(key) for key in table["primary_keys"])
+                        + ",".join(self._quote(key) for key in table["primary_keys"])
                         + ")"
                     )
                     await connection.execute(
-                        f"CREATE TABLE IF NOT EXISTS {quote(mapping.schema_name)}."
-                        f"{quote(mapping.table_name)} (" + ",".join(fields) + ")"
+                        f"CREATE TABLE IF NOT EXISTS {self._quote(mapping.schema_name)}."
+                        f"{self._quote(mapping.table_name)} (" + ",".join(fields) + ")"
                     )
+
+    @staticmethod
+    def _quote(value: str) -> str:
+        return '"' + value.replace('"', '""') + '"'
 
     async def drop_table(self, schema_name: str, table_name: str) -> None:
         def quote(value: str) -> str:
@@ -273,10 +304,37 @@ class MySQLDestinationAdapter:
                     )
 
     async def prepare(self, data: DeliveryInput, metadata: dict) -> None:
-        if not data.auto_create or data.auto_evolve:
+        if not data.auto_create:
             return
         async with self.database.connection() as connection:
             async with connection.cursor() as cursor:
+                if data.auto_evolve:
+                    for mapping in data.mappings:
+                        present = await self.database._one(
+                            connection,
+                            "SELECT COUNT(*) AS present FROM information_schema.tables "
+                            "WHERE table_schema=%s AND table_name=%s",
+                            (mapping.schema_name, mapping.table_name),
+                        )
+                        if not present or not present["present"]:
+                            continue
+                        columns = await self.database._all(
+                            connection,
+                            "SELECT column_name AS name FROM information_schema.columns "
+                            "WHERE table_schema=%s AND table_name=%s",
+                            (mapping.schema_name, mapping.table_name),
+                        )
+                        existing = {column["name"] for column in columns}
+                        qualified = (
+                            f"{self.quote(mapping.schema_name)}.{self.quote(mapping.table_name)}"
+                        )
+                        for column in metadata[mapping.topic]["columns"]:
+                            if column["name"] not in existing:
+                                await cursor.execute(
+                                    f"ALTER TABLE {qualified} ADD COLUMN "
+                                    f"{self.quote(column['name'])} {column['type']} NULL"
+                                )
+                    return
                 for mapping in data.mappings:
                     table = metadata[mapping.topic]
                     fields = [

@@ -5,25 +5,24 @@ import gzip
 import json
 import os
 import pathlib
-import subprocess
 import time
 import urllib.error
 import urllib.request
 import uuid
 
 import boto3
+from cdc_acceptance_support import Compose, load_environment
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:8000/api/v1")
 parser.add_argument("--minio-url", default="http://localhost:9000")
 parser.add_argument("--compose-project")
+parser.add_argument("--env-file", action="append", type=pathlib.Path)
 args = parser.parse_args()
-env = dict(
-    line.split("=", 1)
-    for line in (ROOT / ".env").read_text().splitlines()
-    if "=" in line and not line.startswith("#")
-)
+env_files = args.env_file or [ROOT / ".env"]
+env = load_environment(env_files)
+compose = Compose(args.compose_project or "cluecdc", env_files)
 access_key = os.getenv(
     "MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "cluecdc-test-access")
 )
@@ -175,31 +174,7 @@ sql = (
     f"UPDATE customers SET name = 'update {marker}', updated_at = now() WHERE email = '{email}';\n"
     f"DELETE FROM customers WHERE email = '{email}';\n"
 )
-command = ["docker", "compose"]
-if args.compose_project:
-    command.extend(["-p", args.compose_project])
-command.extend(
-    [
-        "-f",
-        "compose.yaml",
-        "-f",
-        "compose.test.yaml",
-        "exec",
-        "-T",
-        "cdc-source-postgres",
-        "psql",
-        "-U",
-        "postgres",
-        "-d",
-        "commerce",
-        "-v",
-        "ON_ERROR_STOP=1",
-    ]
-)
-result = subprocess.run(
-    command, input=sql, text=True, cwd=ROOT, capture_output=True, check=False
-)
-assert result.returncode == 0, "Source CDC mutations failed"
+compose.postgres("cdc-source-postgres", "commerce", sql)
 client = boto3.client(
     "s3",
     endpoint_url=args.minio_url,

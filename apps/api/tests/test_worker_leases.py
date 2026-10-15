@@ -9,8 +9,19 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.errors import DomainError
-from app.models.entities import Base, Job, now
+from app.models.entities import (
+    Base,
+    ConnectCluster,
+    Connector,
+    Job,
+    KafkaCluster,
+    Pipeline,
+    PipelineDestination,
+    Source,
+    now,
+)
 from app.workers import worker
+from app.workers.retry import classify_failure, retry_delay_seconds
 
 
 async def queued_job(factory, **kwargs):
@@ -37,8 +48,17 @@ async def test_expired_lease_is_recovered_but_active_lease_is_not(db_factory, mo
         lease_expires_at=now() + timedelta(minutes=5),
         attempt_count=1,
     )
+    assert await worker._claim_job("replacement-worker") is None
+    async with db_factory() as db:
+        recovered = await db.get(Job, expired)
+        assert recovered.status == "PENDING"
+        assert recovered.error_code == "WORKER_LEASE_EXPIRED"
+        assert recovered.error_category == "TRANSIENT_CONNECTIVITY"
+        assert recovered.failure_history_json[-1]["attempt"] == 1
+        recovered.next_attempt_at = now() - timedelta(seconds=1)
+        await db.commit()
     claim = await worker._claim_job("replacement-worker")
-    assert claim[0] == expired
+    assert claim is not None and claim[0] == expired
     assert await worker._claim_job("other-worker") is None
     async with db_factory() as db:
         recovered = await db.get(Job, expired)
@@ -56,12 +76,73 @@ async def test_retry_backoff_and_terminal_failure(db_factory, monkeypatch):
             job = await db.get(Job, identifier)
             assert "secret-in-exception" not in job.error
             assert job.attempt_count == attempt
+            assert job.error_code == "UNEXPECTED_ERROR"
+            assert job.error_category == "UNKNOWN"
+            assert job.retryable is True
+            assert job.last_attempt_at is not None
+            assert len(job.failure_history_json) == attempt
             assert job.claimed_by is None and job.lease_expires_at is None
             assert job.status == ("FAILED" if attempt == 3 else "PENDING")
             if attempt < 3:
                 assert await worker._claim_job() is None
                 job.next_attempt_at = now() - timedelta(seconds=1)
                 await db.commit()
+
+
+async def test_permanent_failure_is_not_automatically_retried(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    identifier = await queued_job(db_factory)
+    assert await worker._claim_job()
+    await worker._fail_job(
+        identifier,
+        DomainError("SOURCE_AUTH_FAILED", "Source rejected the supplied credentials", 422),
+    )
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "FAILED" and job.attempt_count == 1
+        assert job.error_category == "AUTHENTICATION" and job.retryable is False
+        assert job.failure_history_json[-1]["code"] == "SOURCE_AUTH_FAILED"
+
+
+async def test_transient_failure_recovers_on_a_later_attempt(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    identifier = await queued_job(db_factory)
+    calls = 0
+
+    async def health(*_):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError
+        return {"status": "passed"}
+
+    monkeypatch.setattr(worker, "health", health)
+    assert await worker.run_job()
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "PENDING"
+        assert job.error_category == "TRANSIENT_CONNECTIVITY"
+        job.next_attempt_at = now() - timedelta(seconds=1)
+        await db.commit()
+    assert await worker.run_job()
+    async with db_factory() as db:
+        job = await db.get(Job, identifier)
+        assert job.status == "COMPLETED" and job.attempt_count == 2
+        assert job.result_json == {"status": "passed"}
+        assert job.error is None and len(job.failure_history_json) == 1
+
+
+def test_failure_classification_and_bounded_jitter(monkeypatch):
+    assert classify_failure(TimeoutError()).category == "TRANSIENT_CONNECTIVITY"
+    schema = classify_failure(DomainError("DESTINATION_SCHEMA_ERROR", "incompatible"))
+    assert schema.category == "SCHEMA_INCOMPATIBILITY" and schema.retryable is False
+    history = classify_failure(DomainError("CDC_WAL_ERROR", "missing WAL"))
+    assert history.category == "MISSING_SOURCE_HISTORY" and history.retryable is False
+    resource = classify_failure(DomainError("RESOURCE_EXHAUSTED", "busy", 503))
+    assert resource.category == "RESOURCE_EXHAUSTION" and resource.retryable is True
+    monkeypatch.setattr("app.workers.retry.random.uniform", lambda low, high: high)
+    assert retry_delay_seconds(1, 2, 60, 0.25) == 2.5
+    assert retry_delay_seconds(10, 2, 60, 0.25) == 60
 
 
 async def test_success_commits_the_operation_result_and_clears_the_lease(db_factory, monkeypatch):
@@ -217,3 +298,91 @@ async def test_losing_lease_cancels_external_work_without_overwriting_new_owner(
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_reconcile_failure_is_isolated_per_resource(db_factory, monkeypatch):
+    monkeypatch.setattr(worker, "Session", db_factory)
+    pipeline_ids = [uuid4(), uuid4()]
+    delivery_ids = [uuid4(), uuid4()]
+    async with db_factory() as db:
+        source = Source(
+            name="reconcile-source",
+            type="postgresql",
+            host="source",
+            port=5432,
+            database_name="commerce",
+            username="cdc",
+        )
+        kafka = KafkaCluster(name="reconcile-kafka", bootstrap_servers="kafka:9092")
+        db.add_all([source, kafka])
+        await db.flush()
+        connect = ConnectCluster(
+            name="reconcile-connect",
+            base_url="http://connect:8083",
+            kafka_cluster_id=kafka.id,
+        )
+        db.add(connect)
+        await db.flush()
+        connectors = [
+            Connector(
+                name=f"connector-{index}",
+                connect_cluster_id=connect.id,
+                connector_class="test.Connector",
+                config_json={},
+            )
+            for index in range(4)
+        ]
+        db.add_all(connectors)
+        await db.flush()
+        db.add_all(
+            Pipeline(
+                id=identifier,
+                name=f"pipeline-{index}",
+                source_id=source.id,
+                kafka_cluster_id=kafka.id,
+                connect_cluster_id=connect.id,
+                connector_id=connectors[index].id,
+                topic_prefix=f"topic-{index}",
+                snapshot_mode="initial",
+            )
+            for index, identifier in enumerate(pipeline_ids)
+        )
+        await db.flush()
+        db.add_all(
+            PipelineDestination(
+                id=identifier,
+                pipeline_id=pipeline_ids[index],
+                destination_id=source.id,
+                connector_id=connectors[index + 2].id,
+                name=f"delivery-{index}",
+            )
+            for index, identifier in enumerate(delivery_ids)
+        )
+        await db.commit()
+
+    observed: list[tuple[str, object]] = []
+
+    async def reconcile_pipeline(session, pipeline):
+        observed.append(("pipeline", pipeline.id))
+        if pipeline.id == pipeline_ids[0]:
+            raise RuntimeError("isolated pipeline failure")
+        return {}
+
+    async def reconcile_delivery(session, delivery):
+        observed.append(("delivery", delivery.id))
+        if delivery.id == delivery_ids[0]:
+            raise RuntimeError("isolated delivery failure")
+        return {}
+
+    async def sync(session):
+        observed.append(("snapshots", None))
+
+    monkeypatch.setattr(worker, "reconcile", reconcile_pipeline)
+    monkeypatch.setattr(worker, "reconcile_delivery", reconcile_delivery)
+    monkeypatch.setattr(worker, "sync_snapshot_operations", sync)
+
+    await worker._reconcile_batch()
+
+    assert {value for kind, value in observed if kind == "pipeline"} == set(pipeline_ids)
+    assert {value for kind, value in observed if kind == "delivery"} == set(delivery_ids)
+    assert ("snapshots", None) in observed

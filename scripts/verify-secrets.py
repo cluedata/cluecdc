@@ -7,22 +7,24 @@ import pathlib
 import subprocess
 import urllib.request
 
+from cdc_acceptance_support import Compose, load_environment
+
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:3000/api/v1")
 parser.add_argument("--connect-url", default="http://localhost:8083")
 parser.add_argument("--compose-project")
+parser.add_argument("--env-file", action="append", type=pathlib.Path)
 args = parser.parse_args()
-env = dict(
-    line.split("=", 1)
-    for line in (root / ".env").read_text().splitlines()
-    if "=" in line
-)
+env_files = args.env_file or [root / ".env"]
+env = load_environment(env_files)
 secret_values = [
     env[key]
     for key in [
         "SOURCE_PASSWORD",
         "SOURCE_ADMIN_PASSWORD",
+        "MYSQL_SOURCE_PASSWORD",
+        "MYSQL_DESTINATION_PASSWORD",
         "DESTINATION_PASSWORD",
         "DESTINATION_ADMIN_PASSWORD",
         "METADATA_PASSWORD",
@@ -112,13 +114,7 @@ checked(base + "/audit?limit=500")
 checked(base + "/connect/connectors")
 logs = subprocess.run(
     [
-        "docker",
-        "compose",
-        *(["-p", args.compose_project] if args.compose_project else []),
-        "-f",
-        "compose.yaml",
-        "-f",
-        "compose.test.yaml",
+        *Compose(args.compose_project or "cluecdc", env_files).command,
         "logs",
         "--no-color",
         "cluecdc-api",

@@ -1,0 +1,95 @@
+name: Hardening acceptance
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: npm ci
+      - name: Prepare disposable browser fixtures
+        run: |
+          cp .env.example .env
+          cat .env.test.example >> .env
+          python scripts/bootstrap.py
+      - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
+      - name: Run isolated security, CDC, recovery and operations gates
+        run: python scripts/hardening_acceptance.py --env-file .env --browser
+      # Upload only sanitized reports; database archives, ciphertext and generated TLS keys stay private.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hardening-acceptance-${{ github.run_id }}
+          path: |
+            artifacts/*.json
+            artifacts/hardening-diagnostics.log
+            apps/web/test-results/
+          if-no-files-found: error
+
+  kubernetes-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLUSTER_NAME: cluecdc-hardening-${{ github.run_id }}-${{ github.run_attempt }}
+      KUBECONFIG: ${{ github.workspace }}/.codex-tmp/hardening-kubeconfig
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e "apps/api[dev]"
+      - name: Install pinned kind test tool
+        run: |
+          curl -fsSLo kind https://github.com/kubernetes-sigs/kind/releases/download/v0.29.0/kind-linux-amd64
+          echo 'c72eda46430f065fb45c5f70e7c957cc9209402ef309294821978677c8fb3284  kind' | sha256sum --check --strict
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+      - name: Create isolated Kubernetes cluster with policy-enforcing CNI
+        run: |
+          mkdir -p .codex-tmp
+          kind create cluster --name "${CLUSTER_NAME}" --config deploy/kubernetes/tests/kind.yaml --kubeconfig "${KUBECONFIG}"
+          curl -fsSLo calico.yaml https://raw.githubusercontent.com/projectcalico/calico/v3.30.3/manifests/calico.yaml
+          echo '9382d2b27a76f40c170454b408653e6d71e2205ef0aef069e942bb690e7381d0  calico.yaml' | sha256sum --check --strict
+          kubectl create -f calico.yaml
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=180s
+          kubectl wait --for=condition=Ready nodes --all --timeout=180s
+          curl -fsSLo ingress-nginx.yaml https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.3/deploy/static/provider/kind/deploy.yaml
+          echo '6365566a906aede0977b1dfaf355a01398cd076b377864e3114d3eab52442346  ingress-nginx.yaml' | sha256sum --check --strict
+          kubectl apply -f ingress-nginx.yaml
+          kubectl -n ingress-nginx wait --for=condition=Complete job/ingress-nginx-admission-create --timeout=180s
+          kubectl -n ingress-nginx wait --for=condition=Complete job/ingress-nginx-admission-patch --timeout=180s
+          kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s
+      - run: docker build -t cluecdc-api:k8s -f infrastructure/docker/api.Dockerfile .
+      - run: docker build -t cluecdc-web:k8s .
+      - name: Verify production rollout, HTTPS and allow/deny boundaries
+        run: python scripts/kubernetes_acceptance.py --kind /usr/local/bin/kind --cluster-name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}" --api-image cluecdc-api:k8s --web-image cluecdc-web:k8s
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kubernetes-hardening-${{ github.run_id }}
+          path: |
+            artifacts/kubernetes-acceptance.json
+            artifacts/kubernetes-diagnostics.log
+          if-no-files-found: warn
+      - name: Remove the isolated test cluster
+        if: always()
+        run: kind delete cluster --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}"

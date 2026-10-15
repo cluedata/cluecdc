@@ -15,7 +15,8 @@ import org.apache.kafka.common.config.provider.ConfigProvider;
 public final class ClueSecretConfigProvider implements ConfigProvider {
     private static final Set<String> ALLOWED_KEYS = Set.of(
             "password", "access_key", "secret_key", "session_token",
-            "credential", "token", "client_secret");
+            "credential", "token", "client_secret", "username",
+            "ssl_ca_pem", "ssl_certificate_pem", "ssl_key_pem", "ssl_key_password");
     private String baseUrl;
     private String token;
 

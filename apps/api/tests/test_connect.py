@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.adapters.connect import KafkaConnectClient
+from app.adapters.connect import KafkaConnectClient, failure_hint
 from app.core.errors import DomainError
 
 
@@ -69,3 +69,66 @@ async def test_raw_traces_never_return_to_browser():
         result = await KafkaConnectClient("http://connect", http).status("capture")
         assert "private" not in str(result)
         assert result["tasks"][0]["state"] == "FAILED"
+
+
+@pytest.mark.parametrize(
+    "trace,expected",
+    [
+        ("requested WAL segment has already been removed password=private", "PostgreSQL"),
+        ("purged binary log password=private", "MySQL"),
+        ("database history topic is missing password=private", "schema history"),
+        ("Offset out of range password=private", "Kafka source offset"),
+    ],
+)
+def test_source_position_failures_are_actionable_and_redacted(trace, expected):
+    hint = failure_hint(trace, "source")
+    assert expected in hint
+    assert "private" not in hint
+
+
+async def test_source_status_maps_missing_position_without_raw_trace():
+    runtime = {
+        "type": "source",
+        "connector": {"state": "RUNNING"},
+        "tasks": [
+            {
+                "id": 0,
+                "state": "FAILED",
+                "trace": "purged binary log password=private",
+            }
+        ],
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=runtime))
+    ) as http:
+        result = await KafkaConnectClient("http://connect", http).status("capture")
+        assert "MySQL binlog position" in result["tasks"][0]["error"]
+        assert "private" not in str(result)
+
+
+async def test_idempotent_create_adopts_only_exact_existing_configuration():
+    config = {
+        "name": "capture",
+        "connector.class": "example.Source",
+        "database.password": "${cluecdc:reference:password}",
+    }
+
+    def exact(request):
+        if request.method == "POST":
+            return httpx.Response(409)
+        return httpx.Response(200, json=config)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(exact)) as http:
+        client = KafkaConnectClient("http://connect", http)
+        assert not await client.create_idempotent("capture", config)
+        assert (await client.config("capture"))["database.password"] == "[REDACTED]"
+
+    def different(request):
+        if request.method == "POST":
+            return httpx.Response(409)
+        return httpx.Response(200, json={**config, "tasks.max": "2"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(different)) as http:
+        with pytest.raises(DomainError) as exc:
+            await KafkaConnectClient("http://connect", http).create_idempotent("capture", config)
+        assert exc.value.code == "CONNECT_DEPLOY_CONFLICT"

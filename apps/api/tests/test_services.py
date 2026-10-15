@@ -4,9 +4,88 @@ import httpx
 from sqlalchemy import select
 
 from app.models.entities import AuditLog, Connector, Job, SchemaVersion, SourceTable
-from app.services.source import discover
+from app.services.source import discover, schema_diff
 from app.workers import worker
 from tests.test_api import setup_pipeline
+
+
+def _schema(columns, primary_key=None):
+    return {"columns": columns, "primary_key": primary_key or ["id"]}
+
+
+def test_schema_diff_compatibility_matrix():
+    base = [
+        {"name": "id", "type": "bigint", "nullable": False},
+        {"name": "name", "type": "character varying(32)", "nullable": False},
+    ]
+    changes = schema_diff(
+        _schema(base),
+        _schema(
+            [
+                base[0],
+                {**base[1], "type": "character varying(64)"},
+                {"name": "note", "type": "text", "nullable": True},
+                {
+                    "name": "status",
+                    "type": "text",
+                    "nullable": False,
+                    "has_default": True,
+                },
+            ]
+        ),
+        "postgresql",
+    )
+    assert {(item["change"], item.get("column"), item["classification"]) for item in changes} == {
+        ("type_changed", "name", "NON_BREAKING"),
+        ("column_added", "note", "NON_BREAKING"),
+        ("column_added", "status", "NON_BREAKING"),
+    }
+
+
+def test_schema_diff_marks_drop_narrowing_type_and_primary_key_as_breaking():
+    changes = schema_diff(
+        _schema(
+            [
+                {"name": "id", "type": "bigint", "nullable": False},
+                {"name": "name", "type": "character varying(64)", "nullable": True},
+                {"name": "obsolete", "type": "text", "nullable": True},
+            ]
+        ),
+        _schema(
+            [
+                {"name": "id", "type": "text", "nullable": False},
+                {"name": "name", "type": "character varying(16)", "nullable": False},
+            ],
+            ["name"],
+        ),
+        "postgresql",
+    )
+    assert all(item["classification"] == "BREAKING" for item in changes)
+    assert {item["change"] for item in changes} == {
+        "column_removed",
+        "type_changed",
+        "nullable_changed",
+        "primary_key_changed",
+    }
+
+
+def test_schema_diff_marks_required_column_without_default_for_review():
+    changes = schema_diff(
+        _schema([{"name": "id", "type": "bigint", "nullable": False}]),
+        _schema(
+            [
+                {"name": "id", "type": "bigint", "nullable": False},
+                {"name": "required", "type": "text", "nullable": False},
+            ]
+        ),
+    )
+    assert changes == [
+        {
+            "column": "required",
+            "change": "column_added",
+            "classification": "POTENTIALLY_BREAKING",
+        }
+    ]
 
 
 async def test_discovery_versions_only_change_with_schema(
