@@ -74,7 +74,9 @@ jobs:
           kubectl wait --for=condition=Ready nodes --all --timeout=180s
           curl -fsSLo ingress-nginx.yaml https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.3/deploy/static/provider/kind/deploy.yaml
           echo '6365566a906aede0977b1dfaf355a01398cd076b377864e3114d3eab52442346  ingress-nginx.yaml' | sha256sum --check --strict
-          kubectl apply -f ingress-nginx.yaml
+          # Upstream TTL=0 can delete a completed Job before the sequential waits observe it.
+          python scripts/prepare_ingress_fixture.py ingress-nginx.yaml .codex-tmp/ingress-nginx-retained.yaml
+          kubectl apply -f .codex-tmp/ingress-nginx-retained.yaml
           kubectl -n ingress-nginx wait --for=condition=Complete job/ingress-nginx-admission-create --timeout=180s
           kubectl -n ingress-nginx wait --for=condition=Complete job/ingress-nginx-admission-patch --timeout=180s
           kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s

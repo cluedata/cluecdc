@@ -126,7 +126,10 @@ test failure recovery before promotion. See [backup and restore](../operations/b
 The `kubernetes-hardening` job in `.github/workflows/hardening.yml` provisions a
 dedicated kind cluster with pinned, checksum-verified Calico and ingress-nginx
 fixtures. These are test dependencies; the production base does not install
-them. The setup follows the upstream [kind](https://kind.sigs.k8s.io/docs/user/quick-start/)
+them. After checksum verification, the fixture preparation removes immediate
+TTL cleanup from the two ingress admission Jobs so sequential completion waits
+cannot race Job deletion. Both Jobs must still complete; cluster teardown
+removes them. The setup follows the upstream [kind](https://kind.sigs.k8s.io/docs/user/quick-start/)
 and [Calico on kind](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind)
 procedures, with the default CNI disabled so policy enforcement is tested.
 
