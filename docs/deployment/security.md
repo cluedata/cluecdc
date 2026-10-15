@@ -32,6 +32,10 @@ Provide `database-url`, `secret-encryption-key`, `connect-secret-token`, and
 Secret. The manifests contain references only and disable service-account token
 mounting; ClueCDC workloads do not need Kubernetes API permission to list or
 read Secrets. Do not commit a rendered Secret or plaintext `stringData` file.
+The production Kustomize base also enforces restricted pod security, read-only
+root filesystems, dropped capabilities, bounded temporary volumes, and default-
+deny ingress. Adjust ingress-controller and private Connect selectors in an
+overlay without exposing the API or Connect REST publicly.
 
 Credential edits replace the ciphertext in the existing secret reference, so
 deployed connector references remain stable. Rotate the credential at the

@@ -1,3 +1,5 @@
+# Development reference only. This workload is intentionally excluded from the
+# production Kustomize base; operate Kafka Connect as an external dependency.
 apiVersion: v1
 kind: Service
 metadata:

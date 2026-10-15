@@ -22,7 +22,7 @@ include = ["app*"]
 exclude = ["migrations*", "tests*"]
 
 [project.optional-dependencies]
-dev = ["pytest==9.1.1", "pytest-asyncio==1.3.0", "ruff==0.15.6", "mypy==1.19.1", "respx==0.22.0", "aiosqlite==0.22.1"]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.3.0", "ruff==0.15.6", "mypy==1.19.1", "respx==0.22.0", "aiosqlite==0.22.1", "PyYAML==6.0.3"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

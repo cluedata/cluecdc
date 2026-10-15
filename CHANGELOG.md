@@ -59,6 +59,11 @@ All notable changes to ClueCDC are documented here. The format follows
   verified backup and compares entity identities, counts, ciphertext, secret
   decryption, Alembic head, and schema drift before promotion.
 
+- Hardened the production Kustomize application base for external dependencies,
+  restricted containers, bounded writable scratch volumes, ingress isolation,
+  versioned images, startup probes, and graceful shutdown. Added offline policy
+  validation and isolated production container acceptance checks.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

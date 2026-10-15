@@ -1,42 +1,35 @@
-# Kubernetes baseline
+# Kubernetes production base
 
-This Kustomize base deploys ClueCDC, PostgreSQL metadata, and distributed Kafka
-Connect. It deliberately does not install Kafka. Read `docs/deployment/kubernetes.md`
-before applying.
+This Kustomize base deploys only the ClueCDC web, API, and worker tiers. It
+requires independently operated PostgreSQL, Kafka, and Kafka Connect services;
+`metadata.yaml` and `connect.yaml` are retained as development references but
+are deliberately absent from `kustomization.yaml`.
 
 Required Secret name: `cluecdc-secrets`. Required keys:
 
-- `metadata-password`
-- `database-url`
-- `secret-encryption-key`
-- `connect-secret-token`
-- `session-secret` (at least 32 random characters)
-- `kafka-sasl-jaas-config` (worker-level JAAS configuration)
-- `kafka-ca-pem` (trusted CA chain for the Kafka brokers)
+- `database-url`: authenticated external PostgreSQL SQLAlchemy URL
+- `secret-encryption-key`: Fernet key preserved with metadata backups
+- `connect-secret-token`: shared only with approved Kafka Connect workers
+- `session-secret`: unique random value of at least 32 characters
 
-Provision that Secret outside this repository with your cluster's approved
-secret workflow. The checked-in manifests intentionally contain neither a
-Secret object nor plaintext values. Pods consume named keys through kubelet and
-have service-account token automounting disabled; no ClueCDC Role grants Secret
-list/get access.
+Provision the Secret outside this repository with the cluster's approved
+external-secret workflow. The rendered manifests contain neither a Secret nor
+plaintext credentials, and service-account token automounting is disabled.
 
-The production baseline configures the Kafka Connect worker, its internal
-clients, and its producer/consumer clients for SASL_SSL with SCRAM-SHA-512.
-Override the mechanism in `cluecdc-config` when using PLAIN or another supported
-SCRAM variant. Worker credentials are deployment configuration and are separate
-from both Kafka Connect REST authentication and the encrypted Kafka-cluster
-credentials registered in ClueCDC. All three configurations must target
-compatible identities. The REST service remains cluster-internal in this base;
-put independent REST authentication/mTLS at that boundary if other networks can
-reach it.
+The base is production-only: session authentication, an HTTPS public origin,
+two API replicas, two workers, two web replicas, restricted pod security,
+read-only root filesystems, bounded scratch volumes, resource bounds, startup /
+readiness / liveness probes, and a 30-second termination grace period. Replace
+the example hostname and pin images to an immutable registry tag or digest in
+an environment overlay.
 
-Create environment overlays for images, ingress, storage class, Kafka addresses,
-TLS, network policies, external secrets, and resource sizing.
+Only the web Service is reachable through the TLS Ingress. API and web Services
+remain ClusterIP. NetworkPolicy denies ingress by default, admits ingress-nginx
+to web, and admits web, explicitly labelled Connect clients, and monitoring to
+API. Adapt selectors to the installed ingress controller. Label an in-cluster
+Connect pod `cluecdc.io/connect-client=true`; for a separate namespace, label
+both its namespace and pod. An out-of-cluster Connect service needs an
+equivalent private route to `/internal/secrets` and a narrowly scoped IP policy.
 
-The baseline Ingress terminates TLS with externally supplied Secret
-`cluecdc-tls` and routes only to the web service. Replace its example hostname
-and ingress class in an overlay. The nginx annotation forces HTTP-to-HTTPS at
-the infrastructure boundary; use the equivalent setting for another controller.
-The API and Kafka Connect services remain cluster-internal. ClueCDC does not
-derive its public origin from forwarding headers, so a client cannot change the
-CSRF trust boundary with `X-Forwarded-Host` or `X-Forwarded-Proto`.
+Run `python scripts/deployment_validation.py` after every overlay change. See
+`docs/deployment/kubernetes.md` for dependency and rollout procedures.

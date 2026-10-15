@@ -4,12 +4,11 @@ namespace: cluecdc
 resources:
   - namespace.yaml
   - configmap.yaml
-  - metadata.yaml
   - api.yaml
   - worker.yaml
   - web.yaml
-  - connect.yaml
   - ingress.yaml
+  - network-policy.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: cluecdc
