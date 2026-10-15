@@ -109,6 +109,26 @@ def validate(documents: list[dict[str, Any]]) -> list[str]:
             errors.append(f"{workload}: exactly one application container is expected")
         for container in [*pod.get("initContainers", []), *containers]:
             _secure_container(container, workload, errors)
+            if workload != "cluecdc-web":
+                variables = {value["name"]: value for value in container.get("env", [])}
+                for name, key in {
+                    "DATABASE_URL": "database-url",
+                    "SECRET_ENCRYPTION_KEY": "secret-encryption-key",
+                    "CONNECT_SECRET_TOKEN": "connect-secret-token",
+                    "SESSION_SECRET": "session-secret",
+                }.items():
+                    variable = variables.get(name, {})
+                    if (
+                        variable.get("valueFrom", {}).get("secretKeyRef", {}).get("key")
+                        != key
+                    ):
+                        errors.append(
+                            f"{workload}/{container['name']}: {name} must use its Secret key"
+                        )
+                    if "value" in variable:
+                        errors.append(
+                            f"{workload}: plaintext credential environment is forbidden"
+                        )
             for variable in container.get("env", []):
                 reference = variable.get("valueFrom", {}).get("secretKeyRef")
                 if reference:
@@ -163,11 +183,37 @@ def validate(documents: list[dict[str, Any]]) -> list[str]:
     ingresses = by_kind.get("Ingress", [])
     if len(ingresses) != 1 or not ingresses[0].get("spec", {}).get("tls"):
         errors.append("exactly one TLS Ingress is required")
+    for ingress in ingresses:
+        for rule in ingress.get("spec", {}).get("rules", []):
+            for path in rule.get("http", {}).get("paths", []):
+                if (
+                    path.get("backend", {}).get("service", {}).get("name")
+                    != "cluecdc-web"
+                ):
+                    errors.append("public Ingress may route only to the web service")
     policy_names = {_name(item) for item in by_kind.get("NetworkPolicy", [])}
     if not {"default-deny-ingress", "allow-web-ingress", "allow-api-clients"}.issubset(
         policy_names
     ):
         errors.append("required ingress NetworkPolicies are missing")
+    policies = {
+        _name(item): item.get("spec", {}) for item in by_kind.get("NetworkPolicy", [])
+    }
+    deny = policies.get("default-deny-ingress", {})
+    if deny.get("podSelector") != {} or deny.get("ingress"):
+        errors.append("default-deny-ingress must deny all namespace pod ingress")
+    for policy in policies.values():
+        for rule in policy.get("ingress", []):
+            if not rule.get("from") or not rule.get("ports"):
+                errors.append("ingress allow rules must scope both clients and ports")
+            for peer in rule.get("from", []):
+                # A global Kustomize label transformer must not silently narrow external peers.
+                if "namespaceSelector" in peer:
+                    labels = peer.get("podSelector", {}).get("matchLabels", {})
+                    if "app.kubernetes.io/part-of" in labels:
+                        errors.append(
+                            "external NetworkPolicy peers must not inherit ClueCDC labels"
+                        )
     return errors
 
 

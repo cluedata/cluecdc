@@ -12,4 +12,5 @@ resources:
 labels:
   - pairs:
       app.kubernetes.io/part-of: cluecdc
-    includeSelectors: true
+    includeSelectors: false
+    includeTemplates: true
