@@ -148,8 +148,10 @@ python -m mypy --config-file apps/api/pyproject.toml apps/api/app
 mkdocs build --strict
 ```
 
-Run `python scripts/release-check.py --allow-dirty` for the complete local
-release gate. It validates and builds but never tags, publishes, or pushes.
+Run `npm run release:plan` to inspect a release candidate without changing Git.
+See [the release process](RELEASES.md) for local prerequisites, shared quality
+checks and the manual **Release candidate** workflow. Preparation never tags,
+publishes or pushes; publication requires separate maintainer approval.
 
 ## Roadmap
 

@@ -6,6 +6,15 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Added read-only release planning and a manual, non-publishing release-candidate
+  workflow sharing quality and hardening gates with the tag publisher.
+- Removed version-specific preparation-branch restrictions; release validation
+  now checks deployment image versions and requires PostgreSQL test coverage.
+- Publication rejects draft metadata, existing releases and immutable image tags;
+  release assets are no longer automatically overwritten on reruns.
+
 ## [0.2.1] - Unreleased
 
 ### Security
