@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,108 @@ def poll_docker(*arguments: str) -> str:
         return docker(*arguments)
     except RuntimeError as error:
         raise AcceptanceError(str(error)) from None
+
+
+FIXTURE_GROUP = "65532"
+FIXTURE_FILES = ("server.pem", "ca.pem", "ca.properties", "server.properties")
+STAGE_FILES = """
+import json, os, pathlib, sys
+os.umask(0o077)
+root = pathlib.Path('/fixture')
+root.chmod(0o750)
+os.chown(root, 0, 65532)
+for name, contents in json.load(sys.stdin).items():
+    if name not in {'server.pem', 'ca.pem', 'ca.properties', 'server.properties'}:
+        raise ValueError('Unexpected fixture file')
+    target = root / name
+    target.write_text(contents, encoding='utf-8')
+    os.chown(target, 0, 65532)
+    target.chmod(0o640)
+"""
+
+
+def stage_fixture(volume: str, image: str, directory: Path) -> None:
+    """Copy private files over stdin into a Linux-owned volume, never world-readable."""
+    docker(
+        "run",
+        "-i",
+        "--name",
+        volume + "-init",
+        "--user",
+        "0:0",
+        "--mount",
+        f"type=volume,source={volume},target=/fixture",
+        "--entrypoint",
+        "python",
+        image,
+        "-c",
+        STAGE_FILES,
+        stdin=json.dumps(
+            {
+                name: (directory / name).read_text(encoding="utf-8")
+                for name in FIXTURE_FILES
+            }
+        ),
+    )
+    docker("rm", volume + "-init")
+
+
+def readiness_probe(container: str, *command: str) -> str:
+    state = json.loads(docker("inspect", "--format", "{{json .State}}", container))
+    if not state["Running"]:
+        # RuntimeError escapes wait_for's transient AcceptanceError retry loop.
+        raise RuntimeError(
+            f"Fixture stopped before readiness: exit={state['ExitCode']}, "
+            f"oom={bool(state.get('OOMKilled'))}"
+        )
+    return poll_docker("exec", container, *command)
+
+
+def redact_diagnostics(value: str, sensitive: tuple[str, ...]) -> str:
+    for secret in sensitive:
+        if not secret:
+            continue
+        value = value.replace(secret, "[REDACTED]")
+        # Java logs can print PEM values with escaped newlines or line prefixes.
+        value = value.replace(secret.replace("\n", r"\n"), "[REDACTED]")
+        if "-----BEGIN" in secret:
+            for line in secret.splitlines():
+                if line:
+                    value = value.replace(line, "[REDACTED]")
+    return value
+
+
+def collect_diagnostics(containers: list[str], sensitive: tuple[str, ...]) -> str:
+    diagnostic = []
+    for container in containers:
+        try:
+            result = subprocess.run(
+                ["docker", "logs", "--tail", "80", container],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            diagnostic.append(result.stdout + result.stderr)
+        except (OSError, subprocess.SubprocessError):
+            diagnostic.append("Fixture logs unavailable")
+    return redact_diagnostics("\n".join(diagnostic), sensitive)
+
+
+def cleanup_fixture(containers: list[str], volume: str | None) -> bool:
+    ok = True
+    for command in [
+        *(["docker", "rm", "-f", "-v", name] for name in reversed(containers)),
+        *([["docker", "volume", "rm", volume]] if volume else []),
+    ]:
+        try:
+            result = subprocess.run(
+                command, capture_output=True, check=False, timeout=60
+            )
+            ok = ok and result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+    return ok
 
 
 PROBE = """
@@ -201,10 +304,14 @@ def main() -> int:
         item.split("=", 1) for item in connect_info["Config"]["Env"] if "=" in item
     )
     password = secrets.token_urlsafe(32)
-    run = uuid.uuid4().hex[:8]
+    run = uuid.uuid4().hex[:12]
     broker = f"cluecdc-secure-{run}"
     connect = f"cluecdc-secure-connect-{run}"
     containers: list[str] = []
+    volume = f"cluecdc-secure-files-{run}"
+    volume_created = False
+    report = {"requirement": "SEC-03", "status": "RUNNING", "phase": "fixture-files"}
+    started = time.monotonic()
     temporary_root = ROOT / ".codex-tmp"
     temporary_root.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(
@@ -249,6 +356,22 @@ num.partitions=1
             KAFKA_HEAP_OPTS="-Xmx384M -Xms256M",
         )
         try:
+            for name in (broker, connect, volume + "-init"):
+                if docker("ps", "-aq", "--filter", f"name=^/{name}$"):
+                    raise AcceptanceError(
+                        "Refusing an existing secure fixture container"
+                    )
+            # Host TemporaryDirectory is 0700 on Linux and cannot be read by Kafka UID 1000.
+            # A Docker volume has portable ownership, with access limited to an explicit group.
+            if docker("volume", "ls", "-q", "--filter", f"name=^{volume}$"):
+                raise AcceptanceError("Refusing an existing secure fixture volume")
+            docker("volume", "create", "--label", f"cluecdc.fixture={run}", volume)
+            volume_created = True
+            api_image = json.loads(docker("inspect", api_id))[0]["Image"]
+            containers.append(volume + "-init")
+            stage_fixture(volume, api_image, directory)
+            containers.remove(volume + "-init")
+            report["phase"] = "broker-startup"
             containers.append(broker)
             docker(
                 "run",
@@ -258,7 +381,9 @@ num.partitions=1
                 "--network",
                 network_name,
                 "--mount",
-                f"type=bind,source={directory},target=/fixture,readonly",
+                f"type=volume,source={volume},target=/fixture,readonly",
+                "--group-add",
+                FIXTURE_GROUP,
                 "-e",
                 "KAFKA_TEST_PASSWORD",
                 "-e",
@@ -275,8 +400,7 @@ num.partitions=1
                 environment=fixture_env,
             )
             wait_for(
-                lambda: poll_docker(
-                    "exec",
+                lambda: readiness_probe(
                     broker,
                     "/opt/kafka/bin/kafka-topics.sh",
                     "--bootstrap-server",
@@ -287,6 +411,7 @@ num.partitions=1
                 "secure Kafka broker",
                 120,
             )
+            report["phase"] = "client-matrix"
             cases = []
             credentials = {
                 "username": "pilot",
@@ -365,14 +490,19 @@ num.partitions=1
             if result.returncode:
                 raise AcceptanceError(
                     "Kafka client security probe failed; "
-                    + result.stderr[-500:].replace(password, "[REDACTED]")
+                    + redact_diagnostics(
+                        result.stderr,
+                        (password, certs["ssl_key_pem"], certs["ssl_ca_pem"]),
+                    )[-500:]
                 )
             matrix = json.loads(result.stdout.splitlines()[-1])
+            report["client_checks"] = matrix
             print(
                 f"TLS/mTLS/SASL and rejection matrix: {len(matrix)} client checks passed",
                 flush=True,
             )
 
+            report["phase"] = "connect-startup"
             worker = dict(connect_env)
             worker.update(
                 BOOTSTRAP_SERVERS=f"{broker}:9094",
@@ -407,14 +537,15 @@ num.partitions=1
                 "--network",
                 network_name,
                 "--mount",
-                f"type=bind,source={directory},target=/fixture,readonly",
+                f"type=volume,source={volume},target=/fixture,readonly",
+                "--group-add",
+                FIXTURE_GROUP,
                 *env_flags,
                 connect_info["Config"]["Image"],
                 environment={**os.environ, **worker},
             )
             wait_for(
-                lambda: poll_docker(
-                    "exec",
+                lambda: readiness_probe(
                     connect,
                     "curl",
                     "-fsS",
@@ -424,6 +555,7 @@ num.partitions=1
                 "authenticated Kafka Connect",
                 180,
             )
+            report["phase"] = "source-sink-matrix"
             environment = dict(os.environ)
             environment["CLUECDC_SECURE_KAFKA_JSON"] = json.dumps(
                 {
@@ -450,6 +582,8 @@ num.partitions=1
             for file in args.env_file:
                 command.extend(["--env-file", str(file)])
             subprocess.run(command, cwd=ROOT, env=environment, check=True, timeout=900)
+            report["source_sink_matrix"] = "4/4 over SASL_SSL SCRAM-SHA-512"
+            report["phase"] = "secret-boundaries"
             # Public API serialization and runtime logs must not contain plaintext fixture credentials.
             api = ApiClient(
                 args.api_url, [password, certs["ssl_key_pem"], certs["ssl_ca_pem"]]
@@ -461,48 +595,32 @@ num.partitions=1
                     raise AcceptanceError(
                         "Kafka fixture credentials appeared in runtime logs"
                     )
-            (ROOT / "artifacts/kafka-security.json").write_text(
-                json.dumps(
-                    {
-                        "requirement": "SEC-03",
-                        "status": "PASS",
-                        "client_checks": matrix,
-                        "source_sink_matrix": "4/4 over SASL_SSL SCRAM-SHA-512",
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            report["status"] = "PASS"
             print(
                 "Authenticated source/sink CDC and secret redaction: passed", flush=True
             )
         finally:
-            if sys.exc_info()[0] is not None:
-                diagnostic = []
-                for container in containers:
-                    result = subprocess.run(
-                        ["docker", "logs", "--tail", "80", container],
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=30,
-                    )
-                    diagnostic.append(result.stdout + result.stderr)
-                logs = "\n".join(diagnostic)
-                for secret in (password, certs["ssl_key_pem"], certs["ssl_ca_pem"]):
-                    logs = logs.replace(secret, "[REDACTED]")
+            failed = sys.exc_info()[0] is not None
+            if failed:
+                report["status"] = "FAIL"
+                logs = collect_diagnostics(
+                    containers, (password, certs["ssl_key_pem"], certs["ssl_ca_pem"])
+                )
                 (ROOT / "artifacts").mkdir(exist_ok=True)
                 (ROOT / "artifacts/kafka-security-diagnostics.log").write_text(
                     logs, encoding="utf-8"
                 )
-            for container in reversed(containers):
-                subprocess.run(
-                    ["docker", "rm", "-f", "-v", container],
-                    capture_output=True,
-                    check=False,
-                    timeout=60,
-                )
+            cleanup_ok = cleanup_fixture(containers, volume if volume_created else None)
+            report["cleanup"] = "PASS" if cleanup_ok else "FAIL"
+            report["seconds"] = round(time.monotonic() - started, 1)
+            if not cleanup_ok:
+                report["status"] = "FAIL"
+            (ROOT / "artifacts").mkdir(exist_ok=True)
+            (ROOT / "artifacts/kafka-security.json").write_text(
+                json.dumps(report, indent=2) + "\n", encoding="utf-8"
+            )
+            if not cleanup_ok and not failed:
+                raise AcceptanceError("Secure fixture cleanup failed")
     return 0
 
 
