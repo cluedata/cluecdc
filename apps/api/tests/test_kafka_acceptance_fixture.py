@@ -43,13 +43,14 @@ def test_running_fixture_is_still_polled_for_readiness(monkeypatch):
     assert secure.readiness_probe("fixture", "probe") == ("exec", "fixture", "probe")
 
 
-def test_diagnostics_redact_raw_escaped_and_line_prefixed_private_material():
+def test_diagnostics_redact_raw_escaped_and_line_prefixed_private_material(tmp_path):
     """SEC-04: uploaded Java logs must not expose partial or escaped PEM values."""
-    key = "-----BEGIN PRIVATE KEY-----\nfixture-base64-private-line\n-----END PRIVATE KEY-----\n"
+    key = secure.certificates(tmp_path, "redaction.fixture")["ssl_key_pem"]
+    private_line = key.splitlines()[1]
     raw = "fixture-password\n" + key + key.replace("\n", r"\n")
-    raw += "\nlog prefix: fixture-base64-private-line\npermission denied"
+    raw += "\nlog prefix: " + private_line + "\npermission denied"
     sanitized = secure.redact_diagnostics(raw, ("fixture-password", key))
-    assert "fixture-password" not in sanitized and "fixture-base64-private-line" not in sanitized
+    assert "fixture-password" not in sanitized and private_line not in sanitized
     assert "permission denied" in sanitized
 
 
