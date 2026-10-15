@@ -6,6 +6,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-15
+
 ### Changed
 
 - Added read-only release planning and a manual, non-publishing release-candidate
@@ -14,8 +16,9 @@ All notable changes to ClueCDC are documented here. The format follows
   now checks deployment image versions and requires PostgreSQL test coverage.
 - Publication rejects draft metadata, existing releases and immutable image tags;
   release assets are no longer automatically overwritten on reruns.
-
-## [0.2.1] - Unreleased
+- Made live hardening fixtures portable across Linux container users, retained
+  ingress admission jobs for deterministic waits, and cached disposable image
+  builds with incremental stage/failure reports.
 
 ### Security
 

@@ -158,7 +158,7 @@ nav:
       - Pull Request Process: development/pull-requests.md
       - Releases: development/releases.md
       - Release Checklist: RELEASE_CHECKLIST.md
-      - v0.2.1 Release Notes (Draft): releases/v0.2.1.md
+      - v0.2.1 Release Notes: releases/v0.2.1.md
       - v0.2.1 Hardening Progress: development/v0.2.1-hardening-progress.md
       - v0.2.0 Release Notes: releases/v0.2.0.md
       - v0.1.0 Release Notes: releases/v0.1.0.md
