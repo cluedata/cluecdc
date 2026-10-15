@@ -172,7 +172,7 @@ async def login(data: LoginInput, response: Response, db: DB):
     return {"user": public_user(user)}
 
 
-@router.post("/auth/logout", status_code=204)
+@router.post("/auth/logout", status_code=204, dependencies=[Depends(principal)])
 async def logout(request: Request, response: Response, db: DB):
     settings = get_settings()
     raw_token = request.cookies.get(SESSION_COOKIE)

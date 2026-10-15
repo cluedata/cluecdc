@@ -82,6 +82,24 @@ async def test_login_session_logout_and_generic_failures(client, db_factory):
     assert (await client.get("/api/v1/auth/session")).status_code == 401
 
 
+async def test_logout_requires_authentication_and_revokes_only_current_session(client, db_factory):
+    """SEC-05: logout is authenticated and cannot revoke another browser's session."""
+    await add_user(db_factory, "admin@example.com", "ADMIN")
+    assert (await client.post("/api/v1/auth/logout")).status_code == 401
+    await sign_in(client, "admin@example.com")
+    first_token = client.cookies.get("cluecdc_session")
+    await sign_in(client, "admin@example.com")
+    second_token = client.cookies.get("cluecdc_session")
+    assert first_token != second_token
+    assert (await client.post("/api/v1/auth/logout")).status_code == 204
+    assert (await client.get("/api/v1/auth/session")).status_code == 401
+    assert (
+        await client.get(
+            "/api/v1/auth/session", headers={"Cookie": f"cluecdc_session={first_token}"}
+        )
+    ).status_code == 200
+
+
 async def test_production_cookie_and_csrf_origin_enforcement(client, db_factory, monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "environment", "production")
