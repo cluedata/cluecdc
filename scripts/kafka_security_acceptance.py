@@ -607,9 +607,12 @@ num.partitions=1
                     containers, (password, certs["ssl_key_pem"], certs["ssl_ca_pem"])
                 )
                 (ROOT / "artifacts").mkdir(exist_ok=True)
-                (ROOT / "artifacts/kafka-security-diagnostics.log").write_text(
-                    logs, encoding="utf-8"
-                )
+                try:
+                    (ROOT / "artifacts/kafka-security-diagnostics.log").write_text(
+                        logs, encoding="utf-8"
+                    )
+                except OSError:
+                    report["diagnostics"] = "UNAVAILABLE"
             cleanup_ok = cleanup_fixture(containers, volume if volume_created else None)
             report["cleanup"] = "PASS" if cleanup_ok else "FAIL"
             report["seconds"] = round(time.monotonic() - started, 1)
