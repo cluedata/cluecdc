@@ -16,7 +16,9 @@ security coverage comes from the CI workflow.
 The separate **Hardening acceptance** workflow is manually dispatched for
 expensive fault injection and is also called by the Release workflow. Both
 container publication and GitHub Release creation depend on it; a failed live
-gate cannot be bypassed by a successful unit/build job. Preparation never
+gate cannot be bypassed by a successful unit/build job. The workflow also runs
+a separate isolated kind/Calico/NGINX job for real production rollout, HTTPS
+session boundaries and NetworkPolicy allow/deny/revocation. Preparation never
 dispatches a workflow, pushes a tag, or publishes an image automatically.
 
 ## Fast checks
@@ -187,7 +189,7 @@ not overwrite a developer's `.env`; use a disposable checkout for that workflow.
 | REL-01 failure injection | `cdc-failure-recovery.py` | Live hardening gate |
 | REL-02/03 retry, job/operation ownership | pytest, PostgreSQL lease races | PR CI and release validation |
 | OPS-01/02 migration/backup/restore | `metadata_acceptance.py`, Alembic checks | Live hardening gate |
-| OPS-03 manifests and container lifecycle | `deployment_validation.py`, kubeconform, `deployment_runtime.py` | PR/release and live gate |
+| OPS-03 manifests and container lifecycle | `deployment_validation.py`, kubeconform, `deployment_runtime.py`, `kubernetes_acceptance.py` | PR/release and live/Kubernetes gates |
 | Browser integration | existing Playwright suite | Smoke CI and release hardening gate |
 
 `metadata_acceptance.py` copies populated live fixture metadata into a new
@@ -202,4 +204,8 @@ checks resource/probe/security/Secret/network boundaries, and validates all
 resources against Kubernetes schemas. The runtime harness additionally checks
 production settings and read-only containers with random secrets and a separate
 PostgreSQL instance. Cluster rollout, ingress TLS and CNI policy enforcement
-still require target-cluster evidence before a pilot is approved.
+still require target-cluster evidence before a pilot is approved. The separate
+Kubernetes acceptance job supplies repeatable local kind/Calico/NGINX evidence
+for those behaviors, including a trusted TLS login, Secure cookies and origin
+rejection. Its short-lived certificate fixture also passes a strict verified
+TLS handshake unit test; no trust/hostname verification is disabled.

@@ -120,3 +120,36 @@ kubectl -n cluecdc exec -it deployment/cluecdc-api -- \
 Back up metadata plus its encryption key, monitor each external dependency, and
 test failure recovery before promotion. See [backup and restore](../operations/backup-restore.md),
 [migrations](../development/migrations.md), and [scaling](scaling.md).
+
+## Isolated cluster acceptance
+
+The `kubernetes-hardening` job in `.github/workflows/hardening.yml` provisions a
+dedicated kind cluster with pinned, checksum-verified Calico and ingress-nginx
+fixtures. These are test dependencies; the production base does not install
+them. The setup follows the upstream [kind](https://kind.sigs.k8s.io/docs/user/quick-start/)
+and [Calico on kind](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind)
+procedures, with the default CNI disabled so policy enforcement is tested.
+
+After preparing a dedicated `cluecdc-hardening-*` kind cluster with those
+controllers and a separate kubeconfig, run:
+
+```bash
+python scripts/kubernetes_acceptance.py \
+  --kind /path/to/kind --cluster-name cluecdc-hardening-local \
+  --kubeconfig /private/test-kubeconfig \
+  --api-image cluecdc-api:k8s --web-image cluecdc-web:k8s
+```
+
+The harness checks kind ownership and refuses an existing `cluecdc` namespace.
+It loads local application images, starts external PostgreSQL with random
+credentials, supplies application/TLS Secrets through stdin, and applies the
+rendered production base with unique test image tags. It verifies two replicas
+per tier, concurrent migration startup and drift, real Calico allow/deny and
+namespace-label revocation, verified HTTPS/HTTP redirect, production login,
+Secure cookies, CSRF rejection, and worker rolling restart. Only its namespaces
+and external database container are removed. The caller removes the dedicated
+kind cluster afterward; the user's default kubeconfig is not used.
+
+The release hardening workflow requires this job as well as the live CDC and
+browser job. Keep target-cluster sizing, broker ACL/identity, availability and
+environment-specific network review as operator promotion checks.

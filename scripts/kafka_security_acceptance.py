@@ -18,8 +18,24 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from cdc_acceptance_support import ROOT, AcceptanceError, ApiClient, Compose, wait_for
-from deployment_runtime import docker
+if __package__:
+    from .cdc_acceptance_support import (
+        ROOT,
+        AcceptanceError,
+        ApiClient,
+        Compose,
+        wait_for,
+    )
+    from .deployment_runtime import docker
+else:
+    from cdc_acceptance_support import (
+        ROOT,
+        AcceptanceError,
+        ApiClient,
+        Compose,
+        wait_for,
+    )
+    from deployment_runtime import docker
 
 
 def poll_docker(*arguments: str) -> str:
@@ -74,6 +90,28 @@ def certificates(directory: Path, hostname: str) -> dict[str, str]:
         .not_valid_before(now - timedelta(minutes=5))
         .not_valid_after(now + timedelta(days=2))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
         .sign(ca_key, hashes.SHA256())
     )
     result = {"ssl_ca_pem": ca.public_bytes(serialization.Encoding.PEM).decode()}
@@ -89,6 +127,31 @@ def certificates(directory: Path, hostname: str) -> dict[str, str]:
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - timedelta(minutes=5))
             .not_valid_after(now + timedelta(days=2))
+            .add_extension(
+                x509.BasicConstraints(ca=False, path_length=None), critical=True
+            )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                critical=False,
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                critical=False,
+            )
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True,
+                    content_commitment=False,
+                    key_encipherment=True,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=False,
+                    crl_sign=False,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
             .add_extension(
                 x509.SubjectAlternativeName([x509.DNSName(hostname)]), critical=False
             )
