@@ -15,6 +15,7 @@ from cdc_acceptance_support import (
     AcceptanceError,
     ApiClient,
     Compose,
+    fixture_table_mapping,
     load_environment,
     wait_for,
 )
@@ -159,8 +160,8 @@ def main() -> None:
     connector_names = {source_connector, sink_connector}
     original_configs = connector_snapshot(args.connect_url, connector_names)
     original_count = len(http_json(args.connect_url.rstrip("/") + "/connectors"))
-    source_table = pipeline["tables"][0]["table_name"]
-    mapping = delivery["topic_mapping_json"][0]
+    source_table = f"cdc_i_{artifact['run_id']}_accounts"
+    _, mapping = fixture_table_mapping(pipeline, delivery, source_table)
     destination_table = mapping["table_name"]
     destination_schema = mapping["schema_name"]
     paused = False
@@ -299,6 +300,7 @@ def main() -> None:
             "cdc-source-postgres",
             "commerce",
             f"SET ROLE cdc_user; INSERT INTO public.{source_table} "
+            "(id, name, note, balance, occurred_at) "
             f"VALUES ({next_id}, 'destination-outage-{run}', NULL, 4.00000000, now());",
         )
         wait_for(

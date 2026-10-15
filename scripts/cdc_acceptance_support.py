@@ -195,6 +195,27 @@ def wait_for(
     raise AcceptanceError(f"Timed out waiting for {label}.{detail}")
 
 
+def fixture_table_mapping(
+    pipeline: Mapping[str, Any], delivery: Mapping[str, Any], table_name: str
+) -> tuple[dict, dict]:
+    """Select a fixture by identity, independent of API collection ordering."""
+    tables = [
+        table for table in pipeline["tables"] if table["table_name"] == table_name
+    ]
+    if len(tables) != 1:
+        raise AcceptanceError("Expected exactly one matching source fixture table")
+    mappings = [
+        mapping
+        for mapping in delivery["topic_mapping_json"]
+        if mapping["topic"] == tables[0]["topic_name"]
+    ]
+    if len(mappings) != 1:
+        raise AcceptanceError(
+            "Expected exactly one matching fixture destination mapping"
+        )
+    return tables[0], mappings[0]
+
+
 def _decimal(value: object) -> Decimal:
     try:
         return Decimal(str(value)).normalize()

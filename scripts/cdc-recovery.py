@@ -15,6 +15,7 @@ from cdc_acceptance_support import (
     AcceptanceError,
     ApiClient,
     Compose,
+    fixture_table_mapping,
     load_environment,
     wait_for,
 )
@@ -128,11 +129,8 @@ def main() -> None:
         http_json(args.connect_url.rstrip("/") + "/connectors")
     )
     source_table = f"cdc_i_{run}_accounts"
-    destination_table = next(
-        mapping["table_name"]
-        for mapping in delivery["topic_mapping_json"]
-        if mapping["topic"].endswith("." + source_table)
-    )
+    _, mapping = fixture_table_mapping(pipeline, delivery, source_table)
+    destination_table = mapping["table_name"]
     topic = f"{pipeline['topic_prefix']}.public.{source_table}"
     reads_before = sum(
         event["operation"] == "READ" for event in sample_records(topic)["events"]
