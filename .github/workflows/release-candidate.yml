@@ -1,0 +1,40 @@
+name: Release candidate
+run-name: Release candidate validation — ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+# Candidate runs cannot push packages, change repository contents or create tags.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: ./.github/workflows/release-validation.yml
+
+  hardening:
+    needs: validate
+    uses: ./.github/workflows/hardening.yml
+
+  summary:
+    needs: [validate, hardening]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize candidate evidence, not release approval
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          CANDIDATE_SHA: ${{ needs.validate.outputs.git-sha }}
+        run: |
+          {
+            echo "## Candidate v${VERSION} validated"
+            echo "Commit: ${CANDIDATE_SHA}"
+            echo "Quality, browser/CDC and Kubernetes fixture gates passed."
+            echo "Download release-artifacts and both hardening reports from this run."
+            echo "Draft metadata or an existing version tag still blocks promotion; review release-metadata.json."
+            echo "Target-environment review and maintainer approval are still required."
+            echo "No tag, container image or GitHub Release was published."
+          } >> "$GITHUB_STEP_SUMMARY"

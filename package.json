@@ -17,6 +17,9 @@
     "lint:api": "python -m ruff check apps/api scripts && python -m ruff format --check apps/api scripts",
     "typecheck:api": "python -m mypy --config-file apps/api/pyproject.toml apps/api/app",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "release:plan": "python scripts/release.py plan",
+    "release:check": "python scripts/release-check.py",
+    "release:quality": "python scripts/release-check.py --preparation --quality-only",
     "format": "prettier --write apps/web packages",
     "format:check": "prettier --check apps/web packages"
   },

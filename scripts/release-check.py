@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -33,7 +34,7 @@ def main() -> int:
     parser.add_argument(
         "--preparation",
         action="store_true",
-        help="Allow the hardening preparation branch",
+        help="Allow any named preparation branch (never grants release approval)",
     )
     parser.add_argument(
         "--skip-live",
@@ -45,20 +46,40 @@ def main() -> int:
         action="append",
         help="Disposable integration dotenv file (repeatable)",
     )
+    parser.add_argument(
+        "--quality-only",
+        action="store_true",
+        help="Preparation only: static/unit/build/audit checks",
+    )
+    parser.add_argument(
+        "--browser", action="store_true", help="Include browser checks in the live gate"
+    )
     args = parser.parse_args()
 
     branch = output("git", "branch", "--show-current")
     if branch not in {"main", "master"} and not (
-        args.preparation and branch == "release/v0.2.1-hardening"
+        args.preparation and (bool(branch) or args.quality_only)
     ):
         raise SystemExit(f"Release checks must run from main or master, not {branch!r}")
-    if args.skip_live and not args.preparation:
+    if (
+        args.skip_live or args.skip_docker or args.quality_only or args.allow_dirty
+    ) and not args.preparation:
         raise SystemExit(
-            "--skip-live is allowed only with --preparation; release gates are mandatory"
+            "Skipping checks or allowing a dirty tree requires --preparation; release gates are mandatory"
         )
+    if args.quality_only and (args.browser or args.live_env_file):
+        parser.error("--quality-only cannot be combined with live/browser options")
+    if args.skip_live and args.browser:
+        parser.error("--browser cannot be combined with --skip-live")
     if not args.allow_dirty and output("git", "status", "--porcelain"):
         raise SystemExit(
             "Working tree is not clean (use --allow-dirty while preparing changes)"
+        )
+    if not os.environ.get("WORKER_TEST_DATABASE_URL", "").startswith(
+        "postgresql+asyncpg://"
+    ):
+        raise SystemExit(
+            "Set WORKER_TEST_DATABASE_URL to a disposable PostgreSQL database; release tests must not skip PostgreSQL coverage"
         )
     npm = shutil.which("npm")
     if not npm:
@@ -112,8 +133,10 @@ def main() -> int:
     )
     run(sys.executable, "-m", "mkdocs", "build", "--strict")
     run(npm, "audit", "--omit=dev", "--audit-level=high")
+    run(npm, "audit", "--audit-level=critical")
+    run(sys.executable, "-m", "pip_audit", "--local", "--skip-editable")
 
-    if not args.skip_docker:
+    if not args.skip_docker and not args.quality_only:
         if not shutil.which("docker"):
             raise SystemExit("Docker is required unless --skip-docker is supplied")
         run("docker", "build", "-t", "cluecdc-web:release-check", ".")
@@ -136,16 +159,27 @@ def main() -> int:
             ".",
         )
 
-    if not args.skip_live:
+    if not args.skip_live and not args.quality_only:
         live = [sys.executable, "scripts/hardening_acceptance.py"]
+        if args.browser:
+            live.append("--browser")
         for file in args.live_env_file or []:
             live.extend(["--env-file", file])
         run(*live)
+    omitted = []
+    if args.quality_only or args.skip_live:
+        omitted.append("live/browser acceptance")
+    elif not args.browser:
+        omitted.append("browser acceptance")
+    if args.quality_only or args.skip_docker:
+        omitted.append("release container builds")
+    omitted.append("live Kubernetes acceptance and target-environment review")
     print(
-        "\nPreparation checks passed; live gates skipped."
-        if args.skip_live
-        else "\nRelease checks passed. No tag, image, or release was published."
+        "\nLocal checks passed. Not release approval; still required: "
+        + ", ".join(omitted)
+        + "."
     )
+    print("No tag, image, or release was published.")
     return 0
 
 
