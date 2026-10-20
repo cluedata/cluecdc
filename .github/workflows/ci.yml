@@ -131,6 +131,14 @@ jobs:
       - run: docker build --build-arg INSTALL_DEV=false -f infrastructure/docker/api.Dockerfile -t cluecdc-api:test .
       - name: Smoke test core runtime
         run: docker compose up -d --build --wait --wait-timeout 240
+      - name: Verify packaged web brand assets
+        run: |
+          curl --fail --silent --show-error --output /tmp/cluecdc-logo.png http://127.0.0.1:3000/brand/cluecdc-logo.png
+          curl --fail --silent --show-error --output /tmp/cluecdc-icon.png http://127.0.0.1:3000/brand/cluecdc-icon.png
+          curl --fail --silent --show-error --output /tmp/cluecdc-logo-optimized.png 'http://127.0.0.1:3000/_next/image?url=%2Fbrand%2Fcluecdc-logo.png&w=64&q=75'
+          test -s /tmp/cluecdc-logo.png
+          test -s /tmp/cluecdc-icon.png
+          test -s /tmp/cluecdc-logo-optimized.png
       - run: docker compose exec -T cluecdc-api alembic check
       - run: docker compose down
       - name: Start integration fixtures

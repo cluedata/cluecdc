@@ -44,7 +44,14 @@ import {
 import { DataFlowRail } from "./data-flow-rail";
 import { useAuthorization } from "@/lib/auth";
 
-const steps = ["Source", "Capture", "Stream", "Delivery", "Review"];
+const steps = [
+  "Source",
+  "Infrastructure",
+  "Tables",
+  "Capture",
+  "Delivery",
+  "Review",
+];
 type DeliveryDraft = Omit<DeliveryCreateInput, "pipeline_id" | "mappings">;
 const deliveryDefaults: DeliveryDraft = {
   name: "Primary delivery",
@@ -160,7 +167,7 @@ export function PipelineWizard() {
       ),
     onSuccess: (value) => {
       setPreview(value);
-      setStep(4);
+      setStep(5);
     },
   });
   const create = useMutation({
@@ -182,16 +189,16 @@ export function PipelineWizard() {
   });
   const canContinue = (() => {
     if (step === 0) return !!sourceId;
-    if (step === 1) return chosen.length > 0;
-    if (step === 2) return !!clusterId && !!connectId;
-    if (step === 3) return !!destinationId && !!delivery.name.trim();
+    if (step === 1) return !!clusterId && !!connectId;
+    if (step === 2) return chosen.length > 0;
+    if (step === 4) return !!destinationId && !!delivery.name.trim();
     return true;
   })();
   const next = async () => {
     if (!canContinue) return;
-    if (step === 1 && !(await form.trigger())) return;
-    if (step === 3) return review.mutate();
-    setStep((value) => Math.min(4, value + 1));
+    if (step === 3 && !(await form.trigger())) return;
+    if (step === 4) return review.mutate();
+    setStep((value) => Math.min(5, value + 1));
   };
 
   return (
@@ -218,13 +225,14 @@ export function PipelineWizard() {
       </div>
       <div className="wizard-layout">
         <section className="panel wizard-panel">
-          <span className="step-label">STEP {step + 1} OF 5</span>
+          <span className="step-label">STEP {step + 1} OF 6</span>
           <h2>
             {
               [
                 "Where does your data come from?",
-                "What data do you want to capture?",
-                "Where should captured events be streamed?",
+                "Where should captured events run?",
+                "Which tables should be captured?",
+                "How should capture behave?",
                 "Where should the data go?",
                 "Review your pipeline",
               ][step]
@@ -288,7 +296,7 @@ export function PipelineWizard() {
               </>
             ))}
 
-          {step === 1 &&
+          {step === 2 &&
             (tables.isPending ? (
               <Loading />
             ) : tables.isError ? (
@@ -377,68 +385,10 @@ export function PipelineWizard() {
                   </table>
                 </div>
                 <p className="muted">{chosen.length} tables selected</p>
-                <div className="form-grid">
-                  <Field
-                    label="Pipeline name"
-                    error={form.formState.errors.name?.message}
-                  >
-                    <Input {...form.register("name")} />
-                  </Field>
-                  <Field
-                    label="Topic prefix"
-                    error={form.formState.errors.topic_prefix?.message}
-                  >
-                    <Input {...form.register("topic_prefix")} />
-                  </Field>
-                  <Field label="Snapshot mode">
-                    <select {...form.register("snapshot_mode")}>
-                      <option value="initial">Initial + streaming</option>
-                      <option value="no_data">Streaming only</option>
-                      <option value="never">Schema only</option>
-                    </select>
-                  </Field>
-                  <details className="advanced full-width">
-                    <summary>Advanced capture settings</summary>
-                    <div className="form-grid">
-                      <Field label="Heartbeat (ms)">
-                        <Input
-                          type="number"
-                          {...form.register("heartbeat_interval_ms", {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </Field>
-                      <Field label="Batch size">
-                        <Input
-                          type="number"
-                          {...form.register("max_batch_size", {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </Field>
-                      <Field label="Queue size">
-                        <Input
-                          type="number"
-                          {...form.register("max_queue_size", {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </Field>
-                      <Field label="Poll interval (ms)">
-                        <Input
-                          type="number"
-                          {...form.register("poll_interval_ms", {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </Field>
-                    </div>
-                  </details>
-                </div>
               </>
             ))}
 
-          {step === 2 && (
+          {step === 1 && (
             <>
               {(kafka.isError || connect.isError) && (
                 <ErrorPanel error={kafka.error || connect.error} />
@@ -479,6 +429,73 @@ export function PipelineWizard() {
                   </select>
                 </Field>
               </div>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <div className="form-grid">
+                <Field
+                  label="Pipeline name"
+                  error={form.formState.errors.name?.message}
+                >
+                  <Input {...form.register("name")} />
+                </Field>
+                <Field
+                  label="Topic prefix"
+                  error={form.formState.errors.topic_prefix?.message}
+                  hint="Used as the prefix for this pipeline's Kafka topics."
+                >
+                  <Input {...form.register("topic_prefix")} />
+                </Field>
+                <Field
+                  label="Snapshot mode"
+                  hint="Choose how the initial state is captured before streaming changes."
+                >
+                  <select {...form.register("snapshot_mode")}>
+                    <option value="initial">Initial + streaming</option>
+                    <option value="no_data">Streaming only</option>
+                    <option value="never">Schema only</option>
+                  </select>
+                </Field>
+                <details className="advanced full-width">
+                  <summary>Advanced capture settings</summary>
+                  <div className="form-grid">
+                    <Field label="Heartbeat (ms)">
+                      <Input
+                        type="number"
+                        {...form.register("heartbeat_interval_ms", {
+                          valueAsNumber: true,
+                        })}
+                      />
+                    </Field>
+                    <Field label="Batch size">
+                      <Input
+                        type="number"
+                        {...form.register("max_batch_size", {
+                          valueAsNumber: true,
+                        })}
+                      />
+                    </Field>
+                    <Field label="Queue size">
+                      <Input
+                        type="number"
+                        {...form.register("max_queue_size", {
+                          valueAsNumber: true,
+                        })}
+                      />
+                    </Field>
+                    <Field label="Poll interval (ms)">
+                      <Input
+                        type="number"
+                        {...form.register("poll_interval_ms", {
+                          valueAsNumber: true,
+                        })}
+                      />
+                    </Field>
+                  </div>
+                </details>
+              </div>
               <h3>Topic mapping preview</h3>
               <div className="mapping-list">
                 {chosen.map((item) => (
@@ -497,7 +514,7 @@ export function PipelineWizard() {
             </>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <>
               {destinations.isPending ? (
                 <Loading />
@@ -596,7 +613,7 @@ export function PipelineWizard() {
             </>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <>
               <DataFlowRail
                 label="Pipeline review"
@@ -697,7 +714,7 @@ export function PipelineWizard() {
             >
               <ArrowLeft size={15} /> Back
             </Button>
-            {step < 4 ? (
+            {step < 5 ? (
               <Button
                 disabled={!canContinue || review.isPending}
                 onClick={next}

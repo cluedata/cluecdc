@@ -40,7 +40,7 @@ describe("main navigation", () => {
     navigationState.permissions = ["*"];
   });
 
-  it("groups pipeline-centric resources under clear headings", async () => {
+  it("uses the pipeline-centric v0.3 navigation structure", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -53,36 +53,28 @@ describe("main navigation", () => {
       </QueryClientProvider>,
     );
 
-    const dataFlow = await screen.findByRole("region", {
-      name: "Data Flow",
+    const workspace = await screen.findByRole("region", {
+      name: "Workspace",
     });
     expect(
-      within(dataFlow)
+      within(workspace)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Pipelines", "Deliveries"]);
+    ).toEqual(["Overview", "Pipelines", "Deliveries"]);
 
     const components = screen.getByRole("region", { name: "Connections" });
     expect(
       within(components)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Sources", "Destinations"]);
-    const infrastructure = screen.getByRole("region", {
-      name: "Infrastructure",
-    });
-    expect(
-      within(infrastructure)
-        .getAllByRole("link")
-        .map((link) => link.textContent),
     ).toEqual([
+      "Sources",
+      "Destinations",
       "Kafka Clusters",
-      "Topics",
-      "Consumer Groups",
       "Connect Clusters",
     ]);
     expect(
-      within(infrastructure).getByRole("link", {
+      within(components).getByRole("link", {
         name: "Connect Clusters",
       }),
     ).toHaveAttribute("aria-current", "page");
@@ -91,12 +83,41 @@ describe("main navigation", () => {
       within(operations)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Monitoring", "Alerts", "Error Center", "Audit Trail"]);
+    ).toEqual(["Monitoring", "Alerts", "Audit"]);
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "API Reference" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Clue workspace")).not.toBeInTheDocument();
+  });
+
+  it("collapses the connections group and desktop sidebar accessibly", async () => {
+    window.localStorage.clear();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <Shell>
+          <div>Page content</div>
+        </Shell>
+      </QueryClientProvider>,
+    );
+
+    const connections = await screen.findByRole("button", {
+      name: "Connections",
+    });
+    fireEvent.click(connections);
+    expect(connections).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("link", { name: "Sources" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(container.querySelector(".app-shell")).toHaveClass(
+      "sidebar-collapsed",
+    );
+    expect(window.localStorage.getItem("cluecdc-sidebar")).toBe("collapsed");
   });
 
   it.each([
