@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.errors import DomainError
-from app.models.entities import Job, SecretReference, SourceTable
+from app.models.entities import Job, KafkaTopic, SecretReference, SourceTable
 from app.services.secrets import EncryptedDatabaseSecretProvider
 
 
@@ -61,6 +61,101 @@ async def test_unknown_pipeline_and_duplicate_source(client, source_payload):
     assert (await client.get(f"/api/v1/pipelines/{uuid4()}")).status_code == 404
     assert (await client.post("/api/v1/sources", json=source_payload)).status_code == 201
     assert (await client.post("/api/v1/sources", json=source_payload)).status_code == 409
+
+
+async def test_kafka_and_connect_cluster_connection_tests(client, monkeypatch):
+    async def kafka_health(self, cluster):
+        assert cluster.bootstrap_servers == "kafka:9092"
+        return {"topic_count": 3}
+
+    async def connect_plugins(self):
+        assert self.base_url == "http://connect:8083"
+        return [{"class": "io.debezium.connector.postgresql.PostgresConnector"}]
+
+    monkeypatch.setattr("app.adapters.kafka.KafkaExplorer.health", kafka_health)
+    monkeypatch.setattr("app.adapters.connect.KafkaConnectClient.plugins", connect_plugins)
+
+    kafka_test = await client.post(
+        "/api/v1/kafka/clusters/test",
+        json={"name": "tested-kafka", "bootstrap_servers": "kafka:9092"},
+    )
+    assert kafka_test.status_code == 200
+    assert kafka_test.json()["status"] == "HEALTHY"
+    assert kafka_test.json()["details"] == {"topic_count": 3}
+
+    kafka = (
+        await client.post(
+            "/api/v1/kafka/clusters",
+            json={"name": "tested-kafka", "bootstrap_servers": "kafka:9092"},
+        )
+    ).json()
+    connect_test = await client.post(
+        "/api/v1/connect/clusters/test",
+        json={
+            "name": "tested-connect",
+            "base_url": "http://connect:8083",
+            "kafka_cluster_id": kafka["id"],
+        },
+    )
+    assert connect_test.status_code == 200
+    assert connect_test.json()["status"] == "HEALTHY"
+    assert connect_test.json()["details"] == {"plugin_count": 1}
+
+
+async def test_kafka_cluster_delete_reports_dependencies_and_removes_legacy_metadata(
+    client, db_factory
+):
+    kafka = (
+        await client.post(
+            "/api/v1/kafka/clusters",
+            json={"name": "delete-test-kafka", "bootstrap_servers": "kafka:9092"},
+        )
+    ).json()
+    connect = (
+        await client.post(
+            "/api/v1/connect/clusters",
+            json={
+                "name": "delete-test-connect",
+                "base_url": "http://connect:8083",
+                "kafka_cluster_id": kafka["id"],
+            },
+        )
+    ).json()
+
+    blocked = await client.delete(f"/api/v1/kafka/clusters/{kafka['id']}")
+
+    assert blocked.status_code == 409
+    assert blocked.json()["error"] == {
+        "code": "CLUSTER_IN_USE",
+        "message": (
+            "Remove associated pipelines and Kafka Connect clusters before deleting "
+            "this Kafka cluster"
+        ),
+        "details": {
+            "used_by": [
+                {
+                    "type": "connect_cluster",
+                    "id": connect["id"],
+                    "name": "delete-test-connect",
+                }
+            ]
+        },
+    }
+
+    assert (await client.delete(f"/api/v1/connect/clusters/{connect['id']}")).status_code == 200
+    async with db_factory() as db:
+        db.add(
+            KafkaTopic(
+                kafka_cluster_id=UUID(kafka["id"]),
+                name="legacy.cached.topic",
+                metadata_json={},
+            )
+        )
+        await db.commit()
+
+    deleted = await client.delete(f"/api/v1/kafka/clusters/{kafka['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True}
 
 
 async def test_operator_can_retry_terminal_job_without_losing_failure_history(

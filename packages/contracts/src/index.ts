@@ -51,12 +51,16 @@ export interface KafkaCluster extends Entity {
   };
   credentials?: { configured: boolean; masked_value: string };
   status: string;
+  status_reason: string | null;
+  last_health_check_at: string | null;
 }
 export interface ConnectCluster extends Entity {
   name: string;
   base_url: string;
   kafka_cluster_id: string;
   status: string;
+  status_reason: string | null;
+  last_health_check_at: string | null;
 }
 export interface Connector extends Entity {
   name: string;

@@ -20,6 +20,7 @@ from app.models.entities import (
     Connector,
     Job,
     KafkaCluster,
+    KafkaTopic,
     Pipeline,
     PipelineDestination,
     PipelineEvent,
@@ -44,6 +45,7 @@ from app.schemas.requests import (
     SourceInput,
 )
 from app.services import connections as connection_service
+from app.services import infrastructure as infrastructure_service
 from app.services import pipeline as pipeline_service
 from app.services import pipeline_tables as pipeline_table_service
 from app.services import source as source_service
@@ -445,6 +447,29 @@ def _applicable_kafka_secrets(data: KafkaInput, values: dict[str, str]) -> dict[
     return {key: value for key, value in values.items() if key in allowed}
 
 
+@router.post("/kafka/clusters/test")
+async def test_kafka_connection(
+    data: KafkaInput,
+    db: DB,
+    user: Annotated[Principal, Depends(require("settings.manage"))],
+    identifier: UUID | None = None,
+):
+    existing_secrets: dict[str, str] = {}
+    if identifier:
+        existing = await get(db, KafkaCluster, identifier)
+        if existing.secret_ref:
+            existing_secrets = await secret_provider(db).get_secret(existing.secret_ref)
+    secrets = _applicable_kafka_secrets(data, {**existing_secrets, **data.secret_values()})
+    _validate_kafka_transport(data, secrets)
+    candidate = KafkaCluster(
+        name=data.name,
+        bootstrap_servers=data.bootstrap_servers,
+        security_protocol=data.security_protocol,
+        security_config_json=data.security_config(secrets),
+    )
+    return await infrastructure_service.probe_kafka(candidate, secrets)
+
+
 @router.post("/kafka/clusters", status_code=201)
 async def create_kafka(
     data: KafkaInput, db: DB, user: Annotated[Principal, Depends(require("settings.manage"))]
@@ -456,6 +481,7 @@ async def create_kafka(
         bootstrap_servers=data.bootstrap_servers,
         security_protocol=data.security_protocol,
         security_config_json=data.security_config(secrets),
+        status_reason="Awaiting automatic health check",
     )
     if secrets:
         cluster.secret_ref = await secret_provider(db).put_secret(secrets)
@@ -510,6 +536,8 @@ async def update_kafka(
         if old_secret:
             await db.delete(old_secret)
     cluster.status = "UNKNOWN"
+    cluster.status_reason = "Awaiting automatic health check"
+    cluster.last_health_check_at = None
     audit(db, user.actor, "kafka_cluster.updated", cluster, before)
     await db.commit()
     return _kafka_view(cluster)
@@ -520,8 +548,37 @@ async def delete_kafka(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("settings.manage"))]
 ):
     cluster = await get(db, KafkaCluster, identifier)
+    pipelines = (
+        await db.execute(
+            select(Pipeline.id, Pipeline.name).where(Pipeline.kafka_cluster_id == identifier)
+        )
+    ).all()
+    connect_clusters = (
+        await db.execute(
+            select(ConnectCluster.id, ConnectCluster.name).where(
+                ConnectCluster.kafka_cluster_id == identifier
+            )
+        )
+    ).all()
+    used_by = [
+        {"type": "pipeline", "id": str(item.id), "name": item.name} for item in pipelines
+    ] + [
+        {"type": "connect_cluster", "id": str(item.id), "name": item.name}
+        for item in connect_clusters
+    ]
+    if used_by:
+        raise DomainError(
+            "CLUSTER_IN_USE",
+            "Remove associated pipelines and Kafka Connect clusters before deleting "
+            "this Kafka cluster",
+            409,
+            {"used_by": used_by},
+        )
     secret = await db.get(SecretReference, cluster.secret_ref) if cluster.secret_ref else None
     audit(db, user.actor, "kafka_cluster.deleted", cluster)
+    # KafkaTopic is legacy discovery metadata, not the broker topic itself. It
+    # must not prevent an otherwise-unused cluster registration from being removed.
+    await db.execute(delete(KafkaTopic).where(KafkaTopic.kafka_cluster_id == identifier))
     await db.delete(cluster)
     await db.flush()
     if secret:
@@ -535,12 +592,27 @@ async def connect_clusters(db: DB, user: Annotated[Principal, Depends(require("c
     return await listing(db, ConnectCluster)
 
 
+@router.post("/connect/clusters/test")
+async def test_connect_connection(
+    data: ConnectInput,
+    db: DB,
+    user: Annotated[Principal, Depends(require("settings.manage"))],
+):
+    await get(db, KafkaCluster, data.kafka_cluster_id)
+    candidate = ConnectCluster(
+        name=data.name,
+        base_url=data.base_url,
+        kafka_cluster_id=data.kafka_cluster_id,
+    )
+    return await infrastructure_service.probe_connect(candidate)
+
+
 @router.post("/connect/clusters", status_code=201)
 async def create_connect(
     data: ConnectInput, db: DB, user: Annotated[Principal, Depends(require("settings.manage"))]
 ):
     await get(db, KafkaCluster, data.kafka_cluster_id)
-    cluster = ConnectCluster(**data.model_dump())
+    cluster = ConnectCluster(**data.model_dump(), status_reason="Awaiting automatic health check")
     db.add(cluster)
     await db.flush()
     audit(db, user.actor, "connect_cluster.created", cluster)
@@ -571,6 +643,8 @@ async def update_connect(
     for k, v in data.model_dump().items():
         setattr(cluster, k, v)
     cluster.status = "UNKNOWN"
+    cluster.status_reason = "Awaiting automatic health check"
+    cluster.last_health_check_at = None
     audit(db, user.actor, "connect_cluster.updated", cluster, before)
     await db.commit()
     return serialize(cluster)

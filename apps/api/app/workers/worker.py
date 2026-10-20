@@ -12,9 +12,17 @@ from app.alerts.dispatcher import dispatch_pending
 from app.core.config import get_settings
 from app.core.database import Session
 from app.core.errors import DomainError
-from app.models.entities import Job, Pipeline, PipelineDestination, now
+from app.models.entities import (
+    ConnectCluster,
+    Job,
+    KafkaCluster,
+    Pipeline,
+    PipelineDestination,
+    now,
+)
 from app.repositories.metadata import audit
 from app.services.destinations.service import reconcile as reconcile_delivery
+from app.services.infrastructure import check_connect, check_kafka
 from app.services.pipeline import reconcile
 from app.services.pipeline_tables import run_operation, sync_snapshot_operations
 from app.services.source import discover, health
@@ -319,8 +327,76 @@ async def _reconcile_batch() -> None:
         await session.commit()
 
 
+async def _infrastructure_health_batch() -> None:
+    async with Session() as session:
+        kafka_ids = list(
+            (
+                await session.scalars(
+                    select(KafkaCluster.id).order_by(KafkaCluster.updated_at).limit(100)
+                )
+            ).all()
+        )
+        connect_ids = list(
+            (
+                await session.scalars(
+                    select(ConnectCluster.id).order_by(ConnectCluster.updated_at).limit(100)
+                )
+            ).all()
+        )
+    semaphore = asyncio.Semaphore(get_settings().worker_concurrency)
+
+    async def kafka_task(identifier: uuid.UUID) -> None:
+        try:
+            async with semaphore, Session() as session:
+                cluster = await session.get(KafkaCluster, identifier)
+                if cluster is not None:
+                    result = await check_kafka(session, cluster)
+                    await session.commit()
+                    log.info(
+                        "kafka_cluster_health_checked",
+                        cluster_id=str(identifier),
+                        status=result["status"],
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "kafka_cluster_health_check_failed",
+                cluster_id=str(identifier),
+                error_type=type(exc).__name__,
+            )
+
+    async def connect_task(identifier: uuid.UUID) -> None:
+        try:
+            async with semaphore, Session() as session:
+                cluster = await session.get(ConnectCluster, identifier)
+                if cluster is not None:
+                    result = await check_connect(session, cluster)
+                    await session.commit()
+                    log.info(
+                        "connect_cluster_health_checked",
+                        cluster_id=str(identifier),
+                        status=result["status"],
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "connect_cluster_health_check_failed",
+                cluster_id=str(identifier),
+                error_type=type(exc).__name__,
+            )
+
+    async with asyncio.TaskGroup() as group:
+        for identifier in kafka_ids:
+            group.create_task(kafka_task(identifier))
+        for identifier in connect_ids:
+            group.create_task(connect_task(identifier))
+
+
 async def worker_loop() -> None:
     next_reconcile = 0.0
+    next_infrastructure_health = 0.0
     concurrency = get_settings().worker_concurrency
     while True:
         try:
@@ -331,6 +407,12 @@ async def worker_loop() -> None:
                 await _reconcile_batch()
                 next_reconcile = (
                     asyncio.get_running_loop().time() + get_settings().reconcile_interval_seconds
+                )
+            if asyncio.get_running_loop().time() >= next_infrastructure_health:
+                await _infrastructure_health_batch()
+                next_infrastructure_health = (
+                    asyncio.get_running_loop().time()
+                    + get_settings().infrastructure_health_interval_seconds
                 )
             async with Session() as session:
                 try:

@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     invite_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     public_url: str = "http://localhost:3000"
     reconcile_interval_seconds: int = 10
+    infrastructure_health_interval_seconds: int = Field(default=30, ge=5, le=3600)
     worker_concurrency: int = Field(default=4, ge=1, le=32)
     job_lease_seconds: int = Field(default=300, ge=30, le=3600)
     job_max_attempts: int = Field(default=3, ge=1, le=20)

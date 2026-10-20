@@ -32,6 +32,47 @@ async def queued_job(factory, **kwargs):
         return job.id
 
 
+async def test_automatic_infrastructure_health_checks_are_persisted(db_factory, monkeypatch):
+    async with db_factory() as db:
+        kafka = KafkaCluster(name="health-kafka", bootstrap_servers="kafka:9092")
+        db.add(kafka)
+        await db.flush()
+        connect = ConnectCluster(
+            name="health-connect",
+            base_url="http://connect:8083",
+            kafka_cluster_id=kafka.id,
+        )
+        db.add(connect)
+        await db.commit()
+        kafka_id, connect_id = kafka.id, connect.id
+
+    async def kafka_health(session, cluster):
+        cluster.status = "HEALTHY"
+        cluster.status_reason = "Kafka connection succeeded"
+        cluster.last_health_check_at = now()
+        return {"status": "HEALTHY"}
+
+    async def connect_health(session, cluster):
+        cluster.status = "UNHEALTHY"
+        cluster.status_reason = "Kafka Connect is unavailable or timed out"
+        cluster.last_health_check_at = now()
+        return {"status": "UNHEALTHY"}
+
+    monkeypatch.setattr(worker, "Session", db_factory)
+    monkeypatch.setattr(worker, "check_kafka", kafka_health)
+    monkeypatch.setattr(worker, "check_connect", connect_health)
+
+    await worker._infrastructure_health_batch()
+
+    async with db_factory() as db:
+        kafka = await db.get(KafkaCluster, kafka_id)
+        connect = await db.get(ConnectCluster, connect_id)
+        assert kafka.status == "HEALTHY"
+        assert kafka.last_health_check_at is not None
+        assert connect.status == "UNHEALTHY"
+        assert connect.status_reason == "Kafka Connect is unavailable or timed out"
+
+
 async def test_expired_lease_is_recovered_but_active_lease_is_not(db_factory, monkeypatch):
     monkeypatch.setattr(worker, "Session", db_factory)
     expired = await queued_job(
