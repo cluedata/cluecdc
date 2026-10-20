@@ -3,6 +3,8 @@ title: ClueCDC
 description: Operate CDC pipelines with Debezium, Apache Kafka, and Kafka Connect.
 ---
 
+![ClueCDC](assets/cluecdc-logo.png){ .hero-logo }
+
 # Operate CDC without hiding the data plane
 
 ClueCDC is an open-source control plane for configuring, operating, and
@@ -51,12 +53,12 @@ transport.
 
 ## Supported connectors
 
-| System | Source capture | Destination delivery | Connection test |
-| --- | --- | --- | --- |
-| PostgreSQL | Supported | Supported | Supported |
-| MySQL | Supported | Supported | Supported |
-| AWS S3 | No | Supported | Supported |
-| MinIO | No | Supported | Supported |
+| System     | Source capture | Destination delivery | Connection test |
+| ---------- | -------------- | -------------------- | --------------- |
+| PostgreSQL | Supported      | Supported            | Supported       |
+| MySQL      | Supported      | Supported            | Supported       |
+| AWS S3     | No             | Supported            | Supported       |
+| MinIO      | No             | Supported            | Supported       |
 
 ## Start locally
 

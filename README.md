@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/homepage.png" alt="ClueCDC pipeline overview" width="1100">
+  <img src="docs/assets/cluecdc-logo.png" alt="ClueCDC" width="112" height="112">
 </p>
 
-# ClueCDC
+<h1 align="center">ClueCDC</h1>
 
 [![Release](https://img.shields.io/github/v/release/cluedata/cluecdc?display_name=tag&sort=semver)](https://github.com/cluedata/cluecdc/releases)
 [![CI](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml/badge.svg)](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml)
@@ -15,6 +15,10 @@ CDC pipelines powered by Debezium, Apache Kafka, and Kafka Connect.**
 It gives operators one UI and API for connections, table discovery, connector
 lifecycle, deliveries, health, alerts, and audit history. ClueCDC configures the
 data plane; CDC records never flow through its API.
+
+<p align="center">
+  <img src="docs/assets/homepage.png" alt="ClueCDC pipeline overview" width="1100">
+</p>
 
 ## Architecture
 
@@ -77,12 +81,12 @@ capabilities, role access, and known boundaries.
 
 ## Supported connectors
 
-| System | Source | Destination | Delivery format |
-| --- | --- | --- | --- |
-| PostgreSQL 13+ | Debezium | JDBC sink | Typed rows/upserts/deletes |
-| MySQL 8 | Debezium | JDBC sink | Typed rows/upserts/deletes |
-| AWS S3 | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
-| MinIO | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
+| System         | Source   | Destination   | Delivery format            |
+| -------------- | -------- | ------------- | -------------------------- |
+| PostgreSQL 13+ | Debezium | JDBC sink     | Typed rows/upserts/deletes |
+| MySQL 8        | Debezium | JDBC sink     | Typed rows/upserts/deletes |
+| AWS S3         | No       | Aiven S3 sink | Gzip JSONL CDC envelopes   |
+| MinIO          | No       | Aiven S3 sink | Gzip JSONL CDC envelopes   |
 
 ## Quick start
 

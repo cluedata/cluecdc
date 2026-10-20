@@ -10,8 +10,8 @@ copyright: Copyright &copy; 2026 ClueCDC contributors
 theme:
   name: material
   custom_dir: docs/overrides
-  logo: assets/logo-mark.svg
-  favicon: assets/logo-mark.svg
+  logo: assets/cluecdc-logo.png
+  favicon: assets/cluecdc-icon.png
   font:
     text: Inter
     code: JetBrains Mono
@@ -158,6 +158,9 @@ nav:
       - Pull Request Process: development/pull-requests.md
       - Releases: development/releases.md
       - Release Checklist: RELEASE_CHECKLIST.md
+      - v0.3.0 UX Redesign: development/v0.3.0-ux-redesign.md
+      - v0.3.0 Visual Revision: development/v0.3.0-visual-revision.md
+      - v0.3.0 Release Notes: releases/v0.3.0.md
       - v0.2.1 Release Notes: releases/v0.2.1.md
       - v0.2.1 Hardening Progress: development/v0.2.1-hardening-progress.md
       - v0.2.0 Release Notes: releases/v0.2.0.md

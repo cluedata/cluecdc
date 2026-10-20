@@ -29,6 +29,7 @@ invalid. The web server validates its private API origin at request time.
 | `JOB_RETRY_JITTER_RATIO`      | No             | Positive retry jitter ratio, 0–1 (default 0.2)         |
 | `CONNECTOR_OPERATION_LEASE_SECONDS` | No        | Expiry for a crashed lifecycle operation (default 300) |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
+| `INFRASTRUCTURE_HEALTH_INTERVAL_SECONDS` | No | Kafka and Kafka Connect health interval (default 30s) |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
 | `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |
 | `API_INTERNAL_URL`            | Web production | Private origin of the ClueCDC API                      |

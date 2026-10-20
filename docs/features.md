@@ -40,14 +40,14 @@ The API keeps these as explicit endpoints so automation can control each stage.
 - [x] Reusable PostgreSQL and MySQL database destinations.
 - [x] PostgreSQL/MySQL JDBC sink delivery with explicit topic-to-table mapping.
 - [x] Insert or upsert mode, delete propagation, automatic table creation, and
-  optional basic schema evolution.
+      optional basic schema evolution.
 - [x] Reusable AWS S3 and MinIO object-storage destinations.
 - [x] Aiven S3 sink delivery using gzip or plain JSONL Debezium envelopes.
 - [x] Multiple independent deliveries per capture pipeline.
 - [x] Preview checks for topics, source schema/keys, target access, plugins, and
-  Kafka Connect configuration before deployment.
+      Kafka Connect configuration before deployment.
 - [x] Delivery pause, resume, connector restart, task restart, mapping update,
-  status observation, and removal without deleting destination data.
+      status observation, and removal without deleting destination data.
 
 ## Kafka and Kafka Connect
 
@@ -56,9 +56,9 @@ The API keeps these as explicit endpoints so automation can control each stage.
 - [x] Delete a Kafka topic through a separately privileged destructive action.
 - [x] Discover Connect plugins and inspect connectors and task states.
 - [x] Kafka SSL, SASL/PLAIN, and SASL/SCRAM client configuration with encrypted
-  PEM/SASL values and connector ConfigProvider references.
+      PEM/SASL values and connector ConfigProvider references.
 - [x] Resolve encrypted connector credentials at runtime through the private
-  machine-authenticated ConfigProvider endpoint.
+      machine-authenticated ConfigProvider endpoint.
 
 ClueCDC does not expose CDC record payloads. The legacy `/api/v1/events`
 endpoint returns HTTP 410; inspect records directly with Kafka tooling or in
@@ -73,13 +73,30 @@ the configured destination.
 - [x] Filtered alert rules with cooldown and optional recovery notifications.
 - [x] Slack Incoming Webhook, Telegram, and SSRF-hardened generic webhook channels.
 - [x] Immutable audit records for metadata changes, lifecycle actions, jobs,
-  authentication, authorization-sensitive administration, and user management.
+      authentication, authorization-sensitive administration, and user management.
 - [x] JSON logs, correlation IDs, live/ready health endpoints, and Prometheus
-  control-plane/alert metrics.
+      control-plane/alert metrics.
 
 Historical throughput, lag, freshness, and no-event measurements remain
 unavailable unless a stream metrics provider supplies them. The UI reports
 unknown values instead of inventing zeroes.
+
+## Web interface
+
+- [x] Pipeline-centered navigation with role-aware Overview, Pipelines,
+      Deliveries, Connections, Monitoring, Alerts, Audit, and Settings entry points.
+- [x] Semantic light/dark themes with persisted user preference and no
+      hydration-dependent theme flash.
+- [x] Collapsible desktop sidebar, accessible Connections disclosure, and a
+      mobile navigation drawer.
+- [x] Compact pipeline inventory, real metadata data-flow rails, status text plus
+      color/icon, and shared loading, empty, error, dialog, table, and form patterns.
+- [x] Six-step pipeline wizard with preserved back-navigation values, explicit
+      review, and the existing validated deployment sequence.
+- [x] Responsive visual coverage for representative routes at 1440px and 375px.
+
+The authoritative multicolor ClueCDC logo and icon are integrated across the
+application shell, authentication surface, favicon, and documentation site.
 
 ## Authentication, users, and authorization
 
@@ -90,18 +107,18 @@ unknown values instead of inventing zeroes.
 - [x] Admin user invitation, role change, enable, disable, and permanent deletion.
 - [x] Self-disable/self-delete and last-active-Admin safeguards.
 - [x] Public development-only Admin account for a fresh loopback Compose stack;
-  production rejects this bootstrap mode.
+      production rejects this bootstrap mode.
 - [x] API-enforced Viewer, Ops, and Admin permissions with unauthorized UI
-  navigation and actions hidden.
+      navigation and actions hidden.
 
-| Workspace/capability | Viewer | Ops | Admin |
-| --- | :---: | :---: | :---: |
-| Overview, Pipelines, and Deliveries | View | View/operate | Full |
-| Sources and Destinations | Hidden | View only | Full |
-| Create/update/delete Pipelines and Deliveries | No | Yes | Yes |
-| Kafka/Connect inventory in main navigation | Hidden | Hidden | Full |
-| Monitoring, alerts, errors, audit, and settings | Hidden | Hidden | Full |
-| Users and roles | Hidden | Hidden | Full |
+| Workspace/capability                            | Viewer |     Ops      | Admin |
+| ----------------------------------------------- | :----: | :----------: | :---: |
+| Overview, Pipelines, and Deliveries             |  View  | View/operate | Full  |
+| Sources and Destinations                        | Hidden |  View only   | Full  |
+| Create/update/delete Pipelines and Deliveries   |   No   |     Yes      |  Yes  |
+| Kafka/Connect inventory in main navigation      | Hidden |    Hidden    | Full  |
+| Monitoring, alerts, errors, audit, and settings | Hidden |    Hidden    | Full  |
+| Users and roles                                 | Hidden |    Hidden    | Full  |
 
 Ops receives read-only Kafka/Connect API access needed by the pipeline wizard,
 but the standalone infrastructure workspace and all infrastructure mutations
@@ -113,12 +130,12 @@ authorization contract.
 - [x] FastAPI/OpenAPI API, Next.js web UI, and a separate reconciliation/job worker.
 - [x] PostgreSQL metadata with explicit Alembic migrations and drift checking.
 - [x] Six-service loopback Docker Compose runtime with optional development and
-  integration-test overlays.
+      integration-test overlays.
 - [x] Kubernetes Kustomize production application base with external PostgreSQL,
-  Kafka and Kafka Connect, restricted containers, probes and private ingress policies.
+      Kafka and Kafka Connect, restricted containers, probes and private ingress policies.
 - [x] Verified metadata backup/restore and guarded populated v0.2.0 upgrades.
 - [x] Automated unit, type, lint, build, migration, container, live CDC, object
-  storage, and browser checks in the repository workflows/release gate.
+      storage, and browser checks in the repository workflows/release gate.
 
 ## Current boundaries
 
@@ -126,8 +143,8 @@ authorization contract.
 - [ ] ClueCDC does not send invitation email; an Admin shares the generated link.
 - [ ] CDC payload browsing through the ClueCDC API/UI is intentionally unavailable.
 - [ ] Broker-side TLS identity, Kafka user/ACL provisioning, Connect REST
-  authentication, and production external-secret integration remain deployment
-  responsibilities.
+      authentication, and production external-secret integration remain deployment
+      responsibilities.
 - [ ] The bundled Compose environment is for local use, not high availability.
 - [ ] Target-cluster NetworkPolicy, external dependency identities/ACLs and
-  rollout behavior require environment-specific validation before pilot use.
+      rollout behavior require environment-specific validation before pilot use.

@@ -17,7 +17,10 @@
 
 .md-header__button.md-logo img,
 .md-header__button.md-logo svg {
-  height: 2rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  object-fit: contain;
+  object-position: center;
 }
 
 .md-typeset h1,
@@ -33,9 +36,14 @@
   align-items: center;
   margin: 1rem 0 2.5rem;
   padding: 2rem;
-  border: 1px solid color-mix(in srgb, var(--md-default-fg-color) 12%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--md-default-fg-color) 12%, transparent);
   border-radius: 1rem;
-  background: linear-gradient(135deg, color-mix(in srgb, #f36b21 13%, transparent), transparent 55%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #f36b21 13%, transparent),
+    transparent 55%
+  );
 }
 
 .md-typeset .hero h1 {
@@ -46,13 +54,18 @@
 
 .md-typeset .hero-logo {
   width: min(14rem, 70%);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
   margin: auto;
   filter: drop-shadow(0 1rem 2rem rgb(0 0 0 / 18%));
 }
 
 .md-typeset .grid.cards > ul > li {
   border-radius: 0.8rem;
-  transition: border-color 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
 }
 
 .md-typeset .grid.cards > ul > li:hover {
