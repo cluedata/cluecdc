@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-import tomllib
 from datetime import date
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 NUMBER = r"(?:0|[1-9][0-9]*)"
@@ -44,8 +45,11 @@ def validate_metadata(
         )
     notes_path = Path("docs/releases") / f"{expected_tag}.md"
     notes = (root / notes_path).read_text(encoding="utf-8")
-    if not notes.startswith(f"# ClueCDC {expected_tag}\n"):
-        raise ValueError(f"Release notes title must be '# ClueCDC {expected_tag}'")
+    title = notes.partition("\n")[0]
+    if not re.fullmatch(rf"# ClueCDC {re.escape(expected_tag)}(?: — [^\n]+)?", title):
+        raise ValueError(
+            f"Release notes title must start with '# ClueCDC {expected_tag}'"
+        )
     warnings = []
     try:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", sections[0]):

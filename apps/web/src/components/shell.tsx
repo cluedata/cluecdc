@@ -5,25 +5,23 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  AlertCircle,
   Bell,
   Box,
+  ChevronDown,
   ChevronRight,
   Database,
   FileClock,
-  FileJson,
   GitBranch,
   LayoutDashboard,
   LogOut,
   Menu,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radio,
   Settings,
-  ShieldCheck,
   Sun,
-  Table2,
   Workflow,
-  Users,
   Send,
   X,
 } from "lucide-react";
@@ -31,6 +29,7 @@ import type { LucideIcon } from "lucide-react";
 import type { AlertSummary } from "@cluecdc/contracts";
 import { api, ApiError, relativeTime } from "@/lib/api";
 import { hasPermission, requiredPermissionForPath } from "@/lib/auth";
+import { BrandMark } from "./brand-mark";
 type NavItem = {
   label: string;
   href: string;
@@ -39,8 +38,8 @@ type NavItem = {
 };
 const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
-    id: "overview",
-    label: "Overview",
+    id: "workspace",
+    label: "Workspace",
     items: [
       {
         label: "Overview",
@@ -48,12 +47,6 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
         icon: LayoutDashboard,
         permission: "overview.read",
       },
-    ],
-  },
-  {
-    id: "data-flow",
-    label: "Data Flow",
-    items: [
       {
         label: "Pipelines",
         href: "/pipelines",
@@ -84,23 +77,10 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
         icon: Workflow,
         permission: "destinations.read",
       },
-    ],
-  },
-  {
-    id: "infrastructure",
-    label: "Infrastructure",
-    items: [
       {
         label: "Kafka Clusters",
         href: "/kafka/clusters",
         icon: Radio,
-        permission: "*",
-      },
-      { label: "Topics", href: "/kafka/topics", icon: Table2, permission: "*" },
-      {
-        label: "Consumer Groups",
-        href: "/kafka/consumer-groups",
-        icon: FileJson,
         permission: "*",
       },
       {
@@ -123,13 +103,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
       },
       { label: "Alerts", href: "/alerts", icon: Bell, permission: "*" },
       {
-        label: "Error Center",
-        href: "/operations/errors",
-        icon: AlertCircle,
-        permission: "*",
-      },
-      {
-        label: "Audit Trail",
+        label: "Audit",
         href: "/operations/audit",
         icon: FileClock,
         permission: "*",
@@ -141,13 +115,6 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     label: "System",
     items: [
       { label: "Settings", href: "/settings", icon: Settings, permission: "*" },
-      { label: "Users", href: "/settings/users", icon: Users, permission: "*" },
-      {
-        label: "Security",
-        href: "/settings/security",
-        icon: ShieldCheck,
-        permission: "*",
-      },
     ],
   },
 ];
@@ -155,10 +122,12 @@ function SidebarItem({
   item,
   path,
   onNavigate,
+  collapsed,
 }: {
   item: NavItem;
   path: string;
   onNavigate: () => void;
+  collapsed: boolean;
 }) {
   const active =
     (path === "/" && item.href === "/overview") ||
@@ -170,9 +139,10 @@ function SidebarItem({
       onClick={onNavigate}
       className={`nav-item ${active ? "active" : ""}`}
       aria-current={active ? "page" : undefined}
+      title={collapsed ? item.label : undefined}
     >
       <item.icon size={17} aria-hidden="true" />
-      {item.label}
+      <span className="nav-label">{item.label}</span>
     </Link>
   );
 }
@@ -181,6 +151,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const publicPage = path === "/login" || path.startsWith("/invite/");
   const [mobile, setMobile] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(true);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -219,6 +191,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
       window.cancelAnimationFrame(themeFrame);
       window.removeEventListener("keydown", handle);
     };
+  }, []);
+  useEffect(() => {
+    const sidebarFrame = window.requestAnimationFrame(() => {
+      if (window.localStorage.getItem("cluecdc-sidebar") === "collapsed") {
+        setSidebarCollapsed(true);
+      }
+    });
+    return () => window.cancelAnimationFrame(sidebarFrame);
   }, []);
   useEffect(() => {
     if (
@@ -261,10 +241,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
     }))
     .filter((group) => group.items.length);
   const close = () => setMobile(false);
+  const toggleSidebar = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    window.localStorage.setItem(
+      "cluecdc-sidebar",
+      next ? "collapsed" : "expanded",
+    );
+  };
   if (publicPage) return <>{children}</>;
   if (session.isSuccess && !authorized) return null;
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">
         Skip to workspace
       </a>
@@ -275,15 +263,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
           onClick={close}
         />
       )}
-      <aside className={`sidebar ${mobile ? "mobile-open" : ""}`}>
+      <aside
+        className={`sidebar ${mobile ? "mobile-open" : ""}`}
+        aria-label="Application sidebar"
+      >
         <Link href="/" className="brand" onClick={close}>
           <span className="brand-mark">
-            <GitBranch size={27} />
+            <BrandMark priority />
           </span>
-          <div>
+          <div className="brand-product">
             <strong>
               Clue<span>CDC</span>
             </strong>
+            <small>Data movement</small>
           </div>
         </Link>
         <button
@@ -295,26 +287,65 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </button>
         <nav aria-label="Main navigation">
           <div className="signal-navigation">
-            {visibleGroups.map((group) => (
-              <section
-                className="sidebar-group"
-                key={group.id}
-                aria-labelledby={`nav-${group.id}`}
-              >
-                <h2 id={`nav-${group.id}`}>{group.label}</h2>
-                {group.items.map((item) => (
-                  <SidebarItem
-                    key={item.href}
-                    item={item}
-                    path={path}
-                    onNavigate={close}
-                  />
-                ))}
-              </section>
-            ))}
+            {visibleGroups.map((group) => {
+              const collapsible = group.id === "connections";
+              const open = !collapsible || connectionsOpen || sidebarCollapsed;
+              return (
+                <section
+                  className="sidebar-group"
+                  key={group.id}
+                  aria-labelledby={`nav-${group.id}`}
+                >
+                  {collapsible ? (
+                    <button
+                      type="button"
+                      className="sidebar-group-toggle"
+                      aria-expanded={open}
+                      aria-controls="nav-connections-items"
+                      onClick={() => setConnectionsOpen((value) => !value)}
+                      title={sidebarCollapsed ? "Connections" : undefined}
+                    >
+                      <span id={`nav-${group.id}`}>{group.label}</span>
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <h2 id={`nav-${group.id}`}>{group.label}</h2>
+                  )}
+                  {open && (
+                    <div id={collapsible ? "nav-connections-items" : undefined}>
+                      {group.items.map((item) => (
+                        <SidebarItem
+                          key={item.href}
+                          item={item}
+                          path={path}
+                          onNavigate={close}
+                          collapsed={sidebarCollapsed}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         </nav>
         <div className="sidebar-bottom">
+          <button
+            type="button"
+            className="sidebar-collapse"
+            onClick={toggleSidebar}
+            aria-label={
+              sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+            }
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen size={16} />
+            ) : (
+              <PanelLeftClose size={16} />
+            )}
+            <span>Collapse sidebar</span>
+          </button>
           {session.data?.role === "Admin" ? (
             <Link href="/settings" className="user">
               <span className="avatar">

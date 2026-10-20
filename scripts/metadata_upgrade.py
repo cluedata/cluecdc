@@ -29,7 +29,16 @@ else:
     )
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SUPPORTED_REVISIONS = {"5e2d8a9f1c30", "0001", "0002", "0003", "0004", "0005", "0006"}
+SUPPORTED_REVISIONS = {
+    "5e2d8a9f1c30",
+    "0001",
+    "0002",
+    "0003",
+    "0004",
+    "0005",
+    "0006",
+    "0007",
+}
 
 
 class UpgradeError(RuntimeError):

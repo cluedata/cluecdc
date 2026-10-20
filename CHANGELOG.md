@@ -6,6 +6,36 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+### Added
+
+- Added a semantic Clean Tech Spectrum design system with complete light and
+  dark themes, independent operational status colors, compact data surfaces,
+  and responsive desktop/mobile behavior.
+- Added persisted desktop sidebar collapse, an accessible Connections
+  disclosure, a mobile navigation drawer, and visual regression capture for
+  representative operational routes.
+- Added a six-step pipeline creation experience covering source,
+  infrastructure, tables, capture, delivery, and explicit review/deployment.
+- Added on-demand Kafka and Kafka Connect connection tests plus periodic worker
+  health checks with persisted status reasons and observation timestamps.
+
+### Changed
+
+- Reorganized primary navigation around Overview, Pipelines, Deliveries,
+  Connections, Monitoring, Alerts, Audit, and Settings while preserving legacy
+  routes and role restrictions.
+- Refined overview, pipeline, delivery, connection, table, form, status, empty,
+  loading, error, dialog, and data-flow presentation for denser operational use.
+- Documented the v0.3.0 UX audit, design system, implementation plan, responsive
+  validation, accessibility findings, and supplied brand-asset integration.
+
+### Fixed
+
+- Prevented page-level horizontal overflow in the mobile pipeline wizard and
+  added automated desktop/mobile checks for the redesigned routes.
+
 ## [0.2.1] - 2026-10-15
 
 ### Changed
@@ -161,6 +191,8 @@ All notable changes to ClueCDC are documented here. The format follows
 - Required token authentication and non-example secrets in production, bound
   local ports to loopback, and added repository, dependency, and secret scans.
 
-[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cluedata/cluecdc/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/cluedata/cluecdc/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cluedata/cluecdc/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cluedata/cluecdc/releases/tag/v0.1.0

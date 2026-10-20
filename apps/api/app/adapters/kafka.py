@@ -208,6 +208,26 @@ class KafkaExplorer:
     def __init__(self, credentials: dict[str, str] | None = None):
         self.credentials = credentials or {}
 
+    async def health(self, cluster: KafkaCluster) -> dict:
+        """Perform a lightweight broker metadata check without describing every topic."""
+        admin = None
+        try:
+            admin = AIOKafkaAdminClient(**options(cluster, self.credentials))
+            async with asyncio.timeout(10):
+                await admin.start()
+                topics = await admin.list_topics()
+                return {"topic_count": len(topics)}
+        except DomainError:
+            raise
+        except Exception as exc:
+            raise DomainError(
+                "KAFKA_UNAVAILABLE", "Kafka broker metadata could not be retrieved", 503
+            ) from exc
+        finally:
+            if admin is not None:
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await admin.close()
+
     async def consumer_groups(self, cluster: KafkaCluster) -> list[dict]:
         """Return committed offsets and broker lag for topic-consuming groups."""
         try:

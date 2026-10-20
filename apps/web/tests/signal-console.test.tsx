@@ -52,6 +52,31 @@ function workspace({
   });
   client.setQueryData(["errors", "recent-active"], errors);
   client.setQueryData(["audit", "meaningful"], []);
+  client.setQueryData(
+    ["pipelines"],
+    [
+      {
+        id: "pipeline-1",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        name: "Orders CDC",
+        source_id: "source-1",
+        source_name: "orders-primary",
+        kafka_cluster_id: "kafka-1",
+        connect_cluster_id: "connect-1",
+        connector_id: "connector-1",
+        topic_prefix: "orders",
+        snapshot_mode: "initial",
+        desired_state: "RUNNING",
+        actual_state: "RUNNING",
+        aggregate_status: "HEALTHY",
+        tables: 8,
+        destinations: 2,
+        throughput: null,
+        cdc_lag: null,
+      },
+    ],
+  );
   client.setQueryData(["session"], {
     actor: "admin@example.com",
     email: "admin@example.com",
@@ -68,20 +93,80 @@ function workspace({
 }
 
 describe("operations overview", () => {
-  it("summarizes runtime health without embedding the pipeline inventory", () => {
+  it("summarizes runtime health with clear KPI, flow, and pipeline hierarchy", () => {
     workspace();
 
-    expect(screen.getByText("Data flow status")).toBeInTheDocument();
+    expect(screen.getByText("Total pipelines")).toBeInTheDocument();
+    expect(screen.getByText("Data movement")).toBeInTheDocument();
     expect(
-      screen.getByRole("img", {
-        name: "Running: 3, Degraded: 1, Failed: 0, Paused: 1, Unknown: 0",
-      }),
+      screen.getByRole("list", { name: "Change data capture flow" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "View pipelines" }),
     ).toHaveAttribute("href", "/pipelines");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Orders CDC" })).toHaveAttribute(
+      "href",
+      "/pipelines/pipeline-1",
+    );
+  });
+
+  it("turns a zero-pipeline workspace into one focused onboarding experience", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    client.setQueryData(["overview"], {
+      sources: 0,
+      healthy_sources: 0,
+      pipelines: 0,
+      running: 0,
+      degraded: 0,
+      failed: 0,
+      paused: 0,
+      unknown: 0,
+      deliveries: 0,
+      delivery_running: 0,
+      delivery_failed: 0,
+      delivery_degraded: 0,
+      delivery_paused: 0,
+      delivery_unknown: 0,
+      destinations: 0,
+      destination_running: 0,
+      destination_failed: 0,
+      destination_degraded: 0,
+      destination_paused: 0,
+      errors: 0,
+      throughput: null,
+      cdc_lag: null,
+      healthy_kafka_clusters: 0,
+      kafka_clusters: 0,
+      healthy_connect_clusters: 0,
+      connect_clusters: 0,
+      metrics_notice: "Metrics provider required",
+    });
+    client.setQueryData(["session"], {
+      actor: "admin@example.com",
+      email: "admin@example.com",
+      role: "Admin",
+      environment: "test",
+      auth_mode: "session",
+      permissions: ["*"],
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <OverviewPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Build your first reliable data movement path",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Workspace readiness")).toBeInTheDocument();
+    expect(screen.queryByText("Requires attention")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.queryByText("Live Data Flow")).not.toBeInTheDocument();
   });
 
   it("shows infrastructure health as direct drill-down links", () => {

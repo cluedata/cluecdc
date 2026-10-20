@@ -71,14 +71,7 @@ def verify_available(
             f"https://ghcr.io/v2/{image}/manifests/{version}",
             headers={
                 "Authorization": f"Bearer {bearer}",
-                "Accept": ", ".join(
-                    (
-                        "application/vnd.oci.image.index.v1+json",
-                        "application/vnd.oci.image.manifest.v1+json",
-                        "application/vnd.docker.distribution.manifest.list.v2+json",
-                        "application/vnd.docker.distribution.manifest.v2+json",
-                    )
-                ),
+                "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json",
             },
             method="HEAD",
             allow_missing=True,

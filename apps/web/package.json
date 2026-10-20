@@ -8,7 +8,11 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:visual:brand": "node scripts/visual-brand.mjs",
+    "test:visual:infrastructure": "node scripts/visual-infrastructure-health.mjs",
+    "test:visual:v030": "node scripts/visual-v030.mjs",
+    "test:visual:overview": "node scripts/visual-overview-revision.mjs"
   },
   "dependencies": {
     "@cluecdc/contracts": "*",

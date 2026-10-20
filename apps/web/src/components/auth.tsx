@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { Button, Input } from "@cluecdc/ui";
-import { CheckCircle2, GitBranch, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Field } from "@/components/common";
+import { BrandMark } from "@/components/brand-mark";
 
 function AuthFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +15,7 @@ function AuthFrame({ children }: { children: React.ReactNode }) {
       <section className="auth-brand-panel" aria-label="ClueCDC">
         <Link href="/" className="auth-brand">
           <span className="brand-mark">
-            <GitBranch size={30} />
+            <BrandMark priority />
           </span>
           <strong>
             Clue<span>CDC</span>

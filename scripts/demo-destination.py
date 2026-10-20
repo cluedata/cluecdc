@@ -21,6 +21,11 @@ env = dict(
     for line in (root / ".env").read_text().splitlines()
     if "=" in line and not line.startswith("#")
 )
+destination_password = os.environ.get("DESTINATION_PASSWORD") or env.get(
+    "DESTINATION_PASSWORD"
+)
+if not destination_password:
+    raise RuntimeError("DESTINATION_PASSWORD is required for the delivery fixture")
 if not args.skip_capture_demo:
     subprocess.run(
         [sys.executable, "-u", "scripts/demo.py", "--api-url", args.api_url],
@@ -42,7 +47,7 @@ def api(path, method="GET", data=None):
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             raw = response.read().decode()
-            assert env["DESTINATION_PASSWORD"] not in raw, (
+            assert destination_password not in raw, (
                 "Destination credential exposed; response withheld"
             )
             return json.loads(raw)
@@ -116,7 +121,7 @@ for name, schema in [
                 "port": 5432,
                 "database_name": "analytics",
                 "username": "delivery_user",
-                "password": env["DESTINATION_PASSWORD"],
+                "password": destination_password,
             },
         )
     api(f"/destinations/{target['id']}/test", "POST")

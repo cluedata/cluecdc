@@ -82,6 +82,14 @@ it("builds a review from selected ready tables", async () => {
   expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
   fireEvent.click(await screen.findByRole("radio"));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Where should captured events run?");
+  fireEvent.change(screen.getByLabelText("Kafka cluster"), {
+    target: { value: "k1" },
+  });
+  fireEvent.change(screen.getByLabelText("Kafka Connect cluster"), {
+    target: { value: "c1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
   const checkbox = await screen.findByRole("checkbox", {
     name: "Capture public.customers",
   });
@@ -90,13 +98,16 @@ it("builds a review from selected ready tables", async () => {
   ).toBeEnabled();
   fireEvent.click(checkbox);
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByText("Where should captured events be streamed?");
-  fireEvent.change(screen.getByLabelText("Kafka cluster"), {
-    target: { value: "k1" },
+  await screen.findByText("How should capture behave?");
+  fireEvent.change(screen.getByLabelText("Pipeline name"), {
+    target: { value: "Resilient pipeline" },
   });
-  fireEvent.change(screen.getByLabelText("Kafka Connect cluster"), {
-    target: { value: "c1" },
-  });
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByText("Which tables should be captured?");
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByLabelText("Pipeline name")).toHaveValue(
+    "Resilient pipeline",
+  );
   fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
   await screen.findByText("Where should the data go?");
   fireEvent.change(screen.getByLabelText("Destination"), {

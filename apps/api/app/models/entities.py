@@ -101,6 +101,8 @@ class KafkaCluster(Entity, Base):
     security_config_json: Mapped[dict] = mapped_column(JSON, default=dict)
     secret_ref: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("secret_references.id"))
     status: Mapped[str] = mapped_column(String, default="UNKNOWN")
+    status_reason: Mapped[str | None] = mapped_column(String(500))
+    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ConnectCluster(Entity, Base):
@@ -109,6 +111,8 @@ class ConnectCluster(Entity, Base):
     base_url: Mapped[str] = mapped_column(String)
     kafka_cluster_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kafka_clusters.id"), index=True)
     status: Mapped[str] = mapped_column(String, default="UNKNOWN")
+    status_reason: Mapped[str | None] = mapped_column(String(500))
+    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Connector(Entity, Base):

@@ -21,6 +21,9 @@ secrets = dict(
     for line in (root / ".env").read_text().splitlines()
     if "=" in line and not line.startswith("#")
 )
+source_password = os.environ.get("SOURCE_PASSWORD") or secrets.get("SOURCE_PASSWORD")
+if not source_password:
+    raise RuntimeError("SOURCE_PASSWORD is required for the demo fixture")
 
 
 def request(path, method="GET", data=None):
@@ -36,7 +39,7 @@ def request(path, method="GET", data=None):
     try:
         with urllib.request.urlopen(req, timeout=50) as response:
             raw = response.read().decode()
-            assert secrets["SOURCE_PASSWORD"] not in raw, (
+            assert source_password not in raw, (
                 "Source credential leaked in API response"
             )
             return json.loads(raw)
@@ -73,7 +76,7 @@ source = find_or_create(
         "port": 5432,
         "database_name": "commerce",
         "username": "cdc_user",
-        "password": secrets["SOURCE_PASSWORD"],
+        "password": source_password,
     },
 )
 request(f"/sources/{source['id']}/test", "POST")

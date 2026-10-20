@@ -68,6 +68,14 @@ def test_metadata_checks_every_release_reference(metadata, release_tree):
         metadata.validate_metadata(release_tree, tag="v1.2.4")
 
 
+def test_metadata_accepts_release_name_suffix(metadata, release_tree):
+    (release_tree / "docs/releases/v1.2.3.md").write_text(
+        "# ClueCDC v1.2.3 — Operator Experience\n\nReviewed release notes.\n",
+        encoding="utf-8",
+    )
+    assert metadata.validate_metadata(release_tree, require_final=True)["warnings"] == []
+
+
 @pytest.mark.parametrize(
     "name,contents",
     [

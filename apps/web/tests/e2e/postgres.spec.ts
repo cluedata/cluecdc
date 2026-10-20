@@ -7,7 +7,7 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
   page,
   request,
 }) => {
-  const env = Object.fromEntries(
+  const fileEnv = Object.fromEntries(
     readFileSync(resolve(root, ".env"), "utf8")
       .split(/\r?\n/)
       .filter((l) => l.includes("="))
@@ -16,6 +16,10 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
         return [l.slice(0, i), l.slice(i + 1)];
       }),
   );
+  const env = {
+    ...fileEnv,
+    SOURCE_PASSWORD: process.env.SOURCE_PASSWORD ?? fileEnv.SOURCE_PASSWORD,
+  };
   const name = `Browser capture ${Date.now()}`;
   const sourceName = `Browser source ${Date.now()}`;
   const deliveryName = `Browser delivery ${Date.now()}`;
@@ -60,18 +64,19 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
       .click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page
-      .getByRole("checkbox", { name: "Capture public.customers" })
-      .check();
-    await page.getByRole("checkbox", { name: "Capture public.orders" }).check();
-    await page.getByLabel("Pipeline name").fill(name);
-    await page.getByLabel("Topic prefix").fill(prefix);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page
       .getByLabel("Kafka cluster", { exact: true })
       .selectOption({ label: "Local Kafka" });
     await page
       .getByLabel("Kafka Connect cluster", { exact: true })
       .selectOption({ label: "Local Connect" });
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page
+      .getByRole("checkbox", { name: "Capture public.customers" })
+      .check();
+    await page.getByRole("checkbox", { name: "Capture public.orders" }).check();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByLabel("Pipeline name").fill(name);
+    await page.getByLabel("Topic prefix").fill(prefix);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     const destinationSelect = page.getByLabel("Destination", { exact: true });
     const reportingDestination = await destinationSelect
@@ -199,7 +204,7 @@ test("overview is usable on mobile", async ({ page }) => {
     page.getByRole("button", { name: "Open navigation" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Data flow status", exact: true }),
+    page.getByRole("heading", { name: "Pipeline overview", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "View pipelines", exact: true }),
@@ -237,7 +242,7 @@ test("desktop overview displays real pipeline health", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Data flow status", exact: true }),
+    page.getByRole("heading", { name: "Pipeline overview", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "View pipelines", exact: true }),

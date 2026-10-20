@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
-import { Box, Pencil, Plus, Radio, Trash2 } from "lucide-react";
+import { Activity, Box, Pencil, Plus, Radio, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type {
   ConnectCluster,
@@ -14,7 +14,7 @@ import type {
   Runtime,
 } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
-import { api } from "@/lib/api";
+import { api, date } from "@/lib/api";
 import {
   DataTable,
   Empty,
@@ -27,6 +27,12 @@ import {
 } from "./common";
 import { DetailDrawer, FilterBar } from "./operational";
 type Cluster = KafkaCluster | ConnectCluster;
+type HealthCheckResult = {
+  status: string;
+  message: string;
+  checked_at: string;
+  details: Record<string, unknown>;
+};
 export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -47,47 +53,60 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
   const query = useQuery({
     queryKey: [key],
     queryFn: () => api<Cluster[]>(`/${kind}/clusters`),
+    refetchInterval: 5000,
   });
   const kafka = useQuery({
     queryKey: ["kafka-clusters"],
     queryFn: () => api<KafkaCluster[]>("/kafka/clusters"),
     enabled: kind === "connect",
+    refetchInterval: 5000,
   });
+  const connectionBody = () => {
+    const kafkaBody: Record<string, string> = {
+      name,
+      bootstrap_servers: address,
+      security_protocol: protocol,
+    };
+    if (protocol.startsWith("SASL_")) {
+      kafkaBody.sasl_mechanism = mechanism;
+      if (username) kafkaBody.username = username;
+      if (password) kafkaBody.password = password;
+    }
+    if (["SSL", "SASL_SSL"].includes(protocol)) {
+      if (caPem) kafkaBody.ssl_ca_pem = caPem;
+      if (certificatePem) kafkaBody.ssl_certificate_pem = certificatePem;
+      if (keyPem) kafkaBody.ssl_key_pem = keyPem;
+      if (keyPassword) kafkaBody.ssl_key_password = keyPassword;
+    }
+    return kind === "kafka"
+      ? kafkaBody
+      : { name, base_url: address, kafka_cluster_id: kafkaId };
+  };
   const save = useMutation({
-    mutationFn: () => {
-      const kafkaBody: Record<string, string> = {
-        name,
-        bootstrap_servers: address,
-        security_protocol: protocol,
-      };
-      if (protocol.startsWith("SASL_")) {
-        kafkaBody.sasl_mechanism = mechanism;
-        if (username) kafkaBody.username = username;
-        if (password) kafkaBody.password = password;
-      }
-      if (["SSL", "SASL_SSL"].includes(protocol)) {
-        if (caPem) kafkaBody.ssl_ca_pem = caPem;
-        if (certificatePem) kafkaBody.ssl_certificate_pem = certificatePem;
-        if (keyPem) kafkaBody.ssl_key_pem = keyPem;
-        if (keyPassword) kafkaBody.ssl_key_password = keyPassword;
-      }
-      return api<Cluster>(
-        `/${kind}/clusters${editing ? `/${editing.id}` : ""}`,
-        {
-          method: editing ? "PUT" : "POST",
-          body: JSON.stringify(
-            kind === "kafka"
-              ? kafkaBody
-              : { name, base_url: address, kafka_cluster_id: kafkaId },
-          ),
-        },
-      );
-    },
+    mutationFn: () =>
+      api<Cluster>(`/${kind}/clusters${editing ? `/${editing.id}` : ""}`, {
+        method: editing ? "PUT" : "POST",
+        body: JSON.stringify(connectionBody()),
+      }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: [key] });
       setOpen(false);
       toast.success("Cluster configuration saved");
     },
+    onError: (e) => toast.error(e.message),
+  });
+  const test = useMutation({
+    mutationFn: async () => {
+      const body = connectionBody();
+      const identifier =
+        kind === "kafka" && editing ? `?identifier=${editing.id}` : "";
+      const result = await api<HealthCheckResult>(
+        `/${kind}/clusters/test${identifier}`,
+        { method: "POST", body: JSON.stringify(body) },
+      );
+      return { result, fingerprint: JSON.stringify(body) };
+    },
+    onSuccess: () => toast.success("Connection test passed"),
     onError: (e) => toast.error(e.message),
   });
   const remove = useMutation({
@@ -136,8 +155,12 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
     setKeyPem("");
     setKeyPassword("");
     save.reset();
+    test.reset();
     setOpen(true);
   };
+  const currentFingerprint = JSON.stringify(connectionBody());
+  const currentTest =
+    test.data?.fingerprint === currentFingerprint ? test.data.result : null;
   const columns: ColumnDef<Cluster>[] = [
     {
       accessorKey: "name",
@@ -176,7 +199,16 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
     {
       accessorKey: "status",
       header: "Last observed status",
-      cell: ({ row }) => <Status value={row.original.status} />,
+      cell: ({ row }) => (
+        <span title={row.original.status_reason || undefined}>
+          <Status value={row.original.status} />
+        </span>
+      ),
+    },
+    {
+      accessorKey: "last_health_check_at",
+      header: "Last checked",
+      cell: ({ row }) => date(row.original.last_health_check_at),
     },
     {
       id: "actions",
@@ -240,7 +272,8 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
         Use endpoints reachable from the API container.{" "}
         {kind === "kafka"
           ? "The local broker is kafka:29092."
-          : "The local worker endpoint is http://kafka-connect:8083."}
+          : "The local worker endpoint is http://kafka-connect:8083."}{" "}
+        Health checks run automatically in the background.
       </div>
       {query.isPending ? (
         <Loading />
@@ -399,6 +432,17 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
               <ErrorPanel error={save.error} />
             </div>
           )}
+          {test.isError && (
+            <div className="full-width">
+              <ErrorPanel error={test.error} />
+            </div>
+          )}
+          {currentTest && (
+            <div className="info-strip full-width" role="status">
+              <Status value={currentTest.status} />
+              <span>{currentTest.message}</span>
+            </div>
+          )}
           <div className="dialog-actions full-width">
             <Button
               type="button"
@@ -407,7 +451,18 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
             >
               Cancel
             </Button>
-            <Button disabled={save.isPending}>Save cluster</Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={test.isPending || save.isPending}
+              onClick={() => test.mutate()}
+            >
+              <Activity size={16} />
+              {test.isPending ? "Testing…" : "Test connection"}
+            </Button>
+            <Button disabled={save.isPending || test.isPending}>
+              {save.isPending ? "Saving…" : "Save cluster"}
+            </Button>
           </div>
         </form>
       </Dialog>

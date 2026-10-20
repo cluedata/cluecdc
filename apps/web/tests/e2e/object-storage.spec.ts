@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const env = Object.fromEntries(
+const fileEnv = Object.fromEntries(
   readFileSync(resolve(process.cwd(), "../../.env"), "utf8")
     .split(/\r?\n/)
     .filter((line) => line.includes("="))
@@ -11,6 +11,11 @@ const env = Object.fromEntries(
       line.slice(line.indexOf("=") + 1),
     ]),
 );
+const env = {
+  ...fileEnv,
+  MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY ?? fileEnv.MINIO_ACCESS_KEY,
+  MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY ?? fileEnv.MINIO_SECRET_KEY,
+};
 
 test("MinIO connection and storage-only delivery UI deploy a real S3 sink without rendering credentials", async ({
   page,

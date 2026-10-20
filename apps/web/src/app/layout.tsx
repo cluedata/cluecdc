@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import "./design-system.css";
+import "./clean-tech-spectrum.css";
 import { Providers } from "@/components/providers";
 import { Shell } from "@/components/shell";
 
@@ -31,6 +32,11 @@ const mono = localFont({
 export const metadata: Metadata = {
   title: "ClueCDC | Data movement control plane",
   description: "Operate PostgreSQL CDC pipelines with Kafka and Kafka Connect",
+  icons: {
+    icon: [{ url: "/brand/cluecdc-icon.png", type: "image/png" }],
+    shortcut: "/brand/cluecdc-icon.png",
+    apple: "/brand/cluecdc-icon.png",
+  },
 };
 export default function RootLayout({
   children,
