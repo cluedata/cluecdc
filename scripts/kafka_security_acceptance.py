@@ -420,63 +420,63 @@ num.partitions=1
             }
             for mechanism in ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"):
                 cases.append(
-                    dict(
-                        name=mechanism,
-                        servers=f"{broker}:9094",
-                        protocol="SASL_SSL",
-                        mechanism=mechanism,
-                        credentials=credentials,
-                        expected=True,
-                    )
+                    {
+                        "name": mechanism,
+                        "servers": f"{broker}:9094",
+                        "protocol": "SASL_SSL",
+                        "mechanism": mechanism,
+                        "credentials": credentials,
+                        "expected": True,
+                    }
                 )
                 cases.append(
-                    dict(
-                        name="development-SASL_PLAINTEXT/" + mechanism,
-                        servers=f"{broker}:9097",
-                        protocol="SASL_PLAINTEXT",
-                        mechanism=mechanism,
-                        credentials={"username": "pilot", "password": password},
-                        expected=True,
-                    )
+                    {
+                        "name": "development-SASL_PLAINTEXT/" + mechanism,
+                        "servers": f"{broker}:9097",
+                        "protocol": "SASL_PLAINTEXT",
+                        "mechanism": mechanism,
+                        "credentials": {"username": "pilot", "password": password},
+                        "expected": True,
+                    }
                 )
             cases.extend(
                 [
-                    dict(
-                        name="TLS",
-                        servers=f"{broker}:9095",
-                        protocol="SSL",
-                        credentials={"ssl_ca_pem": certs["ssl_ca_pem"]},
-                        expected=True,
-                    ),
-                    dict(
-                        name="mTLS",
-                        servers=f"{broker}:9096",
-                        protocol="SSL",
-                        credentials=certs,
-                        expected=True,
-                    ),
-                    dict(
-                        name="invalid-password",
-                        servers=f"{broker}:9094",
-                        protocol="SASL_SSL",
-                        mechanism="PLAIN",
-                        credentials={**credentials, "password": "wrong"},
-                        expected=False,
-                    ),
-                    dict(
-                        name="untrusted-CA",
-                        servers=f"{broker}:9095",
-                        protocol="SSL",
-                        credentials={},
-                        expected=False,
-                    ),
-                    dict(
-                        name="missing-client-certificate",
-                        servers=f"{broker}:9096",
-                        protocol="SSL",
-                        credentials={"ssl_ca_pem": certs["ssl_ca_pem"]},
-                        expected=False,
-                    ),
+                    {
+                        "name": "TLS",
+                        "servers": f"{broker}:9095",
+                        "protocol": "SSL",
+                        "credentials": {"ssl_ca_pem": certs["ssl_ca_pem"]},
+                        "expected": True,
+                    },
+                    {
+                        "name": "mTLS",
+                        "servers": f"{broker}:9096",
+                        "protocol": "SSL",
+                        "credentials": certs,
+                        "expected": True,
+                    },
+                    {
+                        "name": "invalid-password",
+                        "servers": f"{broker}:9094",
+                        "protocol": "SASL_SSL",
+                        "mechanism": "PLAIN",
+                        "credentials": {**credentials, "password": "wrong"},
+                        "expected": False,
+                    },
+                    {
+                        "name": "untrusted-CA",
+                        "servers": f"{broker}:9095",
+                        "protocol": "SSL",
+                        "credentials": {},
+                        "expected": False,
+                    },
+                    {
+                        "name": "missing-client-certificate",
+                        "servers": f"{broker}:9096",
+                        "protocol": "SSL",
+                        "credentials": {"ssl_ca_pem": certs["ssl_ca_pem"]},
+                        "expected": False,
+                    },
                 ]
             )
             result = subprocess.run(

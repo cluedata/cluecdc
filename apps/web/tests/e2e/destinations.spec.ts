@@ -3,7 +3,7 @@ import { readFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 const root = resolve(process.cwd(), "../..");
-const env = Object.fromEntries(
+const fileEnv = Object.fromEntries(
   readFileSync(resolve(root, ".env"), "utf8")
     .split(/\r?\n/)
     .filter((line) => line.includes("="))
@@ -12,6 +12,11 @@ const env = Object.fromEntries(
       return [line.slice(0, i), line.slice(i + 1)];
     }),
 );
+const env = {
+  ...fileEnv,
+  DESTINATION_PASSWORD:
+    process.env.DESTINATION_PASSWORD ?? fileEnv.DESTINATION_PASSWORD,
+};
 function sql(service: string, database: string, statement: string) {
   return execFileSync(
     "docker",

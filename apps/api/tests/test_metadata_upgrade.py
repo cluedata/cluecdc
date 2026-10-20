@@ -31,6 +31,18 @@ def test_preflight_rejects_unknown_revision_before_snapshot(monkeypatch):
         metadata_upgrade.preflight(arguments())
 
 
+def test_current_revision_is_supported_for_idempotent_upgrade(monkeypatch):
+    snapshot = {"revision": "0007"}
+    monkeypatch.setattr(
+        metadata_upgrade,
+        "environment",
+        lambda args: ({}, "postgresql://operator:password@db/metadata"),
+    )
+    monkeypatch.setattr(metadata_upgrade, "query", lambda target, sql: "0007")
+    monkeypatch.setattr(metadata_upgrade, "sanitized_snapshot", lambda values: snapshot)
+    assert metadata_upgrade.preflight(arguments()) == snapshot
+
+
 def test_upgrade_requires_verified_backup():
     with pytest.raises(metadata_upgrade.UpgradeError, match="requires --backup-dump"):
         metadata_upgrade.upgrade(arguments())

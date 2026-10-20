@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+
 from release_metadata import validate_metadata
 
 

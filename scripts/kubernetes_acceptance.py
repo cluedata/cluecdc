@@ -21,6 +21,7 @@ from cdc_acceptance_support import ROOT, AcceptanceError
 from deployment_runtime import docker, wait_ready
 from deployment_validation import render, validate
 from kafka_security_acceptance import certificates
+from release_metadata import validate_metadata
 
 TLS_PROBE = """
 import http.client, json, socket, ssl, sys, time
@@ -128,8 +129,9 @@ def main() -> int:
     run = uuid.uuid4().hex[:10]
     database = "cluecdc-k8s-postgres-" + run
     connect_namespace = "cluecdc-connect-" + run
-    api_image = f"cluecdc-k8s-{run}-api:0.2.1"
-    web_image = f"cluecdc-k8s-{run}-web:0.2.1"
+    version = validate_metadata()["version"]
+    api_image = f"cluecdc-k8s-{run}-api:{version}"
+    web_image = f"cluecdc-k8s-{run}-web:{version}"
     for source, target in ((args.api_image, api_image), (args.web_image, web_image)):
         docker("tag", source, target)
     subprocess.run(
