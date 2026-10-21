@@ -34,6 +34,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("authentication pages", () => {
+  it("shows only the centered brand and one sign-in form, without promotional copy", () => {
+    const { container } = render(<LoginPage />);
+    expect(screen.getByRole("main")).toHaveClass("auth-shell-centered");
+    expect(screen.getByRole("link", { name: "ClueCDC" })).toBeVisible();
+    expect(screen.getAllByRole("form")).toHaveLength(1);
+    expect(screen.getByRole("form", { name: "Sign in" })).toBeVisible();
+    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.getByLabelText("Password")).toBeVisible();
+    expect(container.querySelector(".auth-brand-panel")).toBeNull();
+    expect(container.querySelector(".auth-heading")).toBeNull();
+    expect(screen.queryByText("SECURE ACCESS")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Operate change data capture/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Use the account created/),
+    ).not.toBeInTheDocument();
+  });
+
   it("signs in with email and password", async () => {
     vi.stubGlobal(
       "fetch",

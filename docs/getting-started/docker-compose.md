@@ -65,8 +65,11 @@ Ubuntu, macOS, and Windows using Compose v2.24.7 (the supported minimum-version
 check). Native Ubuntu runners build cached runtime images and run core smoke
 checks. Ordinary application PRs use AMD64; packaging/dependency/connector/workload
 PRs also use ARM64. Relevant `main`/`master` pushes and full manual CI runs check
-both architectures without emulation. Full CDC/S3/browser integration runs once
-on AMD64. Documentation-only changes skip those containers. See the
+both architectures without emulation. CDC/S3/full-browser acceptance is selected
+independently on AMD64. Menu/login/CSS changes use core-only browser checks,
+without integration databases or MinIO. Connect/MinIO final image caches are
+architecture- and upstream-digest-specific. Documentation-only changes skip
+those containers. See the
 [CI selection policy](../development/testing.md#github-actions).
 The release workflow builds both architectures into one image index. These
 Linux checks do not replace a Docker Desktop runtime check on a specific macOS

@@ -1,0 +1,66 @@
+name: Cached CI fixture image
+description: Cache a loadable final image instead of uploading its toolchain/build layers
+inputs:
+  image:
+    description: Local image tag
+    required: true
+  dockerfile:
+    description: Dockerfile relative to the repository root
+    required: true
+  cache-key:
+    description: Architecture and all build inputs must be included
+    required: true
+  name:
+    description: Unique filename for this fixture
+    required: true
+  defer-build:
+    description: On a miss, let the caller build in parallel and write runner.temp/cluecdc-ci-images/name.tar before job completion
+    default: "false"
+outputs:
+  cache-hit:
+    description: Whether the exact final image was restored
+    value: ${{ steps.image-cache.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve immutable base image inputs
+      id: bases
+      shell: bash
+      env:
+        FIXTURE_DOCKERFILE: ${{ inputs.dockerfile }}
+      run: python scripts/ci_image_key.py "$FIXTURE_DOCKERFILE"
+    - uses: actions/cache@v6
+      id: image-cache
+      with:
+        path: ${{ runner.temp }}/cluecdc-ci-images/${{ inputs.name }}.tar
+        key: ci-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-key }}-${{ steps.bases.outputs.digest }}-${{ hashFiles('.github/actions/cached-ci-image/action.yml', 'scripts/ci_image_key.py') }}
+    - name: Load the exact cached fixture
+      if: steps.image-cache.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        IMAGE_ARCHIVE: ${{ runner.temp }}/cluecdc-ci-images/${{ inputs.name }}.tar
+      run: docker image load --input "$IMAGE_ARCHIVE"
+    - name: Build the fixture on a cache miss
+      if: steps.image-cache.outputs.cache-hit != 'true' && inputs.defer-build != 'true'
+      shell: bash
+      env:
+        FIXTURE_IMAGE: ${{ inputs.image }}
+        FIXTURE_DOCKERFILE: ${{ inputs.dockerfile }}
+        IMAGE_ARCHIVE: ${{ runner.temp }}/cluecdc-ci-images/${{ inputs.name }}.tar
+      run: |
+        docker buildx build --pull --load --file "$FIXTURE_DOCKERFILE" --tag "$FIXTURE_IMAGE" .
+        mkdir -p "$(dirname "$IMAGE_ARCHIVE")"
+        docker image save --output "$IMAGE_ARCHIVE" "$FIXTURE_IMAGE"
+    - name: Require the runner's native architecture
+      if: steps.image-cache.outputs.cache-hit == 'true' || inputs.defer-build != 'true'
+      shell: bash
+      env:
+        FIXTURE_IMAGE: ${{ inputs.image }}
+      run: |
+        case "$RUNNER_ARCH" in
+          X64) expected=amd64 ;;
+          ARM64) expected=arm64 ;;
+          *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+        esac
+        actual=$(docker image inspect --format '{{.Architecture}}' "$FIXTURE_IMAGE")
+        test "$actual" = "$expected"

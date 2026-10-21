@@ -4,23 +4,38 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { Button, Input } from "@cluecdc/ui";
-import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Field } from "@/components/common";
 import { BrandMark } from "@/components/brand-mark";
 
-function AuthFrame({ children }: { children: React.ReactNode }) {
+function AuthBrand() {
+  return (
+    <Link href="/" className="auth-brand" aria-label="ClueCDC">
+      <span className="brand-mark">
+        <BrandMark priority />
+      </span>
+      <strong>
+        Clue<span>CDC</span>
+      </strong>
+    </Link>
+  );
+}
+
+function AuthFrame({
+  children,
+  centered = false,
+}: {
+  children: React.ReactNode;
+  centered?: boolean;
+}) {
+  if (centered) {
+    return <main className="auth-shell auth-shell-centered">{children}</main>;
+  }
   return (
     <main className="auth-shell">
       <section className="auth-brand-panel" aria-label="ClueCDC">
-        <Link href="/" className="auth-brand">
-          <span className="brand-mark">
-            <BrandMark priority />
-          </span>
-          <strong>
-            Clue<span>CDC</span>
-          </strong>
-        </Link>
+        <AuthBrand />
         <div>
           <p className="eyebrow">DATA MOVEMENT CONTROL PLANE</p>
           <h1>Operate change data capture with confidence.</h1>
@@ -77,17 +92,11 @@ export function LoginPage() {
   }
 
   return (
-    <AuthFrame>
+    <AuthFrame centered>
       <div className="auth-card">
-        <div className="auth-heading">
-          <span className="auth-icon">
-            <ShieldCheck size={20} />
-          </span>
-          <p className="eyebrow">SECURE ACCESS</p>
-          <h1>Sign in to ClueCDC</h1>
-          <p>Use the account created by your ClueCDC administrator.</p>
-        </div>
-        <form onSubmit={submit} className="auth-form">
+        <AuthBrand />
+        <h1 className="sr-only">Sign in to ClueCDC</h1>
+        <form onSubmit={submit} className="auth-form" aria-label="Sign in">
           <Field label="Email">
             <Input
               name="email"

@@ -46,7 +46,7 @@ try {
   );
   assertSquare(
     await loginLogoFrame.boundingBox(),
-    46,
+    52,
     "Authentication logo frame",
   );
   assertSquare(await loginLogo.boundingBox(), undefined, "Authentication logo");
