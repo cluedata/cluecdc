@@ -15,8 +15,8 @@ before removal. Abandoned migration models had no live product paths. See
 Real filesystem routes replaced the catch-all/manual dispatcher. Obsolete
 source/destination list components were removed after their entry points
 switched to filtered canonical views. Useful v1 API and route aliases remain.
-CloudBeaver remains a documented optional developer tool for fixture database
-inspection; it is absent from default runtime.
+Database inspection tools are managed separately; the Compose stack contains
+only the core runtime and the optional integration fixtures.
 
 ## Findings and implemented changes
 

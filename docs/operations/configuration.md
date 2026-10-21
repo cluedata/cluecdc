@@ -4,6 +4,44 @@ Copy `.env.example` to `.env` for Compose. The API uses one Pydantic settings
 schema and fails at startup when required or security-sensitive values are
 invalid. The web server validates its private API origin at request time.
 
+## Local demo defaults
+
+The Compose quick start needs only Git and Docker with Compose: copy
+`.env.example` to `.env` and run `docker compose up -d --build --wait`.
+Python and Node.js run inside the images and need not be installed on the host.
+The example contains public demo passwords, a session secret, an encryption key,
+and a Connect token. Copying it does not generate unique values. Use this
+configuration only on the default loopback bindings in `ENVIRONMENT=development`.
+The API entrypoint applies migrations and creates the demo Admin automatically.
+
+## Optional unique local secrets
+
+Before the first startup of a new local installation, you can optionally run:
+
+```bash
+python scripts/bootstrap.py
+```
+
+This helper requires host Python 3.12+ (`python3` on some macOS/Linux systems,
+or `py -3` with the Windows launcher). It replaces missing or recognized example
+values for `METADATA_PASSWORD`, `SESSION_SECRET`, `SECRET_ENCRYPTION_KEY`, and
+`CONNECT_SECRET_TOKEN`, preserving custom values and the public demo Admin.
+CI uses it to give disposable test environments unique secrets; it is not a
+required installation step.
+
+Do not run the helper as a rotation procedure for an initialized stack. Database
+volumes retain their original passwords, and stored connection secrets depend
+on the original encryption key. Existing installations must preserve those
+values or follow a coordinated rotation and data-migration plan.
+
+For production, provision independent secrets through your secret manager,
+disable `BOOTSTRAP_DEFAULT_ADMIN`, configure HTTPS/session authentication, and
+follow [production considerations](../deployment/production.md). Generating
+local secrets alone does not turn the demo topology into a production deployment;
+production validation continues to reject known example values.
+
+## Environment variables
+
 | Variable                      | Required       | Purpose                                                |
 | ----------------------------- | -------------- | ------------------------------------------------------ |
 | `ENVIRONMENT`                 | No             | `development`, `test`, or `production`                 |

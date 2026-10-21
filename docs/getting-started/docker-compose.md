@@ -2,6 +2,11 @@
 
 The default `compose.yaml` is the smallest practical ClueCDC runtime:
 
+It uses Linux containers on x86-64 (`amd64`) or ARM64, including Apple Silicon.
+See [prerequisites](prerequisites.md) for Docker Desktop/WSL 2 requirements,
+memory, disk space, and supported hosts. The same file is used on macOS,
+Ubuntu/Linux, and Windows; Docker builds for its engine's native CPU.
+
 | Service | Role | Default |
 | --- | --- | --- |
 | `metadata-db` | ClueCDC application metadata only | Runtime |
@@ -13,7 +18,6 @@ The default `compose.yaml` is the smallest practical ClueCDC runtime:
 
 ```bash
 cp .env.example .env
-python scripts/bootstrap.py
 docker compose up -d --build --wait
 docker compose ps
 ```
@@ -29,18 +33,41 @@ Email:    admin@cluecdc.local
 Password: cluecdc-admin
 ```
 
-This account is not suitable for a shared or production deployment.
+The copied environment also contains public demo passwords and cryptographic
+keys; the quick start does not generate unique secrets. These values and the
+demo account are not suitable for a shared or production deployment. See
+[configuration](../operations/configuration.md#optional-unique-local-secrets)
+for optional local secret generation before first startup.
 
-## Developer tools
+## Build and host compatibility
 
-CloudBeaver is optional and is not a product dependency:
+Validate and build without starting containers (works in Bash and PowerShell):
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d
+docker compose config --quiet
+docker compose build --pull
+docker compose up -d --wait --wait-timeout 300
 ```
 
-It is available at `http://localhost:8978`. Configure any database connections
-you need through its own UI.
+For Windows PowerShell, initialize with `Copy-Item .env.example .env`.
+Host Python and Node.js are not required; application dependencies are
+installed inside the Docker build stages.
+
+The API and web install their native dependencies inside their Linux build
+stages. Host `node_modules`, Python virtual environments, and generated caches
+are excluded from the build context. Connect compiles portable Java bytecode
+on the builder's CPU, and the optional MinIO fixture cross-compiles its Go binary
+for the target CPU. Do not set a global `DOCKER_DEFAULT_PLATFORM` unless you
+intentionally want emulation; it can make Apple Silicon builds much slower.
+
+CI renders both Compose configurations on Ubuntu, macOS, and Windows using
+Compose v2.24.7. It builds and runs core/integration smoke checks on native
+Ubuntu `amd64` and `arm64` runners. The release workflow builds both architectures
+into one image index. These Linux checks do not replace a Docker Desktop
+runtime check on a specific macOS or Windows installation.
+
+There is no separate developer Compose override. Use your preferred external
+database client with the test fixture ports when database inspection is needed.
 
 ## Integration and E2E fixtures
 

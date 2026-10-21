@@ -94,18 +94,6 @@ def main() -> int:
         "compose",
         "--env-file",
         ".env.example",
-        "-f",
-        "compose.yaml",
-        "-f",
-        "compose.dev.yaml",
-        "config",
-        "--quiet",
-    )
-    run(
-        "docker",
-        "compose",
-        "--env-file",
-        ".env.example",
         "--env-file",
         ".env.test.example",
         "-f",

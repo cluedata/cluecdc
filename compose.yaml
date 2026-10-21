@@ -1,5 +1,7 @@
 name: cluecdc
 
+# Use the Docker engine's native Linux architecture (amd64 or arm64).
+# macOS/Windows hosts must run Linux containers through Docker Desktop.
 services:
   metadata-db:
     image: postgres:17.9
@@ -7,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: cluecdc
       POSTGRES_USER: cluecdc
-      POSTGRES_PASSWORD: ${METADATA_PASSWORD:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      POSTGRES_PASSWORD: ${METADATA_PASSWORD:?Copy .env.example to .env}
     volumes:
       - metadata:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +17,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 20s
 
   kafka:
     image: apache/kafka:4.1.2
@@ -44,6 +47,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 20
+      start_period: 30s
 
   cluecdc-api:
     build:
@@ -59,15 +63,15 @@ services:
       BOOTSTRAP_DEFAULT_ADMIN: ${BOOTSTRAP_DEFAULT_ADMIN:-true}
       DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@cluecdc.local}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-cluecdc-admin}
-      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
       INVITE_TTL_SECONDS: ${INVITE_TTL_SECONDS:-86400}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       INTEGRATION_TIMEOUT_SECONDS: ${INTEGRATION_TIMEOUT_SECONDS:-10}
       ALLOW_INSECURE_KAFKA: ${ALLOW_INSECURE_KAFKA:-false}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env or run python scripts/bootstrap.py}
-      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env}
+      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env}
       DATABASE_URL: postgresql+asyncpg://cluecdc:${METADATA_PASSWORD}@metadata-db:5432/cluecdc
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
     ports:
@@ -80,6 +84,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 40s
 
   cluecdc-worker:
     build:
@@ -93,19 +98,20 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+      start_period: 30s
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       AUTH_MODE: ${AUTH_MODE:-session}
       AUTH_TOKENS_JSON: ${AUTH_TOKENS_JSON:-{}}
-      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
       INVITE_TTL_SECONDS: ${INVITE_TTL_SECONDS:-86400}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env or run python scripts/bootstrap.py}
-      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Copy .env.example to .env}
+      CONNECT_SECRET_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env}
       DATABASE_URL: postgresql+asyncpg://cluecdc:${METADATA_PASSWORD}@metadata-db:5432/cluecdc
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       RECONCILE_INTERVAL_SECONDS: ${RECONCILE_INTERVAL_SECONDS:-10}
@@ -149,7 +155,7 @@ services:
       CONNECT_CONFIG_PROVIDERS_CLUECDC_CLASS: io.cluecdc.connect.ClueSecretConfigProvider
       CONNECT_CONFIG_PROVIDERS_CLUECDC_PARAM_URL: http://cluecdc-api:8000
       CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
-      CLUECDC_SECRETS_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env or run python scripts/bootstrap.py}
+      CLUECDC_SECRETS_TOKEN: ${CONNECT_SECRET_TOKEN:?Copy .env.example to .env}
     depends_on:
       kafka:
         condition: service_healthy
@@ -160,6 +166,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+      start_period: 60s
 
   cluecdc-web:
     build:

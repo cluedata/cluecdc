@@ -16,6 +16,36 @@ permissions:
   contents: read
 
 jobs:
+  compose-config:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Config rendering needs the CLI only, not a Linux VM on hosted macOS/Windows.
+      - uses: docker/setup-compose-action@v1
+        with:
+          version: v2.24.7
+      - name: Render core and fixture configuration on each host OS
+        shell: python
+        run: |
+          import shutil
+          import subprocess
+          cli = ["docker", "compose"] if shutil.which("docker") else ["compose"]
+          base = [*cli, "--env-file", ".env.example"]
+          subprocess.run([*base, "config", "--quiet"], check=True)
+          subprocess.run([
+              *base, "--env-file", ".env.test.example",
+              "-f", "compose.yaml", "-f", "compose.test.yaml",
+              "--profile", "tools", "config", "--quiet",
+          ], check=True)
+
   quality:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_full_ci == true }}
     runs-on: ubuntu-latest
@@ -50,7 +80,6 @@ jobs:
       - run: python -m pip install -e "apps/api[dev]"
       - run: python scripts/check-repository.py
       - run: docker compose --env-file .env.example config --quiet
-      - run: docker compose --env-file .env.example -f compose.yaml -f compose.dev.yaml config --quiet
       - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml config --quiet
       - run: kubectl kustomize deploy/kubernetes > /dev/null
       - run: python scripts/deployment_validation.py
@@ -110,8 +139,12 @@ jobs:
 
   containers-and-smoke:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_full_ci == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -143,6 +176,10 @@ jobs:
       - run: docker compose down
       - name: Start integration fixtures
         run: docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait --wait-timeout 240
+      - name: Build and test the optional workload image
+        run: |
+          docker compose -f compose.yaml -f compose.test.yaml --profile tools build commerce-generator
+          docker compose -f compose.yaml -f compose.test.yaml run --rm --no-deps commerce-generator python -m unittest -v
       - run: python -m pip install -e "apps/api[dev]"
       - run: python scripts/demo.py --api-url http://localhost:3000/api/v1
       - run: python scripts/demo-destination.py --skip-capture-demo
@@ -153,7 +190,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: verification
+          name: verification-${{ matrix.runner }}
           path: |
             artifacts/
             apps/web/test-results/
@@ -162,7 +199,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: compose-logs
+          name: compose-logs-${{ matrix.runner }}
           path: compose.log
       - run: docker compose -f compose.yaml -f compose.test.yaml down
         if: always()

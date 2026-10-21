@@ -6,20 +6,23 @@ the [Code of Conduct](CODE_OF_CONDUCT.md). Security reports must follow
 
 ## Development setup
 
-The supported toolchain is Docker Compose v2, Python 3.12, and Node.js 24.
+The supported toolchain is Docker Compose v2.24+ or v5 with Linux containers,
+Python 3.12, and Node.js 24. See the
+[platform prerequisites](docs/getting-started/prerequisites.md) for macOS,
+Ubuntu/Linux, and Windows/WSL 2.
 
 ```bash
 git clone <repository-url>
 cd cluecdc
 cp .env.example .env
-python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
 
-The bootstrap step replaces infrastructure and cryptographic examples with
-unique local secrets while preserving the public loopback-only development
-Admin login. See [local development](docs/development/setup.md) for host-based
-API and web workflows.
+The Compose-only setup uses the public, loopback-only demo values from
+`.env.example` and does not require host Python or Node.js. Those tools are
+needed for host-based development and tests. See
+[local development](docs/development/setup.md) and
+[optional unique local secrets](docs/operations/configuration.md#optional-unique-local-secrets).
 
 ## Architecture
 
