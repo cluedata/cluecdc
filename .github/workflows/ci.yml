@@ -36,6 +36,10 @@ jobs:
       containers: ${{ steps.gates.outputs.containers }}
       container_matrix: ${{ steps.gates.outputs.container_matrix }}
       integration: ${{ steps.gates.outputs.integration }}
+      cdc: ${{ steps.gates.outputs.cdc }}
+      s3: ${{ steps.gates.outputs.s3 }}
+      browser: ${{ steps.gates.outputs.browser }}
+      browser_integration: ${{ steps.gates.outputs.browser_integration }}
       workload: ${{ steps.gates.outputs.workload }}
     steps:
       - uses: actions/checkout@v7
@@ -94,6 +98,9 @@ jobs:
               ["--env-file", ".env.test.example", "-f", "compose.yaml",
                "-f", "compose.test.yaml", "-f", ".github/compose.ci.yaml",
                "-f", ".github/compose.test.ci.yaml", "--profile", "tools"],
+              ["--env-file", ".env.test.example", "-f", "compose.yaml",
+               "-f", "compose.test.yaml", "-f", ".github/compose.ci.yaml",
+               "-f", ".github/compose.test.ci.yaml", "--profile", "object-storage"],
           ]
           for configuration in configurations:
               subprocess.run([*base, *configuration, "config", "--quiet"], check=True)
@@ -232,6 +239,15 @@ jobs:
           cp .env.example .env
           python scripts/bootstrap.py
       - uses: docker/setup-buildx-action@v4
+      - name: Reuse the final native Connect image
+        id: connect-image
+        uses: ./.github/actions/cached-ci-image
+        with:
+          name: connect
+          image: cluecdc-ci-connect:ci
+          dockerfile: infrastructure/docker/connect.Dockerfile
+          cache-key: connect-${{ hashFiles('infrastructure/docker/connect.Dockerfile', 'infrastructure/connect/**', '.dockerignore') }}
+          defer-build: "true"
       - name: Build runtime images once with persistent per-architecture caches
         uses: docker/bake-action@v7
         with:
@@ -240,17 +256,23 @@ jobs:
             compose.test.yaml
             .github/compose.ci.yaml
             .github/compose.test.ci.yaml
-          targets: ${{ matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true' && 'cluecdc-api,cluecdc-web,kafka-connect,minio' || 'cluecdc-api,cluecdc-web,kafka-connect' }}
+          targets: ${{ steps.connect-image.outputs.cache-hit == 'true' && 'cluecdc-api,cluecdc-web' || 'cluecdc-api,cluecdc-web,kafka-connect' }}
           load: true
           set: |
             cluecdc-api.cache-from=type=gha,scope=ci-api-${{ matrix.arch }}
-            cluecdc-api.cache-to=type=gha,scope=ci-api-${{ matrix.arch }},mode=max,ignore-error=true
+            cluecdc-api.cache-to=type=gha,scope=ci-api-${{ matrix.arch }},mode=max,timeout=60s,ignore-error=true
             cluecdc-web.cache-from=type=gha,scope=ci-web-${{ matrix.arch }}
-            cluecdc-web.cache-to=type=gha,scope=ci-web-${{ matrix.arch }},mode=max,ignore-error=true
-            kafka-connect.cache-from=type=gha,scope=ci-connect-${{ matrix.arch }}
-            kafka-connect.cache-to=type=gha,scope=ci-connect-${{ matrix.arch }},mode=max,ignore-error=true
-            minio.cache-from=type=gha,scope=ci-minio-${{ matrix.arch }}
-            minio.cache-to=type=gha,scope=ci-minio-${{ matrix.arch }},mode=max,ignore-error=true
+            cluecdc-web.cache-to=type=gha,scope=ci-web-${{ matrix.arch }},mode=max,timeout=60s,ignore-error=true
+      - name: Save the native Connect fixture after a cache-miss parallel build
+        if: steps.connect-image.outputs.cache-hit != 'true'
+        env:
+          IMAGE_ARCHIVE: ${{ runner.temp }}/cluecdc-ci-images/connect.tar
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          actual=$(docker image inspect --format '{{.Architecture}}' cluecdc-ci-connect:ci)
+          test "$actual" = "$EXPECTED_ARCH"
+          mkdir -p "$(dirname "$IMAGE_ARCHIVE")"
+          docker image save --output "$IMAGE_ARCHIVE" cluecdc-ci-connect:ci
       - name: Start the six core services without rebuilding
         run: docker compose up -d --no-build --wait --wait-timeout 300
       - name: Verify packaged pages and native image optimization
@@ -262,6 +284,14 @@ jobs:
               with urllib.request.urlopen("http://127.0.0.1:3000" + path, timeout=30) as response:
                   assert response.status == 200 and response.read(1), path
       - run: docker compose exec -T cluecdc-api alembic check
+      - name: Reuse the final S3 fixture image only when needed
+        if: matrix.arch == 'amd64' && (needs.changes.outputs.s3 == 'true' || needs.changes.outputs.browser_integration == 'true')
+        uses: ./.github/actions/cached-ci-image
+        with:
+          name: minio
+          image: cluecdc-ci-minio:ci
+          dockerfile: infrastructure/docker/minio-test.Dockerfile
+          cache-key: minio-${{ hashFiles('infrastructure/docker/minio-test.Dockerfile', '.dockerignore') }}
       # CDC/S3/browser coverage is retained once on native AMD64, only for relevant changes.
       - name: Add integration fixtures to the running core stack
         if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
@@ -269,26 +299,70 @@ jobs:
           cat .env.test.example >> .env
           export COMPOSE_FILE=compose.yaml:compose.test.yaml:.github/compose.ci.yaml:.github/compose.test.ci.yaml
           echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
-          docker compose up -d --no-build --wait --wait-timeout 300
+          if [[ "$S3_CHECKS" == "true" || "$BROWSER_INTEGRATION_CHECKS" == "true" ]]; then
+            export COMPOSE_PROFILES=object-storage
+            echo "COMPOSE_PROFILES=$COMPOSE_PROFILES" >> "$GITHUB_ENV"
+          fi
+          if [[ "$CDC_CHECKS" != "true" && "$S3_CHECKS" != "true" && "$BROWSER_INTEGRATION_CHECKS" != "true" ]]; then
+            docker compose up -d --no-build --wait --wait-timeout 300 cdc-source-postgres cdc-source-mysql
+          elif [[ "$CDC_CHECKS" != "true" && "$BROWSER_INTEGRATION_CHECKS" != "true" ]]; then
+            fixtures=(cluecdc-api cluecdc-worker cdc-source-postgres minio minio-bootstrap)
+            if [[ "$WORKLOAD_CHECKS" == "true" ]]; then
+              fixtures+=(cdc-source-mysql)
+            fi
+            docker compose up -d --no-build --wait --wait-timeout 300 "${fixtures[@]}"
+          else
+            docker compose up -d --no-build --wait --wait-timeout 300
+          fi
+        env:
+          CDC_CHECKS: ${{ needs.changes.outputs.cdc }}
+          S3_CHECKS: ${{ needs.changes.outputs.s3 }}
+          BROWSER_INTEGRATION_CHECKS: ${{ needs.changes.outputs.browser_integration }}
+          WORKLOAD_CHECKS: ${{ needs.changes.outputs.workload }}
       - uses: actions/setup-node@v7
-        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+        if: matrix.arch == 'amd64' && needs.changes.outputs.browser == 'true'
         with:
           node-version: "24"
           cache: npm
-      - name: Install integration and browser tooling
-        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+      - name: Install only the host dependencies used by acceptance scripts
+        if: matrix.arch == 'amd64' && (needs.changes.outputs.cdc == 'true' || needs.changes.outputs.s3 == 'true' || needs.changes.outputs.browser_integration == 'true')
+        shell: python
+        run: |
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+          dependencies = tomllib.loads(Path("apps/api/pyproject.toml").read_text())["project"]["dependencies"]
+          required = [item for item in dependencies if item.startswith(("boto3==", "confluent-kafka=="))]
+          assert len(required) == 2, "Update the acceptance dependency selector"
+          subprocess.run([sys.executable, "-m", "pip", "install", *required], check=True)
+      - name: Install browser tooling without the unused headless-shell download
+        if: matrix.arch == 'amd64' && needs.changes.outputs.browser == 'true'
         run: |
           npm ci
-          python -m pip install -e "apps/api[dev]"
-          npm exec -w @cluecdc/web -- playwright install --with-deps chromium
-      - name: Verify real capture, JDBC delivery, S3 content, browser flows and secret boundaries
-        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+          npm exec -w @cluecdc/web -- playwright install --with-deps --no-shell chromium
+      - name: Seed and verify live capture for CDC or integration browser tests
+        if: matrix.arch == 'amd64' && (needs.changes.outputs.cdc == 'true' || needs.changes.outputs.browser_integration == 'true')
+        run: python scripts/demo.py --api-url http://localhost:3000/api/v1
+      - name: Verify JDBC destination delivery
+        if: matrix.arch == 'amd64' && needs.changes.outputs.cdc == 'true'
+        run: python scripts/demo-destination.py --skip-capture-demo
+      - name: Verify real S3 object contents
+        if: matrix.arch == 'amd64' && needs.changes.outputs.s3 == 'true'
+        run: python scripts/demo-object-storage.py
+      - name: Verify browser flows
+        if: matrix.arch == 'amd64' && needs.changes.outputs.browser == 'true'
+        env:
+          BROWSER_INTEGRATION_CHECKS: ${{ needs.changes.outputs.browser_integration }}
         run: |
-          python scripts/demo.py --api-url http://localhost:3000/api/v1
-          python scripts/demo-destination.py --skip-capture-demo
-          python scripts/demo-object-storage.py
-          npm run test:e2e -w @cluecdc/web
-          python scripts/verify-secrets.py
+          if [[ "$BROWSER_INTEGRATION_CHECKS" == "true" ]]; then
+            npm run test:e2e -w @cluecdc/web
+          else
+            npm run test:e2e -w @cluecdc/web -- shell.spec.ts
+          fi
+      - name: Verify secret boundaries
+        if: matrix.arch == 'amd64' && (needs.changes.outputs.cdc == 'true' || needs.changes.outputs.s3 == 'true' || needs.changes.outputs.browser_integration == 'true')
+        run: python scripts/verify-secrets.py
       - name: Build the optional workload tool only when it changes
         if: needs.changes.outputs.workload == 'true'
         uses: docker/bake-action@v7

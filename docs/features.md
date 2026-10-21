@@ -87,8 +87,11 @@ unknown values instead of inventing zeroes.
       Deliveries, Connections, Monitoring, Alerts, Audit, and Settings entry points.
 - [x] Semantic light/dark themes with persisted user preference and no
       hydration-dependent theme flash.
-- [x] Collapsible desktop sidebar, accessible Connections disclosure, and a
-      mobile navigation drawer.
+- [x] Collapsible desktop sidebar and mobile drawer; Overview stays independent,
+      while Workspace, Connections, Operations and System have accessible group toggles.
+- [x] Admin-only **System → User** navigation to `/settings/users`.
+- [x] White authentication surfaces with high-contrast navy/blue text, independent
+      of the saved workspace theme.
 - [x] Compact pipeline inventory, real metadata data-flow rails, status text plus
       color/icon, and shared loading, empty, error, dialog, table, and form patterns.
 - [x] Six-step pipeline wizard with preserved back-navigation values, explicit

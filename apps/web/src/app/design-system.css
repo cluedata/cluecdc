@@ -4,13 +4,42 @@ body {
   line-height: 1.45;
 }
 
-/* Authentication uses the same dense control-plane surfaces and signal color. */
+/* Authentication stays light regardless of the saved workspace theme. */
+html:has(.auth-shell),
+body:has(.auth-shell) {
+  background: #fff;
+}
+
 .auth-shell {
+  color-scheme: light;
+  --text-primary: #10213b;
+  --text-secondary: #526581;
+  --text-muted: #526581;
+  --bg-surface: #fff;
+  --bg-surface-secondary: #f1f5f9;
+  --border-default: #dfe6f1;
+  --border-strong: #cbd6e5;
+  --interactive-primary: #326bfa;
+  --interactive-primary-hover: #2558dc;
+  --interactive-focus: #326bfa;
+  --interactive-subtle: rgb(50 107 250 / 8%);
+  --brand-primary: #326bfa;
+  --brand-hover: #2558dc;
+  --brand-subtle: #eff6ff;
+  --background-surface: #fff;
+  --surface-raised: #fff;
+  --foreground: #10213b;
+  --muted-foreground: #526581;
+  --status-info-border: #bfdbfe;
+  --status-error: #b91c1c;
+  --status-error-bg: #fef2f2;
+  --status-error-border: #fecaca;
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.15fr);
   min-height: 100vh;
   padding: 0;
-  background: var(--background-page);
+  color: var(--text-primary);
+  background: #fff;
 }
 
 .auth-brand-panel {
@@ -19,22 +48,21 @@ body {
   justify-content: space-between;
   min-height: 100vh;
   padding: 44px clamp(36px, 6vw, 82px);
-  color: #cbd5e1;
-  background:
-    linear-gradient(145deg, rgb(34 211 238 / 8%), transparent 45%), #0b1118;
-  border-right: 1px solid rgb(148 163 184 / 16%);
+  color: var(--text-secondary);
+  background: #fff;
+  border-right: 1px solid var(--border-default);
 }
 
 .auth-brand {
   display: inline-flex;
   align-items: center;
-  color: #f8fafc;
+  color: #10213b;
   font-size: 25px;
   letter-spacing: -0.04em;
 }
 
 .auth-brand span:not(.brand-mark) {
-  color: #22d3ee;
+  color: #2558dc;
 }
 
 .auth-brand-panel > div {
@@ -44,7 +72,7 @@ body {
 .auth-brand-panel h1 {
   max-width: 440px;
   margin-bottom: 18px;
-  color: #f8fafc;
+  color: #10213b;
   font-size: clamp(32px, 4vw, 52px);
   line-height: 1.05;
   letter-spacing: -0.045em;
@@ -52,16 +80,16 @@ body {
 
 .auth-brand-panel p:not(.eyebrow) {
   max-width: 430px;
-  color: #94a3b8;
+  color: #526581;
   font-size: 14px;
 }
 
 .auth-brand-panel .eyebrow {
-  color: #22d3ee;
+  color: #2558dc;
 }
 
 .auth-brand-panel > small {
-  color: #64748b;
+  color: #526581;
   font-family: var(--font-technical);
 }
 
@@ -73,6 +101,30 @@ body {
 
 .auth-card {
   width: min(100%, 410px);
+}
+
+.auth-shell.auth-shell-centered {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 32px 20px;
+}
+
+.auth-shell-centered .auth-card {
+  width: min(100%, 360px);
+}
+
+.auth-shell-centered .auth-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.auth-shell-centered .auth-brand .brand-mark {
+  width: 52px;
+  height: 52px;
 }
 
 .auth-heading {
@@ -118,6 +170,10 @@ body {
   width: 100%;
   height: 40px;
   margin-top: 2px;
+}
+
+.auth-form .button-primary {
+  color: #fff;
 }
 
 .auth-error {

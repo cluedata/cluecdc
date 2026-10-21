@@ -21,6 +21,7 @@ import {
   Radio,
   Settings,
   Sun,
+  Users,
   Workflow,
   Send,
   X,
@@ -36,17 +37,17 @@ type NavItem = {
   icon: LucideIcon;
   permission: string;
 };
+const overview: NavItem = {
+  label: "Overview",
+  href: "/overview",
+  icon: LayoutDashboard,
+  permission: "overview.read",
+};
 const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "workspace",
     label: "Workspace",
     items: [
-      {
-        label: "Overview",
-        href: "/overview",
-        icon: LayoutDashboard,
-        permission: "overview.read",
-      },
       {
         label: "Pipelines",
         href: "/pipelines",
@@ -114,25 +115,22 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     id: "system",
     label: "System",
     items: [
+      { label: "User", href: "/settings/users", icon: Users, permission: "*" },
       { label: "Settings", href: "/settings", icon: Settings, permission: "*" },
     ],
   },
 ];
 function SidebarItem({
   item,
-  path,
+  active,
   onNavigate,
   collapsed,
 }: {
   item: NavItem;
-  path: string;
+  active: boolean;
   onNavigate: () => void;
   collapsed: boolean;
 }) {
-  const active =
-    (path === "/" && item.href === "/overview") ||
-    path === item.href ||
-    (item.href !== "/" && path.startsWith(item.href + "/"));
   return (
     <Link
       href={item.href}
@@ -152,7 +150,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const publicPage = path === "/login" || path.startsWith("/invite/");
   const [mobile, setMobile] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(true);
+  const [closedGroups, setClosedGroups] = useState<Record<string, boolean>>({});
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -224,14 +222,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem("cluecdc-theme", nextTheme);
     setTheme(nextTheme);
   };
-  const group = groups.find((group) =>
-    group.items.some(
-      (item) => path === item.href || path.startsWith(item.href + "/"),
-    ),
-  );
-  const current = group?.items.find(
-    (item) => path === item.href || path.startsWith(item.href + "/"),
-  );
+  const current = [overview, ...groups.flatMap((group) => group.items)]
+    .filter((item) => {
+      const currentPath = path === "/" ? "/overview" : path;
+      return (
+        currentPath === item.href || currentPath.startsWith(item.href + "/")
+      );
+    })
+    .sort((a, b) => b.href.length - a.href.length)[0];
   const visibleGroups = groups
     .map((group) => ({
       ...group,
@@ -287,43 +285,50 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </button>
         <nav aria-label="Main navigation">
           <div className="signal-navigation">
+            {hasPermission(session.data?.permissions, overview.permission) && (
+              <SidebarItem
+                item={overview}
+                active={current?.href === overview.href}
+                onNavigate={close}
+                collapsed={sidebarCollapsed}
+              />
+            )}
             {visibleGroups.map((group) => {
-              const collapsible = group.id === "connections";
-              const open = !collapsible || connectionsOpen || sidebarCollapsed;
+              const open =
+                !closedGroups[group.id] || (sidebarCollapsed && !mobile);
               return (
                 <section
                   className="sidebar-group"
                   key={group.id}
                   aria-labelledby={`nav-${group.id}`}
                 >
-                  {collapsible ? (
-                    <button
-                      type="button"
-                      className="sidebar-group-toggle"
-                      aria-expanded={open}
-                      aria-controls="nav-connections-items"
-                      onClick={() => setConnectionsOpen((value) => !value)}
-                      title={sidebarCollapsed ? "Connections" : undefined}
-                    >
-                      <span id={`nav-${group.id}`}>{group.label}</span>
-                      <ChevronDown size={14} aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <h2 id={`nav-${group.id}`}>{group.label}</h2>
-                  )}
-                  {open && (
-                    <div id={collapsible ? "nav-connections-items" : undefined}>
-                      {group.items.map((item) => (
-                        <SidebarItem
-                          key={item.href}
-                          item={item}
-                          path={path}
-                          onNavigate={close}
-                          collapsed={sidebarCollapsed}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    className="sidebar-group-toggle"
+                    aria-expanded={open}
+                    aria-controls={`nav-${group.id}-items`}
+                    onClick={() =>
+                      setClosedGroups((value) => ({
+                        ...value,
+                        [group.id]: !value[group.id],
+                      }))
+                    }
+                    title={sidebarCollapsed ? group.label : undefined}
+                  >
+                    <span id={`nav-${group.id}`}>{group.label}</span>
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                  <div id={`nav-${group.id}-items`} hidden={!open}>
+                    {group.items.map((item) => (
+                      <SidebarItem
+                        key={item.href}
+                        item={item}
+                        active={current?.href === item.href}
+                        onNavigate={close}
+                        collapsed={sidebarCollapsed}
+                      />
+                    ))}
+                  </div>
                 </section>
               );
             })}

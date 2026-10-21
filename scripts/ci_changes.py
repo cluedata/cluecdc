@@ -20,6 +20,10 @@ GATES = (
     "containers",
     "arm64",
     "integration",
+    "cdc",
+    "s3",
+    "browser",
+    "browser_integration",
     "workload",
 )
 
@@ -27,10 +31,11 @@ GATES = (
 def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
     selected = dict.fromkeys(GATES, full)
     for path in paths:
-        if path.startswith(".github/workflows/") or path in {
+        if path.startswith((".github/workflows/", ".github/actions/")) or path in {
             ".github/compose.ci.yaml",
             ".github/compose.test.ci.yaml",
             "scripts/ci_changes.py",
+            "scripts/ci_image_key.py",
         }:
             return dict.fromkeys(GATES, True)
         if (
@@ -102,6 +107,30 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         )
         # Styling/assets still get real image/HTTP smoke coverage, without database fixtures.
         presentation = path.endswith(".css") or path.startswith("apps/web/public/")
+        shell_ui = path in {
+            "apps/web/src/components/shell.tsx",
+            "apps/web/src/components/auth.tsx",
+            "apps/web/src/components/brand-mark.tsx",
+            "apps/web/tests/e2e/shell.spec.ts",
+        } or path.startswith("apps/web/src/app/login/")
+        # UI shell/styles get real browser checks against core, without CDC fixtures.
+        core_browser = shell_ui or (web and path.endswith(".css"))
+        full_browser = (runtime_web or browser) and not presentation and not shell_ui
+        backend_acceptance = runtime_api or acceptance or compose or fixtures
+        if workload:
+            # Database-backed generator tests do not require CDC, S3 or a browser.
+            backend_acceptance = path == "compose.test.yaml"
+            full_browser = False
+        storage_only = path in {
+            "apps/api/app/services/object_storage.py",
+            "scripts/demo-object-storage.py",
+            "infrastructure/docker/minio-test.Dockerfile",
+        } or path.startswith("infrastructure/minio/")
+        cdc = backend_acceptance and not storage_only
+        s3 = backend_acceptance
+        browser_integration = full_browser or (backend_acceptance and not storage_only)
+        browser_checks = core_browser or browser_integration
+        integration = cdc or s3 or full_browser or workload
         audit_web = path in {"package.json", "package-lock.json"} or (
             web and path.endswith("/package.json")
         )
@@ -140,7 +169,11 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "audit_api": audit_api,
             "containers": runtime,
             "arm64": arm64,
-            "integration": runtime and not presentation,
+            "integration": integration,
+            "cdc": cdc,
+            "s3": s3,
+            "browser": browser_checks,
+            "browser_integration": browser_integration,
             "workload": workload,
         }
         if not any(values.values()):

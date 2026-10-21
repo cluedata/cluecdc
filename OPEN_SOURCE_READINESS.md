@@ -39,8 +39,10 @@ CI selects source quality/tests, documentation, dependency audits, Compose,
 deployment and container gates from changed paths. Repository safety/secret
 checks always run. Application-only PRs use native AMD64 core smoke; ARM64 also
 runs for packaging/dependency/connector/workload changes, relevant default-branch
-pushes and full manual CI. Relevant AMD64 runs add the test override for live
-CDC/S3/E2E. Fixture databases are not part of the default smoke topology. Full
+pushes and full manual CI. AMD64 selects CDC/S3/full-browser checks separately;
+menu/login/style changes use core-only browser checks. Architecture- and base-
+digest-specific final image caches avoid exporting Java/Go toolchains for fixtures.
+Fixture databases are not part of the default smoke topology. Full
 release validation, multi-architecture publication and hardening remain mandatory.
 
 Release checks include:

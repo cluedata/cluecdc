@@ -13,13 +13,16 @@ jobs. Superseded runs on the same PR/branch are cancelled automatically.
 | Markdown/documentation | Strict MkDocs build; no application images or fixtures |
 | Web unit tests | Web format, lint, types and unit tests |
 | API unit tests | API lint, types and tests with real PostgreSQL worker concurrency |
-| CSS or web public assets | Web quality plus native AMD64 runtime/asset smoke on PRs; both architectures on default-branch pushes |
-| Application or integration code | Relevant quality checks and native AMD64 image builds/core smoke; ARM64 selected by the policy below; CDC/S3/browser integration once on AMD64 |
+| Menu, login or CSS | Web quality, runtime smoke and core-only Playwright login/navigation checks; no CDC databases or MinIO |
+| Web public assets | Web quality plus native runtime/asset smoke |
+| Other web application code | Runtime smoke and full browser flows with fixtures, without repeating JDBC/S3 content acceptance |
+| Shared API/runtime or integration code | Relevant quality checks and runtime smoke; CDC, S3 and full browser acceptance on AMD64 |
+| Object-storage implementation/fixture only | Real S3 content acceptance; no JDBC/browser acceptance or destination databases |
 | Connector, Docker/Compose or native dependency code | Native AMD64 and ARM64 image builds/core smoke |
 | Compose/Docker configuration | Compose rendering on Ubuntu, macOS and Windows, including CI overrides |
 | Kubernetes configuration | Deployment contract and strict Kubernetes schemas |
 | Dependency manifests/lockfiles | Corresponding npm or Python dependency audit |
-| Workload generator | Native image/dependency checks on both architectures; real database regression tests on AMD64 |
+| Workload generator | Native image/dependency checks on both architectures; source database regression tests on AMD64, without MinIO/browser/CDC acceptance |
 
 ARM64 uses a native `ubuntu-24.04-arm` runner, not QEMU. To reduce the PR critical
 path, ordinary application/UI changes run the container job on AMD64 only.
@@ -46,11 +49,36 @@ documentation and repository safety checks run. Release validation still runs
 all quality/dependency gates regardless of changed paths, followed by the full
 hardening and Kubernetes acceptance gates.
 
-Runtime images are built once with Bake and per-image/per-architecture GitHub
-Actions caches. API, worker and MinIO bootstrap share one API image through
+API and web images are built once with Bake and per-image/per-architecture GitHub
+Actions build caches. Their cache exports have a 60-second timeout; an export
+failure cannot bypass image build or smoke failures. API, worker and MinIO bootstrap share one API image through
 `.github/compose.ci.yaml` and `.github/compose.test.ci.yaml`. Core startup uses
 `--no-build`; relevant AMD64 runs add test fixtures to the existing stack without
-an intermediate `down`. ARM64 does not install host npm/pip application tooling
+an intermediate `down`. The CI test override puts MinIO/bootstrap behind the
+`object-storage` profile; S3-only runs start the PostgreSQL source, not destination
+databases. The API's bucket-bootstrap dependency is optional while that profile
+is disabled and waits for successful completion when enabled. Both paths are
+compatible with Compose 2.24.7. This changes CI overrides only, not the normal
+Compose quick start.
+
+Connect and MinIO use `.github/actions/cached-ci-image`: cache the loadable final
+image archive, not all Java/Go builder layers. A cache miss builds normally with
+`--pull` for MinIO; a Connect miss joins the parallel API/web Bake build. The
+finished image is saved by the cache action's job cleanup hook; a hit loads it
+directly. Exact keys include
+runner OS/CPU, Dockerfile/source/build-context inputs and resolved upstream base
+image digests. There are no stale prefix restores. Loaded/built image architecture
+must match the native runner. MinIO is prepared only for S3 content or full
+browser acceptance, after core smoke; it never blocks core startup.
+
+The selector emits independent `cdc`, `s3`, `browser` and `browser_integration`
+gates. Core browser checks do not become full integration just because an
+unrelated workload file also changes. Shared backend/build inputs remain
+conservative and select full acceptance. The optional host Python tooling installs
+only the pinned boto3/confluent-kafka requirements read from the API manifest;
+it does not install the API development toolchain again. Browser installation
+skips the unused headless-shell download because the tests use Chromium channel.
+ARM64 does not install host npm/pip application tooling
 or repeat MinIO, CDC, S3 or Playwright acceptance. Its core HTTP/asset, native
 image optimization and migration smoke checks remain enabled whenever selected. The
 optional commerce image is built only for workload changes or an explicit full
@@ -63,6 +91,11 @@ core startup/build 77s, standalone web/API builds 69s, S3 acceptance 65s, and
 browser installation/tests 77s. Those are the measured old baseline, not a
 promise of the new duration. Cold caches still download/build dependencies;
 measure a fresh GitHub run and a warm-cache repeat after merging this change.
+The subsequent [CI run 39543106344](https://github.com/cluedata/cluecdc/actions/runs/39543106344)
+took 668s on AMD64 and 182s on ARM64 before this fixture-cache refactor. AMD64's
+build/cache step alone took 325s. These are historical observations, not measured
+durations for the new workflow; GitHub cache upload/download still needs a fresh
+run and a warm-cache repeat.
 
 The separate Documentation workflow continues to build and deploy GitHub Pages
 on documentation changes pushed to `main`, or when manually triggered.

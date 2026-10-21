@@ -1,10 +1,10 @@
 # User management
 
-Only an Admin can open **Settings → Users** or call the user-management API.
+Only an Admin can open **System → User** (`/settings/users`) or call the user-management API.
 
 ## Invite a user
 
-1. Open **Settings → Users** and select **Invite User**.
+1. Expand **System**, open **User**, and select **Invite User**.
 2. Enter the normalized email address and choose Admin, Ops, or Viewer.
 3. Select **Create Invite**.
 4. Copy the displayed link and share it securely with the intended recipient.

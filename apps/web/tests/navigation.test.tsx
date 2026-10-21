@@ -35,6 +35,7 @@ vi.mock("../src/lib/api", () => ({
 
 describe("main navigation", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     navigationState.pathname = "/connect/clusters";
     navigationState.role = "Admin";
     navigationState.permissions = ["*"];
@@ -60,7 +61,8 @@ describe("main navigation", () => {
       within(workspace)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Overview", "Pipelines", "Deliveries"]);
+    ).toEqual(["Pipelines", "Deliveries"]);
+    expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
 
     const components = screen.getByRole("region", { name: "Connections" });
     expect(
@@ -85,10 +87,61 @@ describe("main navigation", () => {
         .map((link) => link.textContent),
     ).toEqual(["Monitoring", "Alerts", "Audit"]);
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "User" })).toHaveAttribute(
+      "href",
+      "/settings/users",
+    );
     expect(
       screen.queryByRole("link", { name: "API Reference" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Clue workspace")).not.toBeInTheDocument();
+  });
+
+  it.each(["Workspace", "Connections", "Operations", "System"])(
+    "toggles %s independently while Overview stays visible",
+    async (name) => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      render(
+        <QueryClientProvider client={client}>
+          <Shell>Workspace</Shell>
+        </QueryClientProvider>,
+      );
+      const group = await screen.findByRole("region", { name });
+      const toggle = within(group).getByRole("button", { name });
+      expect(toggle).toHaveClass("sidebar-group-toggle");
+      const target = document.getElementById(
+        toggle.getAttribute("aria-controls")!,
+      );
+      expect(target).toBeVisible();
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(target).not.toBeVisible();
+      expect(screen.getByRole("link", { name: "Overview" })).toBeVisible();
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(target).toBeVisible();
+    },
+  );
+
+  it("marks only User as current on the users route", async () => {
+    navigationState.pathname = "/settings/users";
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <Shell>Users</Shell>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("link", { name: "User" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Settings" })).not.toHaveAttribute(
+      "aria-current",
+    );
   });
 
   it("collapses the connections group and desktop sidebar accessibly", async () => {
@@ -125,7 +178,7 @@ describe("main navigation", () => {
       role: "Viewer" as const,
       permissions: ["overview.read", "pipelines.read", "deliveries.read"],
       visible: ["Overview", "Pipelines", "Deliveries"],
-      hidden: ["Sources", "Destinations", "Monitoring", "Settings"],
+      hidden: ["Sources", "Destinations", "Monitoring", "Settings", "User"],
     },
     {
       role: "Ops" as const,
@@ -145,7 +198,7 @@ describe("main navigation", () => {
         "Sources",
         "Destinations",
       ],
-      hidden: ["Monitoring", "Alerts", "Settings"],
+      hidden: ["Monitoring", "Alerts", "Settings", "User"],
     },
   ])("only shows authorized navigation for $role", async (value) => {
     navigationState.pathname = "/overview";

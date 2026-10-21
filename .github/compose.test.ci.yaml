@@ -1,8 +1,18 @@
 # Apply after compose.test.yaml; the one-shot bootstrap reuses the API image.
 services:
+  cluecdc-api:
+    # Core is already healthy. Database-only checks must not start S3 fixtures.
+    depends_on: !override
+      metadata-db:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+        required: false
   minio:
     image: cluecdc-ci-minio:ci
+    profiles: [object-storage]
   minio-bootstrap:
     image: cluecdc-ci-api:ci
+    profiles: [object-storage]
   commerce-generator:
     image: cluecdc-ci-workload:ci
