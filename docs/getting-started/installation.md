@@ -1,20 +1,27 @@
 # Installation
 
-## Clone and bootstrap
+## Clone and start
+
+Check the [platform prerequisites](prerequisites.md) first. Use Linux containers
+on Docker Desktop for macOS/Windows or Docker Engine on Ubuntu/Linux.
 
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
 cp .env.example .env
-python scripts/bootstrap.py
 docker compose up -d --build --wait --wait-timeout 240
 ```
 
-`bootstrap.py` replaces infrastructure, encryption, and session examples with
-unique local values while preserving the documented public development Admin.
-It does not overwrite custom values. Keep `.env` private. Existing database
-volumes retain their original passwords, so changing `.env` is not a
-password-rotation procedure.
+On Windows PowerShell, use `Copy-Item .env.example .env`. The Docker commands
+are identical on all hosts; no host Python or Node.js installation is required.
+
+The copied example includes public demo passwords and cryptographic keys,
+suitable only for the loopback development stack. The commands above do not
+generate unique secrets. See
+[optional unique local secrets](../operations/configuration.md#optional-unique-local-secrets)
+before the first startup if desired. Keep `.env` private after customizing it.
+Existing database volumes retain their original passwords, so changing `.env`
+is not a password-rotation procedure.
 
 Open the UI at <http://localhost:3000/login> and sign in with
 `admin@cluecdc.local` / `cluecdc-admin`. This account is only for the
@@ -31,13 +38,11 @@ curl http://localhost:3000
 
 All default services should be healthy. If a service is not ready, inspect `docker compose logs --tail 100 SERVICE` before retrying.
 
-## Optional developer tools and test fixtures
+## Optional test fixtures
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d
 docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
 ```
 
-The developer override adds optional database inspection tooling. The test
-override adds PostgreSQL/MySQL source and destination fixtures for integration
-and E2E checks. Neither is required for the default runtime.
+The test override adds PostgreSQL/MySQL source and destination fixtures and
+MinIO for integration and E2E checks. It is not required for the default runtime.

@@ -7,6 +7,13 @@
 **/.next
 **/__pycache__
 .venv
+**/.venv
+**/venv
+**/*.egg-info
+**/*.pyc
+**/*.tsbuildinfo
+**/.DS_Store
+**/Thumbs.db
 artifacts
 .codex-tmp
 site

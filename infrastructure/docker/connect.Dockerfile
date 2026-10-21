@@ -2,7 +2,7 @@ ARG VERSION=development
 ARG VCS_REF=unknown
 
 FROM quay.io/debezium/connect:3.3.1.Final AS upstream
-FROM debian:bookworm-slim AS connector-download
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS connector-download
 ARG AIVEN_S3_VERSION=3.4.2
 ARG AIVEN_S3_SHA256=c95fb5b82f8f5f66a9acad3e0c6fa57c1c5ac5c5cea5d07e18f4d6ff738cc8d2
 RUN apt-get update \
@@ -15,7 +15,8 @@ RUN curl --fail --location --retry 3 --output aiven-s3.zip \
     && unzip -q aiven-s3.zip \
     && mv "s3-sink-connector-for-apache-kafka-${AIVEN_S3_VERSION}" aiven-s3 \
     && rm aiven-s3.zip
-FROM eclipse-temurin:21-jdk AS builder
+# Only Java bytecode is produced here; compile on the builder's native CPU.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS builder
 WORKDIR /build
 COPY --from=upstream /kafka/libs/ ./libs/
 COPY --from=connector-download /plugins/aiven-s3/ ./aiven-s3/

@@ -90,17 +90,22 @@ capabilities, role access, and known boundaries.
 
 ## Quick start
 
-Requirements: Git, Docker Engine or Docker Desktop, and Docker Compose v2. The
-default stack needs enough memory for PostgreSQL, Kafka, Kafka Connect, the API,
-worker, and web UI.
+Requirements: Git, Docker Engine or Docker Desktop with Linux
+containers, and Docker Compose v2.24+ (v5 also works). Ubuntu/Linux, macOS
+(Intel/Apple Silicon), and Windows (Docker Desktop with WSL 2) use the same
+Compose file on x86-64 or ARM64. Allow at least 6 GB of Docker memory for the
+core runtime; 8 GB or more is recommended for builds and integration fixtures.
 
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
 cp .env.example .env
-python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
+
+On Windows PowerShell, replace `cp` with `Copy-Item`. Host Python and Node.js
+are not required for this Compose quick start. See the
+[platform requirements](docs/getting-started/prerequisites.md).
 
 Open [http://localhost:3000/login](http://localhost:3000/login). The API reference is at
 [http://localhost:8000/docs](http://localhost:8000/docs).
@@ -117,9 +122,10 @@ production. Production rejects `BOOTSTRAP_DEFAULT_ADMIN=true`; disable it and
 create the first administrator interactively with `python -m app.cli
 create-admin`.
 
-The bootstrap command replaces infrastructure and cryptographic examples with
-unique local secrets without overwriting custom values. It deliberately keeps
-the public development login shown above so a fresh local stack is accessible.
+The copied `.env.example` contains public demo passwords and cryptographic keys;
+the quick start uses them unchanged and does not generate unique secrets.
+For optional unique local secrets before the first startup, see the
+[configuration guide](docs/operations/configuration.md#optional-unique-local-secrets).
 
 Configuration is documented in [.env.example](.env.example) and the
 [operations guide](docs/operations/configuration.md). Critical secrets are
@@ -129,9 +135,8 @@ keys. See [authentication](docs/security/authentication.md) and
 
 ## Deployment and documentation
 
-The default Compose stack contains only runtime services. Development inspection
-tools use `compose.dev.yaml`; PostgreSQL/MySQL/MinIO integration fixtures use
-`compose.test.yaml`. See the [Compose guide](docs/getting-started/docker-compose.md),
+The default Compose stack contains only runtime services. PostgreSQL/MySQL/MinIO
+integration fixtures use `compose.test.yaml`. See the [Compose guide](docs/getting-started/docker-compose.md),
 [production considerations](docs/deployment/production.md), and
 [Kubernetes baseline](docs/deployment/kubernetes.md).
 

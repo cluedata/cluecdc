@@ -25,9 +25,8 @@ Only providers backed by implementation and automated coverage are exposed.
 ## Deployment boundary
 
 The default `compose.yaml` starts six core services: metadata PostgreSQL,
-Kafka, Kafka Connect, API, background worker, and web. Optional database
-inspection is in `compose.dev.yaml`. PostgreSQL/MySQL source and destination
-fixtures plus MinIO are in `compose.test.yaml`.
+Kafka, Kafka Connect, API, background worker, and web. PostgreSQL/MySQL source
+and destination fixtures plus MinIO are in `compose.test.yaml`.
 
 The Kubernetes baseline deploys ClueCDC metadata, API, web, and distributed
 Kafka Connect workers. Kafka is deliberately external. Production still
@@ -44,7 +43,7 @@ Release checks include:
 
 - Ruff, mypy, pytest, ESLint, TypeScript, Prettier, Vitest, and Next.js build;
 - strict MkDocs build and internal-link validation;
-- Compose validation for core, development, and test combinations;
+- Compose validation for core and test combinations;
 - Kustomize rendering and Alembic upgrade/drift checks;
 - dependency and secret scans; and
 - real CDC smoke and Playwright flows when Docker is available.
