@@ -2,11 +2,67 @@
 
 ## GitHub Actions
 
-Automatic CI on pushes to `main`/`master` and pull requests runs application
-quality/tests, documentation, dependency/security scans, container builds, core
-smoke tests, real PostgreSQL/MySQL/object-storage CDC flows, and browser E2E.
-For a manually dispatched CI run, enable `run_full_ci`; when it is false, only
-the documentation job runs.
+Automatic CI on pushes to `main`/`master` and pull requests selects gates from
+the changed files. Repository safety and Git-history secret scanning always run.
+The stable **CI checks** job fails if any selected job fails or is cancelled;
+use it as the required branch-protection check instead of individual conditional
+jobs. Superseded runs on the same PR/branch are cancelled automatically.
+
+| Change | Selected checks |
+| --- | --- |
+| Markdown/documentation | Strict MkDocs build; no application images or fixtures |
+| Web unit tests | Web format, lint, types and unit tests |
+| API unit tests | API lint, types and tests with real PostgreSQL worker concurrency |
+| CSS or web public assets | Web quality plus native AMD64 runtime/asset smoke on PRs; both architectures on default-branch pushes |
+| Application or integration code | Relevant quality checks and native AMD64 image builds/core smoke; ARM64 selected by the policy below; CDC/S3/browser integration once on AMD64 |
+| Connector, Docker/Compose or native dependency code | Native AMD64 and ARM64 image builds/core smoke |
+| Compose/Docker configuration | Compose rendering on Ubuntu, macOS and Windows, including CI overrides |
+| Kubernetes configuration | Deployment contract and strict Kubernetes schemas |
+| Dependency manifests/lockfiles | Corresponding npm or Python dependency audit |
+| Workload generator | Native image/dependency checks on both architectures; real database regression tests on AMD64 |
+
+ARM64 uses a native `ubuntu-24.04-arm` runner, not QEMU. To reduce the PR critical
+path, ordinary application/UI changes run the container job on AMD64 only.
+Changes to Docker/Compose/environment inputs, fixtures/connectors, dependency
+manifests/lockfiles, native source files or the workload generator also select
+ARM64. Every relevant push to `main`/`master` and every full manual CI run keeps
+both architectures. Thus application-only PRs defer ARM64 smoke until after
+merge; they do not claim pre-merge ARM64 verification. Documentation/unit-test-only
+changes still skip runtime containers on both architectures. The change selector
+emits the native runner matrix explicitly, with regression coverage for PR,
+default-branch, mixed-file and fail-closed selections.
+
+Weekly scheduled runs repeat both dependency audits even without source changes,
+so new advisories are still checked. They do not start runtime/test stacks and
+use a separate concurrency group so they cannot cancel a push/PR validation.
+
+Workflow changes and unknown build configuration select every gate. Deleted
+and renamed files are included; an unavailable comparison base also selects
+every gate. `scripts/ci_changes.py` implements this policy and has regression
+tests for skipped infrastructure and fail-closed comparisons.
+
+Manual CI with `run_full_ci=true` selects every gate; with it disabled, only
+documentation and repository safety checks run. Release validation still runs
+all quality/dependency gates regardless of changed paths, followed by the full
+hardening and Kubernetes acceptance gates.
+
+Runtime images are built once with Bake and per-image/per-architecture GitHub
+Actions caches. API, worker and MinIO bootstrap share one API image through
+`.github/compose.ci.yaml` and `.github/compose.test.ci.yaml`. Core startup uses
+`--no-build`; relevant AMD64 runs add test fixtures to the existing stack without
+an intermediate `down`. ARM64 does not install host npm/pip application tooling
+or repeat MinIO, CDC, S3 or Playwright acceptance. Its core HTTP/asset, native
+image optimization and migration smoke checks remain enabled whenever selected. The
+optional commerce image is built only for workload changes or an explicit full
+run. Failure diagnostics are redacted and uploaded only when needed; full release
+hardening retains its success reports. Browser/demo seed scripts remain
+necessary fixtures and are not obsolete.
+
+The supplied ARM64 job log took about 524 seconds: fixture startup/build 152s,
+core startup/build 77s, standalone web/API builds 69s, S3 acceptance 65s, and
+browser installation/tests 77s. Those are the measured old baseline, not a
+promise of the new duration. Cold caches still download/build dependencies;
+measure a fresh GitHub run and a warm-cache repeat after merging this change.
 
 The separate Documentation workflow continues to build and deploy GitHub Pages
 on documentation changes pushed to `main`, or when manually triggered.
@@ -41,7 +97,7 @@ API unit tests use temporary SQLite and mocked external clients where isolation 
 
 `WORKER_TEST_DATABASE_URL` enables a real PostgreSQL concurrency test: two
 workers race for one job and only one claim succeeds. Each test creates and
-removes its own UUID-named schema. Opt-in full CI provides a dedicated PostgreSQL service.
+removes its own UUID-named schema. Every selected API job provides a dedicated PostgreSQL service.
 Lease recovery, classified transient/permanent failures, capped exponential
 backoff with jitter, terminal failure, manual retry with retained history,
 result persistence and cancellation also have unit coverage. Collection tests

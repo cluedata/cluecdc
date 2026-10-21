@@ -35,9 +35,13 @@ published images, and a replicated Kafka deployment.
 
 ## Verification policy
 
-CI separates source quality/tests, documentation, security, container builds,
-and live smoke/E2E checks. Integration jobs compose the core runtime with the
-test override; fixture databases are not part of the default smoke topology.
+CI selects source quality/tests, documentation, dependency audits, Compose,
+deployment and container gates from changed paths. Repository safety/secret
+checks always run. Application-only PRs use native AMD64 core smoke; ARM64 also
+runs for packaging/dependency/connector/workload changes, relevant default-branch
+pushes and full manual CI. Relevant AMD64 runs add the test override for live
+CDC/S3/E2E. Fixture databases are not part of the default smoke topology. Full
+release validation, multi-architecture publication and hardening remain mandatory.
 
 Release checks include:
 
