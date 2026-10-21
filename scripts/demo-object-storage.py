@@ -11,7 +11,7 @@ import urllib.request
 import uuid
 
 import boto3
-from cdc_acceptance_support import Compose, load_environment
+from cdc_acceptance_support import Compose, load_fixture_environment
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -21,14 +21,10 @@ parser.add_argument("--compose-project")
 parser.add_argument("--env-file", action="append", type=pathlib.Path)
 args = parser.parse_args()
 env_files = args.env_file or [ROOT / ".env"]
-env = load_environment(env_files)
+env = load_fixture_environment(env_files)
 compose = Compose(args.compose_project or "cluecdc", env_files)
-access_key = os.getenv(
-    "MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "cluecdc-test-access")
-)
-secret_key = os.getenv(
-    "MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "cluecdc-test-secret-key")
-)
+access_key = os.getenv("MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "minioadmin"))
+secret_key = os.getenv("MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "minioadmin"))
 source_password = env["SOURCE_PASSWORD"]
 
 
@@ -80,8 +76,8 @@ source = find_or_create(
         "config": {
             "host": "cdc-source-postgres",
             "port": 5432,
-            "database_name": "commerce",
-            "username": "cdc_user",
+            "database_name": "cluecdc_source",
+            "username": "source_user",
         },
         "credentials": {"password": source_password},
     },
@@ -174,7 +170,7 @@ sql = (
     f"UPDATE customers SET name = 'update {marker}', updated_at = now() WHERE email = '{email}';\n"
     f"DELETE FROM customers WHERE email = '{email}';\n"
 )
-compose.postgres("cdc-source-postgres", "commerce", sql)
+compose.postgres("cdc-source-postgres", "cluecdc_source", sql)
 client = boto3.client(
     "s3",
     endpoint_url=args.minio_url,
@@ -209,7 +205,7 @@ def exported():
                 row = after or before or {}
                 if row.get("email") != email:
                     continue
-                assert event["source"]["db"] == "commerce"
+                assert event["source"]["db"] == "cluecdc_source"
                 assert event["source"]["schema"] == "public"
                 assert event["source"]["table"] == "customers"
                 assert event.get("ts_ms") is not None

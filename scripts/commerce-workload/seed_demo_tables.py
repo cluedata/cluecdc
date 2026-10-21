@@ -160,9 +160,9 @@ def seed_mysql(names, row_count, reset):
     connection = pymysql.connect(
         host=os.environ.get("MYSQL_HOST", "cdc-source-mysql"),
         port=int(os.environ.get("MYSQL_PORT", "3306")),
-        user=os.environ.get("MYSQL_USER", "cdc_mysql"),
+        user=os.environ.get("MYSQL_USER", "source_user"),
         password=os.environ["MYSQL_PASSWORD"],
-        database=os.environ.get("MYSQL_DATABASE", "shop"),
+        database=os.environ.get("MYSQL_DATABASE", "cluecdc_source"),
         connect_timeout=10,
         read_timeout=120,
         write_timeout=120,

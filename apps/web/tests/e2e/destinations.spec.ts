@@ -4,7 +4,9 @@ import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 const root = resolve(process.cwd(), "../..");
 const fileEnv = Object.fromEntries(
-  readFileSync(resolve(root, ".env"), "utf8")
+  [".env.test.example", ".env"]
+    .map((filename) => readFileSync(resolve(root, filename), "utf8"))
+    .join("\n")
     .split(/\r?\n/)
     .filter((line) => line.includes("="))
     .map((line) => {
@@ -79,8 +81,10 @@ test("destination wizard delivers real records, mappings and independent lifecyc
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByLabel("Destination name", { exact: true }).fill(name);
     await page.getByLabel("Host", { exact: true }).fill("destination-postgres");
-    await page.getByLabel("Database", { exact: true }).fill("analytics");
-    await page.getByLabel("Username", { exact: true }).fill("delivery_user");
+    await page
+      .getByLabel("Database", { exact: true })
+      .fill("cluecdc_destination");
+    await page.getByLabel("Username", { exact: true }).fill("destination_user");
     await page
       .getByLabel("Password", { exact: true })
       .fill(env.DESTINATION_PASSWORD);
@@ -178,14 +182,14 @@ test("destination wizard delivers real records, mappings and independent lifecyc
     customerId = Number(
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `INSERT INTO customers(name,email) VALUES ('Browser delivery ${token}','browser-${token}@example.test') RETURNING id;`,
       ),
     );
     orderId = Number(
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `INSERT INTO orders(customer_id,total) VALUES (${customerId},12.34) RETURNING id;`,
       ),
     );
@@ -193,7 +197,7 @@ test("destination wizard delivers real records, mappings and independent lifecyc
       .poll(() =>
         sql(
           "destination-postgres",
-          "analytics",
+          "cluecdc_destination",
           `SELECT name FROM analytics.${table} WHERE id=${customerId};`,
         ),
       )
@@ -202,21 +206,21 @@ test("destination wizard delivers real records, mappings and independent lifecyc
       .poll(() =>
         sql(
           "destination-postgres",
-          "analytics",
+          "cluecdc_destination",
           `SELECT total FROM analytics.${orders} WHERE id=${orderId};`,
         ),
       )
       .toBe("12.34");
     sql(
       "cdc-source-postgres",
-      "commerce",
+      "cluecdc_source",
       `UPDATE customers SET name='Browser delivery ${token} updated',updated_at=now() WHERE id=${customerId};`,
     );
     await expect
       .poll(() =>
         sql(
           "destination-postgres",
-          "analytics",
+          "cluecdc_destination",
           `SELECT name FROM analytics.${table} WHERE id=${customerId};`,
         ),
       )
@@ -300,14 +304,14 @@ test("destination wizard delivers real records, mappings and independent lifecyc
     });
     sql(
       "cdc-source-postgres",
-      "commerce",
+      "cluecdc_source",
       `DELETE FROM orders WHERE id=${orderId}; DELETE FROM customers WHERE id=${customerId};`,
     );
     await expect
       .poll(() =>
         sql(
           "destination-postgres",
-          "analytics",
+          "cluecdc_destination",
           `SELECT count(*) FROM analytics.${table} WHERE id=${customerId};`,
         ),
       )
@@ -325,13 +329,13 @@ test("destination wizard delivers real records, mappings and independent lifecyc
     if (orderId)
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `DELETE FROM orders WHERE id=${orderId};`,
       );
     if (customerId)
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `DELETE FROM customers WHERE id=${customerId};`,
       );
     if (destinationId) {
@@ -349,7 +353,7 @@ test("destination wizard delivers real records, mappings and independent lifecyc
     }
     sql(
       "destination-postgres",
-      "analytics",
+      "cluecdc_destination",
       `DROP TABLE IF EXISTS analytics.${table},analytics.${table}_v2,analytics.${orders};`,
     );
   }
@@ -406,8 +410,8 @@ test("real authentication failure is visible and can be acknowledged", async ({
       name: `Rejected destination ${Date.now()}`,
       environment: "DEV",
       host: "destination-postgres",
-      database_name: "analytics",
-      username: "delivery_user",
+      database_name: "cluecdc_destination",
+      username: "destination_user",
       password: "intentionally-invalid-test-password",
     },
   });
@@ -460,8 +464,8 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
   const customerTopic = `${pipeline.topic_prefix}.public.customers`;
   sql(
     "destination-postgres",
-    "analytics",
-    `CREATE TABLE analytics.${table}(id bigint PRIMARY KEY,name text NOT NULL CONSTRAINT browser_name_guard CHECK(name NOT LIKE 'Blocked %'),email text NOT NULL,updated_at timestamptz NOT NULL,age integer,phone varchar(20)); ALTER TABLE analytics.${table} OWNER TO delivery_user;`,
+    "cluecdc_destination",
+    `CREATE TABLE analytics.${table}(id bigint PRIMARY KEY,name text NOT NULL CONSTRAINT browser_name_guard CHECK(name NOT LIKE 'Blocked %'),email text NOT NULL,updated_at timestamptz NOT NULL,age integer,phone varchar(20)); ALTER TABLE analytics.${table} OWNER TO destination_user;`,
   );
   const target = await (
     await request.post("/api/v1/destinations", {
@@ -469,8 +473,8 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
         name: `Failure destination ${token}`,
         environment: "DEV",
         host: "destination-postgres",
-        database_name: "analytics",
-        username: "delivery_user",
+        database_name: "cluecdc_destination",
+        username: "destination_user",
         password: env.DESTINATION_PASSWORD,
       },
     })
@@ -511,7 +515,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
     customerId = Number(
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `INSERT INTO customers(name,email) VALUES ('Blocked ${token}','blocked-${token}@example.test') RETURNING id;`,
       ),
     );
@@ -536,7 +540,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
       .toBe(true);
     sql(
       "cdc-source-postgres",
-      "commerce",
+      "cluecdc_source",
       `UPDATE customers SET name='Blocked ${token} again',updated_at=now() WHERE id=${customerId};`,
     );
     await expect
@@ -584,7 +588,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
     ).toBeTruthy();
     sql(
       "destination-postgres",
-      "analytics",
+      "cluecdc_destination",
       `ALTER TABLE analytics.${table} DROP CONSTRAINT browser_name_guard;`,
     );
     await page.getByRole("button", { name: "Restart", exact: true }).click();
@@ -602,7 +606,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
       .poll(() =>
         sql(
           "destination-postgres",
-          "analytics",
+          "cluecdc_destination",
           `SELECT count(*) FROM analytics.${table} WHERE id=${customerId};`,
         ),
       )
@@ -622,7 +626,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
     if (customerId)
       sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         `DELETE FROM customers WHERE id=${customerId};`,
       );
     const detail = await (
@@ -635,7 +639,7 @@ test("real sink constraint failure becomes degraded and recovers after repair", 
     await request.delete(`/api/v1/destinations/${target.id}`);
     sql(
       "destination-postgres",
-      "analytics",
+      "cluecdc_destination",
       `DROP TABLE IF EXISTS analytics.${table};`,
     );
   }

@@ -7,7 +7,7 @@ import pathlib
 import subprocess
 import urllib.request
 
-from cdc_acceptance_support import Compose, load_environment
+from cdc_acceptance_support import Compose, load_fixture_environment
 
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -17,14 +17,16 @@ parser.add_argument("--compose-project")
 parser.add_argument("--env-file", action="append", type=pathlib.Path)
 args = parser.parse_args()
 env_files = args.env_file or [root / ".env"]
-env = load_environment(env_files)
+env = load_fixture_environment(env_files)
 secret_values = [
     env[key]
     for key in [
         "SOURCE_PASSWORD",
         "SOURCE_ADMIN_PASSWORD",
         "MYSQL_SOURCE_PASSWORD",
+        "MYSQL_SOURCE_ADMIN_PASSWORD",
         "MYSQL_DESTINATION_PASSWORD",
+        "MYSQL_DESTINATION_ADMIN_PASSWORD",
         "DESTINATION_PASSWORD",
         "DESTINATION_ADMIN_PASSWORD",
         "METADATA_PASSWORD",
@@ -41,12 +43,8 @@ if os.getenv("CLUECDC_TOKEN"):
     secret_values.append(os.environ["CLUECDC_TOKEN"])
 secret_values.extend(
     [
-        os.getenv(
-            "MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "cluecdc-test-access")
-        ),
-        os.getenv(
-            "MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "cluecdc-test-secret-key")
-        ),
+        os.getenv("MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "minioadmin")),
+        os.getenv("MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "minioadmin")),
     ]
 )
 

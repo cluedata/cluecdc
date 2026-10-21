@@ -11,16 +11,14 @@ import urllib.error
 import urllib.request
 import uuid
 
+from cdc_acceptance_support import load_fixture_environment
+
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:3000/api/v1")
 parser.add_argument("--skip-capture-demo", action="store_true")
 args = parser.parse_args()
-env = dict(
-    line.split("=", 1)
-    for line in (root / ".env").read_text().splitlines()
-    if "=" in line and not line.startswith("#")
-)
+env = load_fixture_environment([root / ".env"])
 destination_password = os.environ.get("DESTINATION_PASSWORD") or env.get(
     "DESTINATION_PASSWORD"
 )
@@ -119,8 +117,8 @@ for name, schema in [
                 "environment": "DEV",
                 "host": "destination-postgres",
                 "port": 5432,
-                "database_name": "analytics",
-                "username": "delivery_user",
+                "database_name": "cluecdc_destination",
+                "username": "destination_user",
                 "password": destination_password,
             },
         )
@@ -166,14 +164,14 @@ marker = "Delivery " + uuid.uuid4().hex
 customer_id = int(
     sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"INSERT INTO customers(name,email) VALUES ('{marker}','{uuid.uuid4().hex}@example.test') RETURNING id;",
     )
 )
 order_id = int(
     sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"INSERT INTO orders(customer_id,total) VALUES ({customer_id},12.34) RETURNING id;",
     )
 )
@@ -181,7 +179,7 @@ for target, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT name FROM {schema}.customers WHERE id={customer_id};",
         ),
         lambda value: value == marker,
@@ -190,7 +188,7 @@ for target, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT total FROM {schema}.orders WHERE id={order_id};",
         ),
         lambda value: value == "12.34",
@@ -200,14 +198,14 @@ print("Fresh customer and order INSERTs delivered to both mapped schemas.", flus
 
 sql(
     "cdc-source-postgres",
-    "commerce",
+    "cluecdc_source",
     f"UPDATE customers SET name='{marker} updated', updated_at=now() WHERE id={customer_id}; UPDATE orders SET total=45.67,status='paid',updated_at=now() WHERE id={order_id};",
 )
 for target, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT name FROM {schema}.customers WHERE id={customer_id};",
         ),
         lambda value: value == marker + " updated",
@@ -216,7 +214,7 @@ for target, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT total || ':' || status FROM {schema}.orders WHERE id={order_id};",
         ),
         lambda value: value == "45.67:paid",
@@ -237,14 +235,14 @@ wait(
 paused_id = int(
     sql(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"INSERT INTO customers(name,email) VALUES ('{marker} paused','{uuid.uuid4().hex}@example.test') RETURNING id;",
     )
 )
 time.sleep(3)
 paused_count = sql(
     "destination-postgres",
-    "analytics",
+    "cluecdc_destination",
     f"SELECT count(*) FROM public.customers WHERE id={paused_id};",
 )
 if paused_count != "0":
@@ -267,7 +265,7 @@ wait(
 wait(
     lambda: sql(
         "destination-postgres",
-        "analytics",
+        "cluecdc_destination",
         f"SELECT count(*) FROM public.customers WHERE id={paused_id};",
     ),
     lambda value: value == "1",
@@ -286,14 +284,14 @@ print(
 
 sql(
     "cdc-source-postgres",
-    "commerce",
+    "cluecdc_source",
     f"DELETE FROM orders WHERE id={order_id}; DELETE FROM customers WHERE id IN ({customer_id},{paused_id});",
 )
 for _, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT count(*) FROM {schema}.customers WHERE id IN ({customer_id},{paused_id});",
         ),
         lambda value: value == "0",
@@ -302,7 +300,7 @@ for _, schema, _ in destinations:
     wait(
         lambda schema=schema: sql(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT count(*) FROM {schema}.orders WHERE id={order_id};",
         ),
         lambda value: value == "0",

@@ -8,7 +8,9 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
   request,
 }) => {
   const fileEnv = Object.fromEntries(
-    readFileSync(resolve(root, ".env"), "utf8")
+    [".env.test.example", ".env"]
+      .map((filename) => readFileSync(resolve(root, filename), "utf8"))
+      .join("\n")
       .split(/\r?\n/)
       .filter((l) => l.includes("="))
       .map((l) => {
@@ -137,7 +139,7 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
         "-U",
         "postgres",
         "-d",
-        "commerce",
+        "cluecdc_source",
         "-v",
         "ON_ERROR_STOP=1",
       ],

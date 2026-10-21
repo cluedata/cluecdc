@@ -22,8 +22,8 @@ test("MinIO connection and storage-only delivery UI deploy a real S3 sink withou
   request,
 }) => {
   const name = `Browser MinIO ${Date.now()}`;
-  const access = env.MINIO_ACCESS_KEY || "cluecdc-test-access";
-  const secret = env.MINIO_SECRET_KEY || "cluecdc-test-secret-key";
+  const access = env.MINIO_ACCESS_KEY || "minioadmin";
+  const secret = env.MINIO_SECRET_KEY || "minioadmin";
   const pipeline = (await (await request.get("/api/v1/pipelines")).json()).find(
     (item: { name: string }) => item.name === "Commerce capture",
   );

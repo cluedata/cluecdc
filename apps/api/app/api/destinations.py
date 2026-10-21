@@ -43,8 +43,10 @@ async def listing(db: DB, user: Read):
 
 
 @router.post("/test-connection")
-async def test_connection(data: DestinationInput, db: DB, user: Write):
-    return await service.test_unsaved(db, data)
+async def test_connection(
+    data: DestinationInput, db: DB, user: Write, identifier: UUID | None = Query(default=None)
+):
+    return await service.test_unsaved(db, data, identifier)
 
 
 @router.post("", status_code=201)

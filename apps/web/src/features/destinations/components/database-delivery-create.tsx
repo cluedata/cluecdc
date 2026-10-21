@@ -12,6 +12,10 @@ import {
 } from "@/components/common";
 import { api, ApiError, post } from "@/lib/api";
 import { destinationSchema, type DestinationForm } from "@/lib/validation";
+import {
+  connectionTestPassed,
+  type ConnectionTestFeedback,
+} from "@/lib/connection-test";
 import type {
   ConnectCluster,
   DatabaseProviderMetadata,
@@ -74,7 +78,9 @@ export function DestinationWizard({
   const [preview, setPreview] = useState<{
     config: Record<string, string>;
   } | null>(null);
-  const [tested, setTested] = useState(false);
+  const [testedFingerprint, setTestedFingerprint] = useState<string | null>(
+    null,
+  );
   const connection = useForm<DestinationForm>({
     resolver: zodResolver(destinationSchema),
     defaultValues: initialConnection,
@@ -83,6 +89,10 @@ export function DestinationWizard({
     control: connection.control,
     name: "type",
   });
+  const connectionFingerprint = JSON.stringify(
+    useWatch({ control: connection.control }),
+  );
+  const tested = testedFingerprint === connectionFingerprint;
   const existing = useQuery({
     queryKey: ["destination", destinationId],
     queryFn: () => api<Destination>(`/destinations/${destinationId}`),
@@ -111,10 +121,19 @@ export function DestinationWizard({
   });
   const payload = () => ({ ...options, pipeline_id: pipelineId, mappings });
   const test = useMutation({
-    mutationFn: () =>
-      post("/destinations/test-connection", connection.getValues()),
-    onSuccess: () => {
-      setTested(true);
+    mutationFn: async () => {
+      const values = connection.getValues();
+      const fingerprint = JSON.stringify(values);
+      const result = await post<ConnectionTestFeedback>(
+        "/destinations/test-connection",
+        values,
+      );
+      if (!connectionTestPassed(result))
+        throw new Error("Destination connection checks failed");
+      return fingerprint;
+    },
+    onSuccess: (fingerprint) => {
+      setTestedFingerprint(fingerprint);
       toast.success("Destination connection succeeded");
     },
   });
@@ -333,7 +352,7 @@ export function DestinationWizard({
           )}
           {step === 1 && (
             <>
-              <div onChange={() => setTested(false)}>
+              <div onChange={() => setTestedFingerprint(null)}>
                 <ConnectionFields form={connection} />
               </div>
               <div className="connection-test">
@@ -350,7 +369,7 @@ export function DestinationWizard({
                     }
                   }}
                 >
-                  Test connection
+                  {test.isPending ? "Testing…" : "Test connection"}
                 </Button>
                 {tested && <Status value="HEALTHY" />}
               </div>

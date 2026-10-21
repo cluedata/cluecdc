@@ -312,14 +312,25 @@ async def test(session: AsyncSession, destination: Destination, actor: str) -> d
     return result
 
 
-async def test_unsaved(session: AsyncSession, data: DestinationInput) -> dict:
-    if not data.password or not data.password.get_secret_value():
+async def test_unsaved(
+    session: AsyncSession, data: DestinationInput, identifier: uuid.UUID | None = None
+) -> dict:
+    if identifier is None and (not data.password or not data.password.get_secret_value()):
         raise DomainError("PASSWORD_REQUIRED", "A destination password is required", 422)
-    transient = Destination(**data.model_dump(exclude={"password"}))
-    return (
-        await get_provider(transient.type)
-        .destination_adapter(transient, data.password.get_secret_value())
-        .test_connection()
+    connection = await get(session, Connection, identifier) if identifier else None
+    if connection is not None and "DESTINATION" not in connection.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
+    return await connection_service.test_draft(
+        session,
+        ConnectionInput(
+            name=data.name,
+            description=data.description,
+            provider=data.type.upper(),
+            config=data.model_dump(exclude={"password", "name", "type", "description"}),
+            credentials={"password": data.password} if data.password else {},
+            capabilities=["DESTINATION"],
+        ),
+        connection,
     )
 
 

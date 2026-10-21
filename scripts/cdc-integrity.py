@@ -19,7 +19,7 @@ from cdc_acceptance_support import (
     AcceptanceError,
     ApiClient,
     Compose,
-    load_environment,
+    load_fixture_environment,
     reconcile_records,
     wait_for,
 )
@@ -159,9 +159,9 @@ def create_source_fixtures(compose: Compose, run: str) -> dict[str, list[str]]:
     accounts, ledger = tables
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"""
-        SET ROLE cdc_user;
+        SET ROLE source_user;
         CREATE TABLE public.{accounts} (
           id bigint PRIMARY KEY,
           name text NOT NULL,
@@ -187,7 +187,7 @@ def create_source_fixtures(compose: Compose, run: str) -> dict[str, list[str]]:
     )
     compose.mysql(
         "cdc-source-mysql",
-        "shop",
+        "cluecdc_source",
         f"""
         CREATE TABLE {accounts} (
           id BIGINT NOT NULL PRIMARY KEY,
@@ -221,9 +221,9 @@ def stream_changes(
     if provider == "postgresql":
         compose.postgres(
             "cdc-source-postgres",
-            "commerce",
+            "cluecdc_source",
             f"""
-            SET ROLE cdc_user;
+            SET ROLE source_user;
             BEGIN;
             INSERT INTO public.{accounts}
               VALUES (2, 'Giao dịch {run} 🌏', NULL, 10.10000000,
@@ -245,7 +245,7 @@ def stream_changes(
     else:
         compose.mysql(
             "cdc-source-mysql",
-            "shop",
+            "cluecdc_source",
             f"""
             START TRANSACTION;
             INSERT INTO {accounts}
@@ -335,7 +335,7 @@ def reconcile_pair(
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     required = [
         "SOURCE_PASSWORD",
         "MYSQL_SOURCE_PASSWORD",
@@ -385,8 +385,8 @@ def main() -> None:
                 "type": "postgresql",
                 "host": "cdc-source-postgres",
                 "port": 5432,
-                "database_name": "commerce",
-                "username": "cdc_user",
+                "database_name": "cluecdc_source",
+                "username": "source_user",
                 "password": environment["SOURCE_PASSWORD"],
             },
         ),
@@ -397,8 +397,8 @@ def main() -> None:
                 "type": "mysql",
                 "host": "cdc-source-mysql",
                 "port": 3306,
-                "database_name": "shop",
-                "username": "cdc_mysql",
+                "database_name": "cluecdc_source",
+                "username": "source_user",
                 "password": environment["MYSQL_SOURCE_PASSWORD"],
             },
         ),
@@ -414,7 +414,7 @@ def main() -> None:
             kafka_id=kafka["id"],
             connect_id=connect["id"],
             topic_prefix=f"integrity_{provider}_{run}",
-            schema="public" if provider == "postgresql" else "shop",
+            schema="public" if provider == "postgresql" else "cluecdc_source",
             tables=source_tables[provider],
         )
         for provider in ("postgresql", "mysql")
@@ -427,8 +427,8 @@ def main() -> None:
                 "type": "postgresql",
                 "host": "destination-postgres",
                 "port": 5432,
-                "database_name": "analytics",
-                "username": "delivery_user",
+                "database_name": "cluecdc_destination",
+                "username": "destination_user",
                 "password": environment["DESTINATION_PASSWORD"],
             },
         ),
@@ -439,8 +439,8 @@ def main() -> None:
                 "type": "mysql",
                 "host": "destination-mysql",
                 "port": 3306,
-                "database_name": "analytics_mysql",
-                "username": "delivery_mysql",
+                "database_name": "cluecdc_destination",
+                "username": "destination_user",
                 "password": environment["MYSQL_DESTINATION_PASSWORD"],
             },
         ),
@@ -464,12 +464,12 @@ def main() -> None:
                     pipeline=pipelines[source_provider],
                     source_schema="public"
                     if source_provider == "postgresql"
-                    else "shop",
+                    else "cluecdc_source",
                     source_tables=source_tables[source_provider],
                     destination_schema=(
                         "public"
                         if destination_provider == "postgresql"
-                        else "analytics_mysql"
+                        else "cluecdc_destination"
                     ),
                     destination_tables=target_tables,
                     name=f"{source_provider} to {destination_provider} {run}",
@@ -480,13 +480,15 @@ def main() -> None:
         stream_changes(compose, provider, source_tables[provider], run)
 
     for source_provider in ("postgresql", "mysql"):
-        source_schema = "public" if source_provider == "postgresql" else "shop"
+        source_schema = (
+            "public" if source_provider == "postgresql" else "cluecdc_source"
+        )
         source_service = (
             "cdc-source-postgres"
             if source_provider == "postgresql"
             else "cdc-source-mysql"
         )
-        source_database = "commerce" if source_provider == "postgresql" else "shop"
+        source_database = "cluecdc_source"
 
         def source_query(
             table: str,
@@ -512,13 +514,11 @@ def main() -> None:
                 if destination_provider == "postgresql"
                 else "destination-mysql"
             )
-            destination_database = (
-                "analytics"
-                if destination_provider == "postgresql"
-                else "analytics_mysql"
-            )
+            destination_database = "cluecdc_destination"
             destination_schema = (
-                "public" if destination_provider == "postgresql" else "analytics_mysql"
+                "public"
+                if destination_provider == "postgresql"
+                else "cluecdc_destination"
             )
 
             def destination_query(

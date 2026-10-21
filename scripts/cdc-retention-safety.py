@@ -12,7 +12,7 @@ from cdc_acceptance_support import (
     AcceptanceError,
     ApiClient,
     Compose,
-    load_environment,
+    load_fixture_environment,
 )
 
 
@@ -34,7 +34,7 @@ def checks(result: dict) -> dict[str, dict]:
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     if not args.artifact.is_file():
         raise AcceptanceError(
             "CDC integrity artifact is missing; run cdc-integrity.py first"
@@ -66,7 +66,7 @@ def main() -> None:
     try:
         compose.postgres(
             "cdc-source-postgres",
-            "commerce",
+            "cluecdc_source",
             f"SELECT pg_create_logical_replication_slot('{slot}', 'pgoutput');",
         )
         observed = api.request(f"/sources/{postgres_source_id}/cdc-readiness")
@@ -83,7 +83,7 @@ def main() -> None:
             )
         still_present = compose.postgres(
             "cdc-source-postgres",
-            "commerce",
+            "cluecdc_source",
             f"SELECT count(*) FROM pg_replication_slots WHERE slot_name='{slot}';",
         )
         if still_present != "1":
@@ -94,7 +94,7 @@ def main() -> None:
     finally:
         compose.postgres(
             "cdc-source-postgres",
-            "commerce",
+            "cluecdc_source",
             "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots "
             f"WHERE slot_name='{slot}' AND NOT active;",
         )
@@ -109,8 +109,8 @@ def main() -> None:
         "environment": "TEST",
         "host": "cdc-source-mysql",
         "port": 3306,
-        "database_name": "shop",
-        "username": "cdc_mysql",
+        "database_name": "cluecdc_source",
+        "username": "source_user",
         "password": mysql_password,
         "ssl_enabled": False,
         "provider_options": {

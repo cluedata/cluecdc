@@ -138,6 +138,29 @@ async def create_source(
     return connection_service.database_view(source)
 
 
+@router.post("/sources/test-connection")
+async def test_source_draft(
+    data: SourceInput,
+    db: DB,
+    user: Annotated[Principal, Depends(require("sources.write"))],
+    identifier: UUID | None = Query(default=None),
+):
+    source = await get(db, Connection, identifier) if identifier else None
+    if source is not None and "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
+    return await connection_service.test_draft(
+        db,
+        ConnectionInput(
+            name=data.name,
+            provider=data.type.upper(),
+            config=data.model_dump(exclude={"password", "name", "type"}),
+            credentials={"password": data.password} if data.password else {},
+            capabilities=["SOURCE"],
+        ),
+        source,
+    )
+
+
 @router.get("/sources/{identifier}")
 async def source_detail(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.read"))]

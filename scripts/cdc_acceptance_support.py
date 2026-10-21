@@ -43,6 +43,12 @@ def load_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
     return values
 
 
+def load_fixture_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
+    """Use Compose fixture defaults unless dotenv files or the shell override them."""
+
+    return load_environment([ROOT / ".env.test.example", *paths])
+
+
 class ApiClient:
     def __init__(self, base_url: str, sensitive_values: Iterable[str] = ()) -> None:
         self.base_url = base_url.rstrip("/")

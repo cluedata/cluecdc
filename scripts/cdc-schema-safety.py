@@ -12,7 +12,7 @@ from cdc_acceptance_support import (
     AcceptanceError,
     ApiClient,
     Compose,
-    load_environment,
+    load_fixture_environment,
     wait_for,
 )
 
@@ -80,7 +80,7 @@ def wait_count(
     wait_for(
         lambda: compose.postgres(
             "destination-postgres",
-            "analytics",
+            "cluecdc_destination",
             f"SELECT count(*) FROM public.{table} WHERE {where};",
         ),
         lambda value: value == expected,
@@ -92,7 +92,7 @@ def wait_count(
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     artifact = json.loads(args.artifact.read_text(encoding="utf-8"))
     prior_pipeline = artifact["pipeline_ids"]["postgresql"]
     api = ApiClient(
@@ -125,9 +125,9 @@ def main() -> None:
     destination_bulk = f"schema_{run}_bulk"
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"""
-        SET ROLE cdc_user;
+        SET ROLE source_user;
         CREATE TABLE public.{source_base} (
           id bigint PRIMARY KEY, name varchar(32) NOT NULL, balance numeric(12,2) NOT NULL
         );
@@ -211,8 +211,8 @@ def main() -> None:
     )
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
-        f"SET ROLE cdc_user; INSERT INTO public.{source_added} VALUES (2, 'streaming');",
+        "cluecdc_source",
+        f"SET ROLE source_user; INSERT INTO public.{source_added} VALUES (2, 'streaming');",
     )
     wait_count(
         compose, destination_added, "id=2 AND name='streaming'", "1", "added stream row"
@@ -226,7 +226,7 @@ def main() -> None:
     added_table = next(item for item in tables if item["table_name"] == source_added)
     compose.postgres(
         "destination-postgres",
-        "analytics",
+        "cluecdc_destination",
         f"UPDATE public.{destination_added} SET name='corrupt' WHERE id=1;",
     )
     resync = api.create(
@@ -313,9 +313,9 @@ def main() -> None:
     wait_operation(api, remove["id"], "remove table")
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"""
-        SET ROLE cdc_user;
+        SET ROLE source_user;
         BEGIN;
         INSERT INTO public.{source_base} VALUES (2, 'base-alive', 20.50);
         INSERT INTO public.{source_added} VALUES (3, 'must-not-capture');
@@ -337,7 +337,7 @@ def main() -> None:
 
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_base} ADD COLUMN note text NULL, "
         "ADD COLUMN status text NOT NULL DEFAULT 'new';",
     )
@@ -358,8 +358,8 @@ def main() -> None:
     )
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
-        f"SET ROLE cdc_user; INSERT INTO public.{source_base}(id,name,balance,note) "
+        "cluecdc_source",
+        f"SET ROLE source_user; INSERT INTO public.{source_base}(id,name,balance,note) "
         "VALUES (3, 'schema-add', 30.75, NULL);",
     )
     wait_count(
@@ -392,32 +392,32 @@ def main() -> None:
 
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ADD COLUMN note text NULL, "
         "ADD COLUMN status text NOT NULL DEFAULT 'new';",
     )
     discover(api, source_id)
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ALTER COLUMN code TYPE varchar(64);",
     )
     discover(api, source_id)
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_probe} DROP COLUMN note;",
     )
     discover(api, source_id)
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ALTER COLUMN code TYPE bigint USING code::bigint;",
     )
     discover(api, source_id)
     compose.postgres(
         "cdc-source-postgres",
-        "commerce",
+        "cluecdc_source",
         f"ALTER TABLE public.{source_probe} DROP CONSTRAINT {source_probe}_pkey, "
         "ADD PRIMARY KEY (code);",
     )

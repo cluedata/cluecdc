@@ -7,14 +7,14 @@ See [prerequisites](prerequisites.md) for Docker Desktop/WSL 2 requirements,
 memory, disk space, and supported hosts. The same file is used on macOS,
 Ubuntu/Linux, and Windows; Docker builds for its engine's native CPU.
 
-| Service | Role | Default |
-| --- | --- | --- |
-| `metadata-db` | ClueCDC application metadata only | Runtime |
-| `kafka` | Single local KRaft broker | Runtime |
-| `kafka-connect` | Debezium source, JDBC sink and Aiven S3 sink connectors | Runtime |
-| `cluecdc-api` | Control-plane HTTP API | Runtime |
+| Service          | Role                                                      | Default |
+| ---------------- | --------------------------------------------------------- | ------- |
+| `metadata-db`    | ClueCDC application metadata only                         | Runtime |
+| `kafka`          | Single local KRaft broker                                 | Runtime |
+| `kafka-connect`  | Debezium source, JDBC sink and Aiven S3 sink connectors   | Runtime |
+| `cluecdc-api`    | Control-plane HTTP API                                    | Runtime |
 | `cluecdc-worker` | Leased jobs, reconciliation, snapshots and alert dispatch | Runtime |
-| `cluecdc-web` | Web UI and same-origin API proxy | Runtime |
+| `cluecdc-web`    | Web UI and same-origin API proxy                          | Runtime |
 
 ```bash
 cp .env.example .env
@@ -95,6 +95,50 @@ docker compose -f compose.yaml -f compose.test.yaml --profile tools up -d
 
 These fixture credentials are test-only and live in `.env.test.example`.
 They are not required to open or operate ClueCDC.
+
+### Fixture connections and credentials
+
+Both engines use the same database and application-account names by role:
+
+| Fixture                | Host connection  | Database              | User               | Password         |
+| ---------------------- | ---------------- | --------------------- | ------------------ | ---------------- |
+| PostgreSQL source      | `localhost:5434` | `cluecdc_source`      | `source_user`      | `source123`      |
+| MySQL source           | `localhost:3307` | `cluecdc_source`      | `source_user`      | `source123`      |
+| PostgreSQL destination | `localhost:5435` | `cluecdc_destination` | `destination_user` | `destination123` |
+| MySQL destination      | `localhost:3308` | `cluecdc_destination` | `destination_user` | `destination123` |
+
+When registering connections in ClueCDC, use `cdc-source-postgres:5432`,
+`cdc-source-mysql:3306`, `destination-postgres:5432`, or `destination-mysql:3306`
+instead of the host addresses. PostgreSQL uses the `public` schema; its destination
+also provides an `analytics` schema for fan-out tests. MySQL's schema name is its
+database name. PostgreSQL administrators use `postgres` / `postgres123`; MySQL
+administrators use `root` / `mysql123`. MinIO uses `minioadmin` / `minioadmin`,
+endpoint `http://localhost:9000` (`http://minio:9000` inside Compose), and bucket
+`cluecdc-cdc`. All published fixture ports bind to loopback only.
+
+Override passwords through the existing variables in `.env.test.example`, using
+your `.env` or shell environment. These public defaults are for local tests only;
+the core metadata database and application authentication are unchanged.
+Demo/acceptance scripts and browser tests also load `.env.test.example` as
+defaults, then apply your `.env`/explicit env files and shell overrides.
+
+### Initialization and existing volumes
+
+All PostgreSQL/MySQL initialization and the MinIO bucket bootstrap are inline
+Compose `configs` in `compose.test.yaml`; no init scripts are mounted from
+`infrastructure`. Compose v2.24.7 or newer is required. SQL and shell scripts are
+mounted read-only into the database images' standard init directory.
+
+Database init runs **only on an empty data volume**. Updating names/passwords or
+recreating a container does not rename existing databases, change existing users,
+or rerun seeding. Existing `.env` values also override the new defaults. Do not
+use `docker compose down -v` on an existing stack to apply this change: that would
+also delete metadata and Kafka data. Back up any needed data, then explicitly
+migrate the fixture databases/accounts or recreate only the four fixture data
+volumes. Update saved source/destination connections to match afterwards.
+
+For a completely fresh test environment without altering existing volumes, use
+a separate Compose project and override the published ports to unused values.
 
 MinIO is built from the checksum-verified upstream release
 `RELEASE.2025-09-07T16-13-09Z`; its public registry images are no longer available.

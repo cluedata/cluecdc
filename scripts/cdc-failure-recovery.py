@@ -16,7 +16,7 @@ from cdc_acceptance_support import (
     ApiClient,
     Compose,
     fixture_table_mapping,
-    load_environment,
+    load_fixture_environment,
     wait_for,
 )
 
@@ -114,7 +114,7 @@ def api_is_ready(value: object) -> bool:
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     if not args.artifact.is_file() or not args.recovery_artifact.is_file():
         raise AcceptanceError(
             "Run cdc-integrity.py and cdc-recovery.py before this test"
@@ -270,7 +270,7 @@ def main() -> None:
         )
         compose.start("cdc-source-postgres")
         wait_for(
-            lambda: compose.postgres("cdc-source-postgres", "commerce", "SELECT 1;"),
+            lambda: compose.postgres("cdc-source-postgres", "cluecdc_source", "SELECT 1;"),
             lambda value: value == "1",
             "source database restart",
             180,
@@ -286,7 +286,7 @@ def main() -> None:
         next_id = int(
             compose.postgres(
                 "cdc-source-postgres",
-                "commerce",
+                "cluecdc_source",
                 f"SELECT COALESCE(max(id),0)+100 FROM public.{source_table};",
             )
         )
@@ -298,8 +298,8 @@ def main() -> None:
         )
         compose.postgres(
             "cdc-source-postgres",
-            "commerce",
-            f"SET ROLE cdc_user; INSERT INTO public.{source_table} "
+            "cluecdc_source",
+            f"SET ROLE source_user; INSERT INTO public.{source_table} "
             "(id, name, note, balance, occurred_at) "
             f"VALUES ({next_id}, 'destination-outage-{run}', NULL, 4.00000000, now());",
         )
@@ -311,7 +311,7 @@ def main() -> None:
         )
         compose.start("destination-postgres")
         wait_for(
-            lambda: compose.postgres("destination-postgres", "analytics", "SELECT 1;"),
+            lambda: compose.postgres("destination-postgres", "cluecdc_destination", "SELECT 1;"),
             lambda value: value == "1",
             "destination database restart",
             180,
@@ -329,7 +329,7 @@ def main() -> None:
         wait_for(
             lambda: compose.postgres(
                 "destination-postgres",
-                "analytics",
+                "cluecdc_destination",
                 f"SELECT count(*) FROM {destination_schema}.{destination_table} WHERE id={next_id};",
             ),
             lambda value: value == "1",

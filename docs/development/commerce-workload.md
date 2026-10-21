@@ -1,8 +1,8 @@
 # Ecommerce CDC test container
 
 `commerce-generator` contains Python scripts that connect to the existing
-PostgreSQL ecommerce source: database `commerce` on `cdc-source-postgres`, using
-the table-owning `cdc_user` role and `SOURCE_PASSWORD` from your private `.env`.
+PostgreSQL ecommerce source: database `cluecdc_source` on `cdc-source-postgres`, using
+the table-owning `source_user` role and `SOURCE_PASSWORD` from `.env` (default `source123`, local tests only).
 It uses the existing `customers`, `orders` and `payments` tables. No new database
 or source registration is required.
 
@@ -114,9 +114,9 @@ docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator 
 docker compose -f compose.yaml -f compose.test.yaml run --rm commerce-generator python alter.py --help
 ```
 
-Compose accepts `WORKLOAD_PGHOST`, `WORKLOAD_PGPORT`, `WORKLOAD_PGDATABASE`,
-`WORKLOAD_PGUSER` and `WORKLOAD_PGSCHEMA` overrides in the private `.env`. For a
-different password, pass an environment variable to the one-off container
+To target another source, pass `-e PGHOST=...`, `-e PGPORT=...`,
+`-e PGDATABASE=...`, `-e PGUSER=...` and `-e PGSCHEMA=...` to `docker compose run`.
+For a different password, pass an environment variable to the one-off container
 without placing its value on the command line:
 
 ```powershell

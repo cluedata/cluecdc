@@ -1,3 +1,5 @@
+# Local test fixtures only. Public credentials are not for shared deployments.
+# Inline configs keep initialization portable: no host bind mounts or shell tooling.
 services:
   cluecdc-api:
     depends_on:
@@ -6,37 +8,63 @@ services:
 
   cdc-source-postgres:
     image: postgres:17.9
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+    command:
+      [
+        "postgres",
+        "-c",
+        "wal_level=logical",
+        "-c",
+        "max_replication_slots=10",
+        "-c",
+        "max_wal_senders=10",
+      ]
     environment:
-      POSTGRES_DB: commerce
+      POSTGRES_DB: cluecdc_source
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${SOURCE_ADMIN_PASSWORD:-cluecdc-source-admin-test-only}
-      SOURCE_PASSWORD: ${SOURCE_PASSWORD:-cluecdc-source-test-only}
+      POSTGRES_PASSWORD: ${SOURCE_ADMIN_PASSWORD:-postgres123}
+      SOURCE_PASSWORD: ${SOURCE_PASSWORD:-source123}
     ports:
       - "127.0.0.1:${POSTGRES_SOURCE_PORT:-5434}:5432"
     volumes:
       - source-postgres:/var/lib/postgresql/data
-      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    configs:
+      - source: source-postgres-init
+        target: /docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d commerce"]
+      test:
+        - CMD-SHELL
+        - PGPASSWORD="$$SOURCE_PASSWORD" psql -h 127.0.0.1 -U source_user -d cluecdc_source -Atqc 'SELECT 1 FROM public.customers LIMIT 1' >/dev/null
       interval: 5s
       timeout: 3s
       retries: 20
 
   cdc-source-mysql:
     image: mysql:8.4
-    command: ["--server-id=223344", "--log-bin=mysql-bin", "--binlog-format=ROW", "--binlog-row-image=FULL", "--binlog-expire-logs-seconds=604800", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    command:
+      [
+        "--server-id=223344",
+        "--log-bin=mysql-bin",
+        "--binlog-format=ROW",
+        "--binlog-row-image=FULL",
+        "--binlog-expire-logs-seconds=604800",
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_0900_ai_ci",
+      ]
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_SOURCE_ADMIN_PASSWORD:-cluecdc-mysql-source-admin-test-only}
-      MYSQL_DATABASE: shop
-      MYSQL_CDC_PASSWORD: ${MYSQL_SOURCE_PASSWORD:-cluecdc-mysql-source-test-only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_SOURCE_ADMIN_PASSWORD:-mysql123}
+      MYSQL_DATABASE: cluecdc_source
+      MYSQL_CDC_PASSWORD: ${MYSQL_SOURCE_PASSWORD:-source123}
     ports:
       - "127.0.0.1:${MYSQL_SOURCE_PORT:-3307}:3306"
     volumes:
       - source-mysql:/var/lib/mysql
-      - ./infrastructure/mysql/source-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    configs:
+      - source: source-mysql-init
+        target: /docker-entrypoint-initdb.d/01-init.sh
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$$MYSQL_CDC_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u source_user -D cluecdc_source -Nse 'SELECT 1 FROM customers LIMIT 1' >/dev/null
       interval: 5s
       timeout: 5s
       retries: 30
@@ -44,35 +72,47 @@ services:
   destination-postgres:
     image: postgres:17.9
     environment:
-      POSTGRES_DB: analytics
+      POSTGRES_DB: cluecdc_destination
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DESTINATION_ADMIN_PASSWORD:-cluecdc-destination-admin-test-only}
-      DESTINATION_PASSWORD: ${DESTINATION_PASSWORD:-cluecdc-destination-test-only}
+      POSTGRES_PASSWORD: ${DESTINATION_ADMIN_PASSWORD:-postgres123}
+      DESTINATION_PASSWORD: ${DESTINATION_PASSWORD:-destination123}
     ports:
       - "127.0.0.1:${POSTGRES_DESTINATION_PORT:-5435}:5432"
     volumes:
       - destination-postgres:/var/lib/postgresql/data
-      - ./infrastructure/postgres/destination-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    configs:
+      - source: destination-postgres-init
+        target: /docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d analytics"]
+      test:
+        - CMD-SHELL
+        - PGPASSWORD="$$DESTINATION_PASSWORD" psql -h 127.0.0.1 -U destination_user -d cluecdc_destination -Atqc 'SELECT 1 FROM public.customers LIMIT 1' >/dev/null
       interval: 5s
       timeout: 3s
       retries: 20
 
   destination-mysql:
     image: mysql:8.4
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    command:
+      [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_0900_ai_ci",
+      ]
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_DESTINATION_ADMIN_PASSWORD:-cluecdc-mysql-destination-admin-test-only}
-      MYSQL_DATABASE: analytics_mysql
-      MYSQL_DELIVERY_PASSWORD: ${MYSQL_DESTINATION_PASSWORD:-cluecdc-mysql-destination-test-only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_DESTINATION_ADMIN_PASSWORD:-mysql123}
+      MYSQL_DATABASE: cluecdc_destination
+      MYSQL_DELIVERY_PASSWORD: ${MYSQL_DESTINATION_PASSWORD:-destination123}
     ports:
       - "127.0.0.1:${MYSQL_DESTINATION_PORT:-3308}:3306"
     volumes:
       - destination-mysql:/var/lib/mysql
-      - ./infrastructure/mysql/destination-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    configs:
+      - source: destination-mysql-init
+        target: /docker-entrypoint-initdb.d/01-init.sh
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$$MYSQL_DELIVERY_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u destination_user -D cluecdc_destination -Nse 'SELECT 1' >/dev/null
       interval: 5s
       timeout: 5s
       retries: 30
@@ -83,8 +123,8 @@ services:
       dockerfile: infrastructure/docker/minio-test.Dockerfile
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-cluecdc-test-access}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-cluecdc-test-secret-key}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
       - "127.0.0.1:${MINIO_PORT:-9000}:9000"
     volumes:
@@ -101,11 +141,12 @@ services:
       dockerfile: infrastructure/docker/api.Dockerfile
     restart: "no"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-cluecdc-test-access}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-cluecdc-test-secret-key}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     entrypoint: ["python", "/fixture/bootstrap.py"]
-    volumes:
-      - ./infrastructure/minio/bootstrap.py:/fixture/bootstrap.py:ro
+    configs:
+      - source: minio-init
+        target: /fixture/bootstrap.py
     healthcheck:
       disable: true
     depends_on:
@@ -120,15 +161,15 @@ services:
     environment:
       PGHOST: cdc-source-postgres
       PGPORT: 5432
-      PGDATABASE: commerce
-      PGUSER: cdc_user
-      PGPASSWORD: ${SOURCE_PASSWORD:-cluecdc-source-test-only}
+      PGDATABASE: cluecdc_source
+      PGUSER: source_user
+      PGPASSWORD: ${SOURCE_PASSWORD:-source123}
       PGSCHEMA: public
       MYSQL_HOST: cdc-source-mysql
       MYSQL_PORT: 3306
-      MYSQL_DATABASE: shop
-      MYSQL_USER: cdc_mysql
-      MYSQL_PASSWORD: ${MYSQL_SOURCE_PASSWORD:-cluecdc-mysql-source-test-only}
+      MYSQL_DATABASE: cluecdc_source
+      MYSQL_USER: source_user
+      MYSQL_PASSWORD: ${MYSQL_SOURCE_PASSWORD:-source123}
     depends_on:
       cdc-source-postgres:
         condition: service_healthy
@@ -145,3 +186,164 @@ volumes:
   destination-postgres:
   destination-mysql:
   minio-data:
+
+# Database init runs on empty data volumes; MinIO bootstrap is safe to rerun.
+configs:
+  source-postgres-init:
+    content: |
+      \getenv source_password SOURCE_PASSWORD
+      CREATE ROLE source_user WITH LOGIN REPLICATION PASSWORD :'source_password';
+      GRANT CONNECT, CREATE ON DATABASE cluecdc_source TO source_user;
+      GRANT USAGE, CREATE ON SCHEMA public TO source_user;
+      SET ROLE source_user;
+      CREATE TABLE customers (
+        id bigserial PRIMARY KEY,
+        name text NOT NULL,
+        email text NOT NULL UNIQUE,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE orders (
+        id bigserial PRIMARY KEY,
+        customer_id bigint NOT NULL REFERENCES customers(id),
+        total numeric(12,2) NOT NULL,
+        status text NOT NULL DEFAULT 'pending',
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE payments (
+        id bigserial PRIMARY KEY,
+        order_id bigint NOT NULL REFERENCES orders(id),
+        amount numeric(12,2) NOT NULL,
+        status text NOT NULL DEFAULT 'pending'
+      );
+      ALTER TABLE customers REPLICA IDENTITY FULL;
+      ALTER TABLE orders REPLICA IDENTITY FULL;
+      ALTER TABLE payments REPLICA IDENTITY FULL;
+      INSERT INTO customers(name, email) VALUES ('Ada Lovelace', 'ada@example.test'), ('Grace Hopper', 'grace@example.test');
+      INSERT INTO orders(customer_id, total) VALUES (1, 149.00), (2, 299.00);
+      INSERT INTO payments(order_id, amount) VALUES (1, 149.00);
+  source-mysql-init:
+    content: |
+      #!/bin/bash
+
+      # The MySQL entrypoint sources non-executable *.sh files. Keep strict shell
+      # options inside a subshell so they do not leak into the entrypoint process.
+      (
+      set -euo pipefail
+      password_hex=$$(printf '%s' "$${MYSQL_CDC_PASSWORD}" | od -An -tx1 | tr -d ' \n')
+      mysql --protocol=socket -uroot -p"$${MYSQL_ROOT_PASSWORD}" <<SQL
+      SET @fixture_password = CONVERT(X'$${password_hex}' USING utf8mb4);
+      SET @create_user = CONCAT('CREATE USER IF NOT EXISTS ''source_user''@''%'' IDENTIFIED BY ', QUOTE(@fixture_password));
+      PREPARE create_user FROM @create_user;
+      EXECUTE create_user;
+      DEALLOCATE PREPARE create_user;
+      GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'source_user'@'%';
+      GRANT ALL PRIVILEGES ON cluecdc_source.* TO 'source_user'@'%';
+      USE cluecdc_source;
+      CREATE TABLE customers (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        credit DECIMAL(30,6) NOT NULL DEFAULT 0,
+        profile JSON NULL,
+        avatar BLOB NULL,
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+      );
+      CREATE TABLE orders (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        customer_id BIGINT UNSIGNED NOT NULL,
+        total DECIMAL(18,4) NOT NULL,
+        status ENUM('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
+        note TEXT NULL,
+        ordered_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+      );
+      CREATE TABLE order_items (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        order_id BIGINT UNSIGNED NOT NULL,
+        sku VARCHAR(80) NOT NULL,
+        quantity INT UNSIGNED NOT NULL,
+        price DECIMAL(18,4) NOT NULL,
+        CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
+      );
+      INSERT INTO customers(name,email,credit,profile)
+      SELECT CONCAT('Khách hàng ', n), CONCAT('customer', n, '@example.test'), n * 10.125,
+             JSON_OBJECT('locale','vi-VN','note',IF(n=1,'Xin chào 👋',''))
+      FROM (
+        SELECT a.n + b.n * 10 + 1 AS n FROM
+        (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) a
+        CROSS JOIN
+        (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) b
+      ) seed;
+      INSERT INTO orders(customer_id,total,status,note)
+      SELECT id, id * 3.1415, IF(id % 2 = 0,'paid','pending'), IF(id=1,'Đơn hàng đầu tiên','') FROM customers;
+      INSERT INTO order_items(order_id,sku,quantity,price)
+      SELECT id, CONCAT('SKU-',id), (id % 5) + 1, total FROM orders;
+      FLUSH PRIVILEGES;
+      SQL
+      )
+  destination-postgres-init:
+    content: |
+      \getenv destination_password DESTINATION_PASSWORD
+      CREATE ROLE destination_user WITH LOGIN PASSWORD :'destination_password';
+      GRANT CONNECT ON DATABASE cluecdc_destination TO destination_user;
+      GRANT USAGE, CREATE ON SCHEMA public TO destination_user;
+      CREATE SCHEMA analytics AUTHORIZATION destination_user;
+      SET ROLE destination_user;
+      CREATE TABLE public.customers (
+        id bigint PRIMARY KEY,
+        name text NOT NULL,
+        email text NOT NULL,
+        updated_at timestamptz NOT NULL
+      );
+      CREATE TABLE public.orders (
+        id bigint PRIMARY KEY,
+        customer_id bigint NOT NULL,
+        total numeric(12,2) NOT NULL,
+        status text NOT NULL,
+        updated_at timestamptz NOT NULL
+      );
+  destination-mysql-init:
+    content: |
+      #!/bin/bash
+
+      # The MySQL entrypoint sources non-executable *.sh files. Keep strict shell
+      # options inside a subshell so they do not leak into the entrypoint process.
+      (
+      set -euo pipefail
+      password_hex=$$(printf '%s' "$${MYSQL_DELIVERY_PASSWORD}" | od -An -tx1 | tr -d ' \n')
+      mysql --protocol=socket -uroot -p"$${MYSQL_ROOT_PASSWORD}" <<SQL
+      SET @fixture_password = CONVERT(X'$${password_hex}' USING utf8mb4);
+      SET @create_user = CONCAT('CREATE USER IF NOT EXISTS ''destination_user''@''%'' IDENTIFIED BY ', QUOTE(@fixture_password));
+      PREPARE create_user FROM @create_user;
+      EXECUTE create_user;
+      DEALLOCATE PREPARE create_user;
+      GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX ON cluecdc_destination.* TO 'destination_user'@'%';
+      FLUSH PRIVILEGES;
+      SQL
+      )
+  minio-init:
+    content: |
+      """Create the local integration bucket without depending on an mc registry image."""
+
+      import os
+
+      import boto3
+      from botocore.exceptions import ClientError
+
+      client = boto3.client(
+          "s3",
+          endpoint_url="http://minio:9000",
+          region_name="us-east-1",
+          aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+          aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+      )
+      try:
+          client.head_bucket(Bucket="cluecdc-cdc")
+      except ClientError as error:
+          if error.response["ResponseMetadata"]["HTTPStatusCode"] != 404:
+              raise
+          client.create_bucket(Bucket="cluecdc-cdc")
+      finally:
+          client.close()
+      print("MinIO integration bucket ready")
