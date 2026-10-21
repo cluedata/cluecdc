@@ -4,10 +4,12 @@ on:
   pull_request:
   push:
     branches: [main, master]
+  schedule:
+    - cron: "17 3 * * 1"
   workflow_dispatch:
     inputs:
       run_full_ci:
-        description: "Run application quality, security, and container checks"
+        description: "Run every CI gate, including CDC/S3/browser integration"
         type: boolean
         required: false
         default: false
@@ -15,8 +17,54 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event_name == 'schedule' && 'scheduled-audit' || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.gates.outputs.web }}
+      api: ${{ steps.gates.outputs.api }}
+      docs: ${{ steps.gates.outputs.docs }}
+      compose: ${{ steps.gates.outputs.compose }}
+      deployment: ${{ steps.gates.outputs.deployment }}
+      audit_web: ${{ steps.gates.outputs.audit_web }}
+      audit_api: ${{ steps.gates.outputs.audit_api }}
+      containers: ${{ steps.gates.outputs.containers }}
+      container_matrix: ${{ steps.gates.outputs.container_matrix }}
+      integration: ${{ steps.gates.outputs.integration }}
+      workload: ${{ steps.gates.outputs.workload }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select gates from changed files
+        id: gates
+        env:
+          RUN_FULL_CI: ${{ inputs.run_full_ci || false }}
+        run: python scripts/ci_changes.py
+
+  repository:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python scripts/check-repository.py
+      - name: Scan Git history for secrets
+        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        with:
+          args: git --redact --verbose --config=/github/workspace/.gitleaks.toml /github/workspace
+
   compose-config:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -24,34 +72,56 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      # Config rendering needs the CLI only, not a Linux VM on hosted macOS/Windows.
-      - uses: docker/setup-compose-action@v1
+      - uses: docker/setup-compose-action@v2
         with:
           version: v2.24.7
-      - name: Render core and fixture configuration on each host OS
+      - name: Render supported Compose configurations without a daemon
         shell: python
         run: |
           import shutil
           import subprocess
           cli = ["docker", "compose"] if shutil.which("docker") else ["compose"]
           base = [*cli, "--env-file", ".env.example"]
-          subprocess.run([*base, "config", "--quiet"], check=True)
-          subprocess.run([
-              *base, "--env-file", ".env.test.example",
-              "-f", "compose.yaml", "-f", "compose.test.yaml",
-              "--profile", "tools", "config", "--quiet",
-          ], check=True)
+          configurations = [
+              [],
+              ["-f", "compose.yaml", "-f", ".github/compose.ci.yaml"],
+              ["--env-file", ".env.test.example", "-f", "compose.yaml",
+               "-f", "compose.test.yaml", "--profile", "tools"],
+              ["--env-file", ".env.test.example", "-f", "compose.yaml",
+               "-f", "compose.test.yaml", "-f", ".github/compose.ci.yaml",
+               "-f", ".github/compose.test.ci.yaml", "--profile", "tools"],
+          ]
+          for configuration in configurations:
+              subprocess.run([*base, *configuration, "config", "--quiet"], check=True)
 
-  quality:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_full_ci == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:web
+      # The production build is verified once, inside the web image below.
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     env:
-      NEXT_TELEMETRY_DISABLED: "1"
       WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
     services:
       worker-test-postgres:
@@ -65,141 +135,229 @@ jobs:
           --health-cmd "pg_isready -U worker_test -d worker_test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      - run: npm ci
+          cache-dependency-path: apps/api/pyproject.toml
       - run: python -m pip install -e "apps/api[dev]"
-      - run: python scripts/check-repository.py
-      - run: docker compose --env-file .env.example config --quiet
-      - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml config --quiet
-      - run: kubectl kustomize deploy/kubernetes > /dev/null
-      - run: python scripts/deployment_validation.py
-      - name: Validate production Kubernetes schemas
-        run: kubectl kustomize deploy/kubernetes | docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0@sha256:85dbef6b4b312b99133decc9c6fc9495e9fc5f92293d4ff3b7e1b30f5611823c -strict -summary -
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
       - run: python -m ruff check apps/api scripts
       - run: python -m ruff format --check apps/api scripts
       - run: python -m mypy --config-file apps/api/pyproject.toml apps/api/app
+      - run: python -m pytest apps/api/tests -q
 
   documentation:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-docs.txt
       - run: python -m pip install -r requirements-docs.txt
       - run: mkdocs build --strict
 
-  security:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_full_ci == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  deployment:
+    needs: changes
+    if: needs.changes.outputs.deployment == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
+          python-version: "3.12"
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python scripts/deployment_validation.py
+      - name: Validate production Kubernetes schemas
+        run: kubectl kustomize deploy/kubernetes | docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0@sha256:85dbef6b4b312b99133decc9c6fc9495e9fc5f92293d4ff3b7e1b30f5611823c -strict -summary -
+
+  audit-web:
+    needs: changes
+    if: needs.changes.outputs.audit_web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
-          cache: npm
-      - uses: actions/setup-python@v5
+      # npm can audit the lockfile without installing node_modules again.
+      - run: npm audit --package-lock-only --omit=dev --audit-level=high
+      - run: npm audit --package-lock-only --audit-level=critical
+
+  audit-api:
+    needs: changes
+    if: needs.changes.outputs.audit_api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      - run: npm ci
-      # Production dependencies are the release gate. The full tree is also
-      # checked for critical findings; see the documented upstream braces exception.
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm audit --audit-level=critical
+          cache-dependency-path: apps/api/pyproject.toml
       - run: python -m pip install --upgrade pip==26.2.1
       - run: python -m pip install -e "apps/api[dev]" pip-audit==2.10.1
       - run: python -m pip_audit --local --skip-editable
-      # The official action requires a separate license for organization-owned
-      # repositories. The open-source CLI provides the same repository scan.
-      - name: Scan Git history for secrets
-        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
-        with:
-          args: git --redact --verbose --config=/github/workspace/.gitleaks.toml /github/workspace
 
   containers-and-smoke:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_full_ci == true }}
+    name: Native ${{ matrix.arch }} build and smoke
+    needs: changes
+    if: needs.changes.outputs.containers == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+      matrix: ${{ fromJSON(needs.changes.outputs.container_matrix) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+      COMPOSE_FILE: compose.yaml:.github/compose.ci.yaml
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Prepare the core-only CI environment
+        run: |
+          cp .env.example .env
+          python scripts/bootstrap.py
+      - uses: docker/setup-buildx-action@v4
+      - name: Build runtime images once with persistent per-architecture caches
+        uses: docker/bake-action@v7
+        with:
+          files: |
+            compose.yaml
+            compose.test.yaml
+            .github/compose.ci.yaml
+            .github/compose.test.ci.yaml
+          targets: ${{ matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true' && 'cluecdc-api,cluecdc-web,kafka-connect,minio' || 'cluecdc-api,cluecdc-web,kafka-connect' }}
+          load: true
+          set: |
+            cluecdc-api.cache-from=type=gha,scope=ci-api-${{ matrix.arch }}
+            cluecdc-api.cache-to=type=gha,scope=ci-api-${{ matrix.arch }},mode=max,ignore-error=true
+            cluecdc-web.cache-from=type=gha,scope=ci-web-${{ matrix.arch }}
+            cluecdc-web.cache-to=type=gha,scope=ci-web-${{ matrix.arch }},mode=max,ignore-error=true
+            kafka-connect.cache-from=type=gha,scope=ci-connect-${{ matrix.arch }}
+            kafka-connect.cache-to=type=gha,scope=ci-connect-${{ matrix.arch }},mode=max,ignore-error=true
+            minio.cache-from=type=gha,scope=ci-minio-${{ matrix.arch }}
+            minio.cache-to=type=gha,scope=ci-minio-${{ matrix.arch }},mode=max,ignore-error=true
+      - name: Start the six core services without rebuilding
+        run: docker compose up -d --no-build --wait --wait-timeout 300
+      - name: Verify packaged pages and native image optimization
+        shell: python
+        run: |
+          import urllib.request
+          for path in ("/login", "/brand/cluecdc-logo.png", "/brand/cluecdc-icon.png",
+                       "/_next/image?url=%2Fbrand%2Fcluecdc-logo.png&w=64&q=75"):
+              with urllib.request.urlopen("http://127.0.0.1:3000" + path, timeout=30) as response:
+                  assert response.status == 200 and response.read(1), path
+      - run: docker compose exec -T cluecdc-api alembic check
+      # CDC/S3/browser coverage is retained once on native AMD64, only for relevant changes.
+      - name: Add integration fixtures to the running core stack
+        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+        run: |
+          cat .env.test.example >> .env
+          export COMPOSE_FILE=compose.yaml:compose.test.yaml:.github/compose.ci.yaml:.github/compose.test.ci.yaml
+          echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
+          docker compose up -d --no-build --wait --wait-timeout 300
+      - uses: actions/setup-node@v7
+        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
         with:
           node-version: "24"
           cache: npm
-      - uses: actions/setup-python@v5
+      - name: Install integration and browser tooling
+        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+        run: |
+          npm ci
+          python -m pip install -e "apps/api[dev]"
+          npm exec -w @cluecdc/web -- playwright install --with-deps chromium
+      - name: Verify real capture, JDBC delivery, S3 content, browser flows and secret boundaries
+        if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
+        run: |
+          python scripts/demo.py --api-url http://localhost:3000/api/v1
+          python scripts/demo-destination.py --skip-capture-demo
+          python scripts/demo-object-storage.py
+          npm run test:e2e -w @cluecdc/web
+          python scripts/verify-secrets.py
+      - name: Build the optional workload tool only when it changes
+        if: needs.changes.outputs.workload == 'true'
+        uses: docker/bake-action@v7
         with:
-          python-version: "3.12"
-      - run: npm ci
-      - name: Bootstrap CI environment
+          files: |
+            compose.yaml
+            compose.test.yaml
+            .github/compose.ci.yaml
+            .github/compose.test.ci.yaml
+          targets: commerce-generator
+          load: true
+          set: |
+            commerce-generator.cache-from=type=gha,scope=ci-workload-${{ matrix.arch }}
+            commerce-generator.cache-to=type=gha,scope=ci-workload-${{ matrix.arch }},mode=max,ignore-error=true
+      - name: Verify ARM64 workload native dependencies without database fixtures
+        if: matrix.arch == 'arm64' && needs.changes.outputs.workload == 'true'
+        run: docker run --rm cluecdc-ci-workload:ci python -c "import psycopg, pymysql, cryptography"
+      - name: Test the workload tool
+        if: matrix.arch == 'amd64' && needs.changes.outputs.workload == 'true'
+        run: docker compose run --rm --no-deps commerce-generator python -m unittest -v
+      - name: Capture failure diagnostics
+        if: failure()
+        shell: python
         run: |
-          cp .env.example .env
-          cat .env.test.example >> .env
-          python scripts/bootstrap.py
-      - run: docker build -t cluecdc-web:test .
-      - run: docker build --build-arg INSTALL_DEV=false -f infrastructure/docker/api.Dockerfile -t cluecdc-api:test .
-      - name: Smoke test core runtime
-        run: docker compose up -d --build --wait --wait-timeout 240
-      - name: Verify packaged web brand assets
-        run: |
-          curl --fail --silent --show-error --output /tmp/cluecdc-logo.png http://127.0.0.1:3000/brand/cluecdc-logo.png
-          curl --fail --silent --show-error --output /tmp/cluecdc-icon.png http://127.0.0.1:3000/brand/cluecdc-icon.png
-          curl --fail --silent --show-error --output /tmp/cluecdc-logo-optimized.png 'http://127.0.0.1:3000/_next/image?url=%2Fbrand%2Fcluecdc-logo.png&w=64&q=75'
-          test -s /tmp/cluecdc-logo.png
-          test -s /tmp/cluecdc-icon.png
-          test -s /tmp/cluecdc-logo-optimized.png
-      - run: docker compose exec -T cluecdc-api alembic check
-      - run: docker compose down
-      - name: Start integration fixtures
-        run: docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait --wait-timeout 240
-      - name: Build and test the optional workload image
-        run: |
-          docker compose -f compose.yaml -f compose.test.yaml --profile tools build commerce-generator
-          docker compose -f compose.yaml -f compose.test.yaml run --rm --no-deps commerce-generator python -m unittest -v
-      - run: python -m pip install -e "apps/api[dev]"
-      - run: python scripts/demo.py --api-url http://localhost:3000/api/v1
-      - run: python scripts/demo-destination.py --skip-capture-demo
-      - run: python scripts/demo-object-storage.py
-      - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
-      - run: npm run test:e2e -w @cluecdc/web
-      - run: python scripts/verify-secrets.py
-      - uses: actions/upload-artifact@v4
-        if: always()
+          from pathlib import Path
+          import subprocess
+          result = subprocess.run(
+              ["docker", "compose", "logs", "--no-color", "--tail", "100"],
+              capture_output=True, text=True, timeout=60, check=False,
+          )
+          logs = result.stdout + result.stderr
+          if Path(".env").exists():
+              for line in Path(".env").read_text().splitlines():
+                  key, separator, value = line.partition("=")
+                  if separator and value and not key.startswith("#") and any(
+                      word in key for word in ("PASSWORD", "SECRET", "TOKEN", "ACCESS_KEY")
+                  ):
+                      logs = logs.replace(value, "[REDACTED]")
+          Path("compose.log").write_text(logs, encoding="utf-8")
+      - uses: actions/upload-artifact@v7
+        if: failure()
         with:
-          name: verification-${{ matrix.runner }}
+          name: verification-${{ matrix.arch }}
           path: |
+            compose.log
             artifacts/
             apps/web/test-results/
-      - run: docker compose -f compose.yaml -f compose.test.yaml logs --no-color > compose.log
-        if: failure()
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: compose-logs-${{ matrix.runner }}
-          path: compose.log
-      - run: docker compose -f compose.yaml -f compose.test.yaml down
+          if-no-files-found: ignore
+      - name: Remove disposable CI resources
         if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  checks:
+    name: CI checks
+    if: always()
+    needs: [changes, repository, compose-config, web, api, documentation, deployment, audit-web, audit-api, containers-and-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected gate to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        shell: python
+        run: |
+          import json
+          import os
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failures = {job: data["result"] for job, data in results.items()
+                      if data["result"] not in ("success", "skipped")}
+          if failures:
+              raise SystemExit(str(failures))
+          print("Every selected CI gate passed; unrelated gates were skipped.")

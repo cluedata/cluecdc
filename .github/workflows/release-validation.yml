@@ -42,10 +42,10 @@ jobs:
           --health-cmd "pg_isready -U worker_test -d worker_test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -73,7 +73,7 @@ jobs:
               output.write(f"git-sha={metadata['git_sha']}\n")
           PY
           python scripts/release.py plan >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -97,12 +97,12 @@ jobs:
           cp artifacts/release-metadata.json dist/release-metadata.json
           cd dist
           sha256sum -- ./cluecdc-*.tar.gz ./release-metadata.json > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
           path: dist/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: release-validation-metadata

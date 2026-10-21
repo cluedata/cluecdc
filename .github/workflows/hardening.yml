@@ -14,13 +14,13 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: apps/api/pyproject.toml
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -32,9 +32,9 @@ jobs:
           cat .env.test.example >> .env
           python scripts/bootstrap.py
       - run: npm exec -w @cluecdc/web -- playwright install --with-deps chromium
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build disposable images with per-target caches
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         env:
           DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
@@ -62,7 +62,7 @@ jobs:
       - name: Run isolated security, CDC, recovery and operations gates
         run: python scripts/hardening_acceptance.py --env-file .env --browser --prebuilt-image-prefix cluecdc-hardening-ci
       # Upload only sanitized reports; database archives, ciphertext and generated TLS keys stay private.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: hardening-acceptance-${{ github.run_id }}
@@ -80,8 +80,8 @@ jobs:
       CLUSTER_NAME: cluecdc-hardening-${{ github.run_id }}-${{ github.run_attempt }}
       KUBECONFIG: ${{ github.workspace }}/.codex-tmp/hardening-kubeconfig
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -113,7 +113,7 @@ jobs:
       - run: docker build -t cluecdc-web:k8s .
       - name: Verify production rollout, HTTPS and allow/deny boundaries
         run: python scripts/kubernetes_acceptance.py --kind /usr/local/bin/kind --cluster-name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}" --api-image cluecdc-api:k8s --web-image cluecdc-web:k8s
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: kubernetes-hardening-${{ github.run_id }}

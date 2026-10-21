@@ -1,0 +1,8 @@
+# Apply after compose.test.yaml; the one-shot bootstrap reuses the API image.
+services:
+  minio:
+    image: cluecdc-ci-minio:ci
+  minio-bootstrap:
+    image: cluecdc-ci-api:ci
+  commerce-generator:
+    image: cluecdc-ci-workload:ci

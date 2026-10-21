@@ -1,0 +1,10 @@
+# Image aliases only: API, worker and fixture bootstrap reuse the same build.
+services:
+  cluecdc-api:
+    image: cluecdc-ci-api:ci
+  cluecdc-worker:
+    image: cluecdc-ci-api:ci
+  cluecdc-web:
+    image: cluecdc-ci-web:ci
+  kafka-connect:
+    image: cluecdc-ci-connect:ci

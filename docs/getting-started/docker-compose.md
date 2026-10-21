@@ -60,11 +60,17 @@ on the builder's CPU, and the optional MinIO fixture cross-compiles its Go binar
 for the target CPU. Do not set a global `DOCKER_DEFAULT_PLATFORM` unless you
 intentionally want emulation; it can make Apple Silicon builds much slower.
 
-CI renders both Compose configurations on Ubuntu, macOS, and Windows using
-Compose v2.24.7. It builds and runs core/integration smoke checks on native
-Ubuntu `amd64` and `arm64` runners. The release workflow builds both architectures
-into one image index. These Linux checks do not replace a Docker Desktop
-runtime check on a specific macOS or Windows installation.
+For relevant changes, CI renders core/test configurations and CI overrides on
+Ubuntu, macOS, and Windows using Compose v2.24.7 (the supported minimum-version
+check). Native Ubuntu runners build cached runtime images and run core smoke
+checks. Ordinary application PRs use AMD64; packaging/dependency/connector/workload
+PRs also use ARM64. Relevant `main`/`master` pushes and full manual CI runs check
+both architectures without emulation. Full CDC/S3/browser integration runs once
+on AMD64. Documentation-only changes skip those containers. See the
+[CI selection policy](../development/testing.md#github-actions).
+The release workflow builds both architectures into one image index. These
+Linux checks do not replace a Docker Desktop runtime check on a specific macOS
+or Windows installation.
 
 There is no separate developer Compose override. Use your preferred external
 database client with the test fixture ports when database inspection is needed.
