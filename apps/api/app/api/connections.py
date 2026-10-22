@@ -90,8 +90,11 @@ async def create_connection(data: ConnectionInput, db: DB, user: Write):
 
 
 @router.post("/connections/test")
-async def test_unsaved_connection(data: ConnectionInput, user: Write):
-    return await connection_service.test_input(data)
+async def test_unsaved_connection(
+    data: ConnectionInput, db: DB, user: Write, identifier: UUID | None = Query(default=None)
+):
+    connection = await get(db, Connection, identifier) if identifier else None
+    return await connection_service.test_draft(db, data, connection)
 
 
 @router.get("/connections/{identifier}")

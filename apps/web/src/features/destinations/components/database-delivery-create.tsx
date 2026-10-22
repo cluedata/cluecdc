@@ -12,6 +12,10 @@ import {
 } from "@/components/common";
 import { api, ApiError, post } from "@/lib/api";
 import { destinationSchema, type DestinationForm } from "@/lib/validation";
+import {
+  connectionTestPassed,
+  type ConnectionTestFeedback,
+} from "@/lib/connection-test";
 import type {
   ConnectCluster,
   DatabaseProviderMetadata,
@@ -74,7 +78,9 @@ export function DestinationWizard({
   const [preview, setPreview] = useState<{
     config: Record<string, string>;
   } | null>(null);
-  const [tested, setTested] = useState(false);
+  const [testedFingerprint, setTestedFingerprint] = useState<string | null>(
+    null,
+  );
   const connection = useForm<DestinationForm>({
     resolver: zodResolver(destinationSchema),
     defaultValues: initialConnection,
@@ -83,6 +89,10 @@ export function DestinationWizard({
     control: connection.control,
     name: "type",
   });
+  const connectionFingerprint = JSON.stringify(
+    useWatch({ control: connection.control }),
+  );
+  const tested = testedFingerprint === connectionFingerprint;
   const existing = useQuery({
     queryKey: ["destination", destinationId],
     queryFn: () => api<Destination>(`/destinations/${destinationId}`),
@@ -111,10 +121,19 @@ export function DestinationWizard({
   });
   const payload = () => ({ ...options, pipeline_id: pipelineId, mappings });
   const test = useMutation({
-    mutationFn: () =>
-      post("/destinations/test-connection", connection.getValues()),
-    onSuccess: () => {
-      setTested(true);
+    mutationFn: async () => {
+      const values = connection.getValues();
+      const fingerprint = JSON.stringify(values);
+      const result = await post<ConnectionTestFeedback>(
+        "/destinations/test-connection",
+        values,
+      );
+      if (!connectionTestPassed(result))
+        throw new Error("Destination connection checks failed");
+      return fingerprint;
+    },
+    onSuccess: (fingerprint) => {
+      setTestedFingerprint(fingerprint);
       toast.success("Destination connection succeeded");
     },
   });
@@ -333,7 +352,7 @@ export function DestinationWizard({
           )}
           {step === 1 && (
             <>
-              <div onChange={() => setTested(false)}>
+              <div onChange={() => setTestedFingerprint(null)}>
                 <ConnectionFields form={connection} />
               </div>
               <div className="connection-test">
@@ -350,7 +369,7 @@ export function DestinationWizard({
                     }
                   }}
                 >
-                  Test connection
+                  {test.isPending ? "Testing…" : "Test connection"}
                 </Button>
                 {tested && <Status value="HEALTHY" />}
               </div>
@@ -397,39 +416,47 @@ export function DestinationWizard({
                       Select the pipeline topics to deliver. Topic existence is
                       verified during review.
                     </p>
-                    {pipeline.data.tables.map((table) => (
-                      <label key={table.topic_name}>
-                        <input
-                          type="checkbox"
-                          checked={mappings.some(
-                            (mapping) => mapping.topic === table.topic_name,
-                          )}
-                          onChange={(event) =>
-                            setMappings((values) =>
-                              event.target.checked
-                                ? [
-                                    ...values,
-                                    {
-                                      topic: table.topic_name,
-                                      schema_name: targetNamespace,
-                                      table_name: table.table_name,
-                                    },
-                                  ]
-                                : values.filter(
-                                    (mapping) =>
-                                      mapping.topic !== table.topic_name,
-                                  ),
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>{table.topic_name}</strong>
-                          <small>
-                            {table.schema_name}.{table.table_name}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
+                    {pipeline.data.tables.map((table) => {
+                      const hasPrimaryKey =
+                        table.primary_key_columns.length > 0;
+                      return (
+                        <label key={table.topic_name}>
+                          <input
+                            type="checkbox"
+                            disabled={!hasPrimaryKey}
+                            checked={mappings.some(
+                              (mapping) => mapping.topic === table.topic_name,
+                            )}
+                            onChange={(event) =>
+                              setMappings((values) =>
+                                event.target.checked
+                                  ? [
+                                      ...values,
+                                      {
+                                        topic: table.topic_name,
+                                        schema_name: targetNamespace,
+                                        table_name: table.table_name,
+                                      },
+                                    ]
+                                  : values.filter(
+                                      (mapping) =>
+                                        mapping.topic !== table.topic_name,
+                                    ),
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>{table.topic_name}</strong>
+                            <small>
+                              {table.schema_name}.{table.table_name}
+                              {hasPrimaryKey
+                                ? ` · Primary key: ${table.primary_key_columns.join(", ")}`
+                                : " · Unavailable: source table has no primary key"}
+                            </small>
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 ))}
               {!pipelines.isPending &&

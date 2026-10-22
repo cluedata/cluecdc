@@ -16,10 +16,10 @@ resources exist, an Ops user can create and operate pipelines and deliveries.
 
 Open **Infrastructure** in ClueCDC and register:
 
-| Resource | Value |
-| --- | --- |
-| Kafka bootstrap servers | `kafka:29092` |
-| Kafka Connect URL | `http://kafka-connect:8083` |
+| Resource                | Value                       |
+| ----------------------- | --------------------------- |
+| Kafka bootstrap servers | `kafka:29092`               |
+| Kafka Connect URL       | `http://kafka-connect:8083` |
 
 These are container-network addresses. A host client would use `localhost:9092` and `localhost:8083`.
 
@@ -27,12 +27,12 @@ These are container-network addresses. A host client would use `localhost:9092` 
 
 Open **Connections → Sources → Create Source** and use:
 
-| Field | Value |
-| --- | --- |
-| Host / port | `cdc-source-postgres` / `5432` |
-| Database | `commerce` |
-| User | `cdc_user` |
-| Password | `cluecdc-source-test-only` unless overridden |
+| Field       | Value                          |
+| ----------- | ------------------------------ |
+| Host / port | `postgres-demo` / `5432`       |
+| Database    | `cluecdc_source`               |
+| User        | `source_user`                  |
+| Password    | `source123` unless overridden  |
 
 Test the connection, save it, run discovery, and review CDC readiness. Select `public.customers` and `public.orders`; both have stable keys and local logical-replication configuration.
 
@@ -40,12 +40,12 @@ Test the connection, save it, run discovery, and review CDC readiness. Select `p
 
 Open **Connections → Destinations → Create Destination** and register PostgreSQL:
 
-| Field | Value |
-| --- | --- |
-| Host / port | `destination-postgres` / `5432` |
-| Database | `analytics` |
-| User | `delivery_user` |
-| Password | `cluecdc-destination-test-only` unless overridden |
+| Field       | Value                              |
+| ----------- | ---------------------------------- |
+| Host / port | `postgres-demo` / `5432`            |
+| Database    | `cluecdc_destination`              |
+| User        | `destination_user`                 |
+| Password    | `destination123` unless overridden |
 
 Test and save the destination. Registration stores a reusable endpoint; it does
 not start a sink connector or move data.
@@ -74,16 +74,16 @@ a delivery retry. Wait until both connector tasks report **RUNNING**.
 Insert a source record:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres \
-  psql -U postgres -d commerce -c \
+docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
+  psql -U postgres -d cluecdc_source -c \
   "INSERT INTO public.customers (email, name) VALUES ('ada-new@example.test', 'Ada Lovelace');"
 ```
 
 Inspect topic metadata and connector state, then query the destination directly:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T destination-postgres \
-  psql -U postgres -d analytics -c \
+docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
+  psql -U postgres -d cluecdc_destination -c \
   "SELECT * FROM public.customers WHERE email = 'ada-new@example.test';"
 ```
 

@@ -118,6 +118,24 @@ async def test_input(data: ConnectionInput) -> dict:
     return await _run_test(transient(data), values)
 
 
+async def test_draft(
+    session: AsyncSession, data: ConnectionInput, connection: Connection | None = None
+) -> dict:
+    """Test edited values with retained secrets, without saving or updating health."""
+    values = {}
+    if connection is not None:
+        if connection.provider != data.provider or connection.category != data.category:
+            raise DomainError(
+                "CONNECTION_PROVIDER_IMMUTABLE",
+                "Duplicate the connection to change its category or provider",
+                422,
+            )
+        values = await credentials(session, connection)
+    values = {**values, **_credential_values(data)}
+    _validate_required_credentials(data, values)
+    return await _run_test(transient(data), values)
+
+
 async def create(session: AsyncSession, data: ConnectionInput, actor: str) -> Connection:
     values = _credential_values(data)
     _validate_required_credentials(data, values)

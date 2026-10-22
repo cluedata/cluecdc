@@ -35,7 +35,7 @@ export const providerName = (provider: string) =>
 export type FormState = {
   name: string;
   description: string;
-  config: Record<string, string | number | boolean>;
+  config: Record<string, unknown>;
   credentials: Record<string, string>;
 };
 

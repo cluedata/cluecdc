@@ -10,20 +10,19 @@ import urllib.error
 import urllib.request
 import uuid
 
+from cdc_acceptance_support import load_fixture_environment
 from kafka_records import sample_records
 
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:8000/api/v1")
 args = parser.parse_args()
-secrets = dict(
-    line.split("=", 1)
-    for line in (root / ".env").read_text().splitlines()
-    if "=" in line and not line.startswith("#")
+secrets = load_fixture_environment([root / ".env"])
+source_password = os.environ.get("POSTGRES_DEMO_SOURCE_PASSWORD") or secrets.get(
+    "POSTGRES_DEMO_SOURCE_PASSWORD"
 )
-source_password = os.environ.get("SOURCE_PASSWORD") or secrets.get("SOURCE_PASSWORD")
 if not source_password:
-    raise RuntimeError("SOURCE_PASSWORD is required for the demo fixture")
+    raise RuntimeError("POSTGRES_DEMO_SOURCE_PASSWORD is required for the demo fixture")
 
 
 def request(path, method="GET", data=None):
@@ -72,10 +71,10 @@ source = find_or_create(
     "Commerce PostgreSQL",
     {
         "type": "postgresql",
-        "host": "cdc-source-postgres",
+        "host": "postgres-demo",
         "port": 5432,
-        "database_name": "commerce",
-        "username": "cdc_user",
+        "database_name": "cluecdc_source",
+        "username": "source_user",
         "password": source_password,
     },
 )
@@ -148,12 +147,12 @@ result = subprocess.run(
         "compose.test.yaml",
         "exec",
         "-T",
-        "cdc-source-postgres",
+        "postgres-demo",
         "psql",
         "-U",
         "postgres",
         "-d",
-        "commerce",
+        "cluecdc_source",
         "-v",
         "ON_ERROR_STOP=1",
     ],

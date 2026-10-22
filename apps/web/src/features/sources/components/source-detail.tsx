@@ -14,7 +14,6 @@ import { DetailDrawer, MetricCard } from "@/components/operational";
 import { api, date, number, post } from "@/lib/api";
 import type {
   Audit,
-  Job,
   Pipeline,
   Readiness,
   Source,
@@ -38,6 +37,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { SourceEditor } from "./source-editor";
 import { useAuthorization } from "@/lib/auth";
+import {
+  discoveredTableCount,
+  loadSourceMetadata,
+} from "@/lib/source-metadata";
 
 export function SourceDetailPage({ id }: { id: string }) {
   const { can } = useAuthorization();
@@ -91,21 +94,14 @@ export function SourceDetailPage({ id }: { id: string }) {
     },
   });
   const discovery = useMutation({
-    mutationFn: async () => {
-      const job = await post<Job>(`/sources/${id}/discover`);
-      for (let i = 0; i < 180; i++) {
-        const current = await api<Job>(`/jobs/${job.id}`);
-        if (current.status === "COMPLETED") return current;
-        if (current.status === "FAILED")
-          throw new Error(current.error || "Discovery failed");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-      throw new Error(
-        "Discovery continues in the worker. Refresh tables to inspect the result.",
+    mutationFn: () => loadSourceMetadata(id),
+    onSuccess: (job) => {
+      const count = discoveredTableCount(job);
+      toast.success(
+        count === null
+          ? "Source metadata loaded"
+          : `${count} ${count === 1 ? "table" : "tables"} loaded`,
       );
-    },
-    onSuccess: () => {
-      toast.success("Table discovery completed");
       client.invalidateQueries({ queryKey: ["source-tables"] });
       client.invalidateQueries({ queryKey: ["source"] });
       client.invalidateQueries({ queryKey: ["sources"] });
@@ -189,7 +185,7 @@ export function SourceDetailPage({ id }: { id: string }) {
               ) : (
                 <RefreshCw size={16} />
               )}
-              Discover tables
+              Load metadata
             </Button>
           </>
         )}

@@ -3,7 +3,7 @@
 This example uses the actual services in the root Compose file:
 
 ```text
-cdc-source-postgres -> Debezium -> Kafka -> JDBC sink -> destination-postgres
+postgres-demo/cluecdc_source -> Debezium -> Kafka -> JDBC sink -> postgres-demo/cluecdc_destination
 ```
 
 Start the stack and run the reproducible acceptance scripts:

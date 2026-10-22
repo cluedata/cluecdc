@@ -6,8 +6,8 @@ import {
   JsonView,
   Loading,
   PageHeader,
-  Status,
 } from "@/components/common";
+import { ConnectionTestControl } from "@/components/connection-test-control";
 import { api, post } from "@/lib/api";
 import type {
   Connection,
@@ -30,14 +30,15 @@ import {
   providerName,
 } from "./shared";
 
-export function ConnectionWizard() {
+export function ConnectionWizard({
+  capability,
+}: {
+  capability?: "SOURCE" | "DESTINATION";
+} = {}) {
   const router = useRouter();
   const [provider, setProvider] = useState<ConnectionProvider | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [phase, setPhase] = useState(0);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(
-    null,
-  );
   const providers = useQuery({
     queryKey: ["connection-providers"],
     queryFn: () => api<ConnectionProviderMetadata[]>("/connection-providers"),
@@ -56,8 +57,9 @@ export function ConnectionWizard() {
       credentials,
       provider,
       category: providerCategory(provider),
-      capabilities:
-        providerCategory(provider) === "OBJECT_STORAGE"
+      capabilities: capability
+        ? [capability]
+        : providerCategory(provider) === "OBJECT_STORAGE"
           ? ["DESTINATION"]
           : undefined,
     };
@@ -66,16 +68,12 @@ export function ConnectionWizard() {
     mutationFn: () => post<Connection>("/connections", payload()),
     onSuccess: (value) => router.push(`/connections/${value.id}`),
   });
-  const testDraft = useMutation({
-    mutationFn: () =>
-      post<ConnectionTestResult>("/connections/test", payload()),
-    onSuccess: (result) => setTestResult(result),
-  });
+  const testConnection = () =>
+    post<ConnectionTestResult>("/connections/test", payload());
   const select = (value: ConnectionProvider) => {
     setProvider(value);
     setForm(initialState(value));
     setPhase(1);
-    setTestResult(null);
   };
   const config = (key: string, value: string | number | boolean) =>
     setForm((old) =>
@@ -134,7 +132,12 @@ export function ConnectionWizard() {
                   </div>
                   <div className="provider-grid">
                     {providers.data
-                      ?.filter((item) => item.category === category)
+                      ?.filter(
+                        (item) =>
+                          item.category === category &&
+                          (capability !== "SOURCE" ||
+                            item.category === "DATABASE"),
+                      )
                       .map((item) => (
                         <button
                           key={item.provider}
@@ -155,7 +158,7 @@ export function ConnectionWizard() {
         form && (
           <section className="panel source-form-page">
             <div className="panel-body">
-              <div className="form-grid" onChange={() => setTestResult(null)}>
+              <div className="form-grid">
                 <Field label="Connection name">
                   <Input
                     value={form.name}
@@ -177,6 +180,11 @@ export function ConnectionWizard() {
                   secret={secret}
                 />
               </div>
+              <ConnectionTestControl
+                fingerprint={JSON.stringify({ provider, form })}
+                disabled={!form.name.trim() || create.isPending}
+                run={testConnection}
+              />
               <div className="wizard-actions">
                 <Button
                   variant="outline"
@@ -203,28 +211,13 @@ export function ConnectionWizard() {
               ClueCDC validates network access, authentication, and
               provider-specific permissions without saving credentials.
             </p>
-            {testDraft.isError && <ErrorPanel error={testDraft.error} />}
-            {testResult && (
-              <div className="diagnostic-list">
-                {testResult.checks.map((check) => (
-                  <div key={check.name}>
-                    <strong>{check.name.replaceAll("_", " ")}</strong>
-                    <Status value={check.status} />
-                    <span>{check.message || "Passed"}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <ConnectionTestControl
+              fingerprint={JSON.stringify({ provider, form })}
+              run={testConnection}
+            />
             <div className="wizard-actions">
               <Button variant="outline" onClick={() => setPhase(1)}>
                 Back
-              </Button>
-              <Button
-                variant="outline"
-                disabled={testDraft.isPending}
-                onClick={() => testDraft.mutate()}
-              >
-                Test Connection
               </Button>
               <Button onClick={() => setPhase(5)}>Review</Button>
             </div>

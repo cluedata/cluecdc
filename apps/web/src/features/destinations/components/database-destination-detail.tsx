@@ -11,6 +11,8 @@ import {
   Tabs,
 } from "@/components/common";
 import { api, date, post } from "@/lib/api";
+import { ConnectionTestControl } from "@/components/connection-test-control";
+import type { ConnectionTestFeedback } from "@/lib/connection-test";
 import { destinationSchema, type DestinationForm } from "@/lib/validation";
 import type {
   Audit,
@@ -26,7 +28,7 @@ import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import {
   ConnectionFields,
@@ -78,6 +80,7 @@ export function DestinationDetailPage({ id }: { id: string }) {
     defaultValues: initialConnection,
   });
   const initializedEdit = useRef(false);
+  const testFingerprint = JSON.stringify(useWatch({ control: form.control }));
   useEffect(() => {
     if (
       canWriteDestination &&
@@ -631,6 +634,20 @@ export function DestinationDetailPage({ id }: { id: string }) {
         >
           <form onSubmit={form.handleSubmit(() => save.mutate())}>
             <ConnectionFields form={form} existing />
+            <ConnectionTestControl
+              fingerprint={testFingerprint}
+              disabled={save.isPending}
+              validate={() => form.trigger()}
+              run={() =>
+                post<ConnectionTestFeedback>(
+                  `/destinations/test-connection?identifier=${id}`,
+                  {
+                    ...form.getValues(),
+                    password: form.getValues("password") || undefined,
+                  },
+                )
+              }
+            />
             <div className="dialog-actions">
               <Button
                 variant="outline"

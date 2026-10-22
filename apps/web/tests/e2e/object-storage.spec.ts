@@ -3,30 +3,57 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const fileEnv = Object.fromEntries(
-  readFileSync(resolve(process.cwd(), "../../.env"), "utf8")
-    .split(/\r?\n/)
-    .filter((line) => line.includes("="))
-    .map((line) => [
-      line.slice(0, line.indexOf("=")),
-      line.slice(line.indexOf("=") + 1),
-    ]),
+  [".env.example", ".env.test.example", ".env"].flatMap((file) =>
+    readFileSync(resolve(process.cwd(), "../..", file), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.includes("=") && !line.startsWith("#"))
+      .map((line) => [
+        line.slice(0, line.indexOf("=")),
+        line.slice(line.indexOf("=") + 1),
+      ]),
+  ),
 );
-const env = {
-  ...fileEnv,
-  MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY ?? fileEnv.MINIO_ACCESS_KEY,
-  MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY ?? fileEnv.MINIO_SECRET_KEY,
-};
+const env = (key: string) => process.env[key] ?? fileEnv[key];
+
+test.beforeEach(async ({ page, request }) => {
+  const session = await request.get("/api/v1/session");
+  if (session.status() === 401) {
+    const response = await request.post("/api/v1/auth/login", {
+      data: {
+        email: env("DEFAULT_ADMIN_EMAIL"),
+        password: env("DEFAULT_ADMIN_PASSWORD"),
+      },
+    });
+    expect(response.status()).toBe(200);
+
+    await page.goto("/login");
+    await page
+      .getByLabel("Email", { exact: true })
+      .fill(env("DEFAULT_ADMIN_EMAIL"));
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill(env("DEFAULT_ADMIN_PASSWORD"));
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL(/\/overview$/);
+  } else expect(session.status()).toBe(200);
+});
 
 test("MinIO connection and storage-only delivery UI deploy a real S3 sink without rendering credentials", async ({
   page,
   request,
 }) => {
   const name = `Browser MinIO ${Date.now()}`;
-  const access = env.MINIO_ACCESS_KEY || "cluecdc-test-access";
-  const secret = env.MINIO_SECRET_KEY || "cluecdc-test-secret-key";
-  const pipeline = (await (await request.get("/api/v1/pipelines")).json()).find(
-    (item: { name: string }) => item.name === "Commerce capture",
-  );
+  const access = env("MINIO_ACCESS_KEY") || "minioadmin";
+  const secret = env("MINIO_SECRET_KEY") || "minioadmin";
+  const pipelines = (await (
+    await request.get("/api/v1/pipelines")
+  ).json()) as Array<{ id: string; name: string }>;
+  const pipeline =
+    pipelines.find((item) => item.name === "Commerce capture") ?? pipelines[0];
+  expect(
+    pipeline,
+    "Object-storage delivery test requires at least one capture pipeline",
+  ).toBeTruthy();
   let connectionId = "",
     deliveryId = "";
   try {
@@ -47,7 +74,7 @@ test("MinIO connection and storage-only delivery UI deploy a real S3 sink withou
         response.request().method() === "POST",
     );
     await page
-      .getByRole("button", { name: "Test Connection", exact: true })
+      .getByRole("button", { name: "Test connection", exact: true })
       .click();
     expect((await probe).ok()).toBeTruthy();
     await page.getByRole("button", { name: "Review", exact: true }).click();

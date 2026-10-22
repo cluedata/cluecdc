@@ -16,7 +16,7 @@ from cdc_acceptance_support import (
     ApiClient,
     Compose,
     fixture_table_mapping,
-    load_environment,
+    load_fixture_environment,
     wait_for,
 )
 
@@ -114,7 +114,7 @@ def api_is_ready(value: object) -> bool:
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     if not args.artifact.is_file() or not args.recovery_artifact.is_file():
         raise AcceptanceError(
             "Run cdc-integrity.py and cdc-recovery.py before this test"
@@ -138,8 +138,8 @@ def main() -> None:
     api = ApiClient(
         args.api_url,
         [
-            environment.get("SOURCE_PASSWORD", ""),
-            environment.get("DESTINATION_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_SOURCE_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_DESTINATION_PASSWORD", ""),
         ],
     )
     compose = Compose(args.compose_project, env_files)
@@ -263,16 +263,26 @@ def main() -> None:
             "manual resume",
         )
 
-        compose.stop("cdc-source-postgres")
+        compose.postgres(
+            "postgres-demo",
+            "postgres",
+            "ALTER DATABASE cluecdc_source WITH ALLOW_CONNECTIONS false; "
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname='cluecdc_source';",
+        )
         expect_unavailable(
             lambda: api.request(f"/sources/{source_id}/test", "POST"),
             "SOURCE_UNAVAILABLE",
         )
-        compose.start("cdc-source-postgres")
+        compose.postgres(
+            "postgres-demo",
+            "postgres",
+            "ALTER DATABASE cluecdc_source WITH ALLOW_CONNECTIONS true;",
+        )
         wait_for(
-            lambda: compose.postgres("cdc-source-postgres", "commerce", "SELECT 1;"),
+            lambda: compose.postgres("postgres-demo", "cluecdc_source", "SELECT 1;"),
             lambda value: value == "1",
-            "source database restart",
+            "source database recovery",
             180,
         )
         wait_for(
@@ -285,21 +295,27 @@ def main() -> None:
 
         next_id = int(
             compose.postgres(
-                "cdc-source-postgres",
-                "commerce",
+                "postgres-demo",
+                "cluecdc_source",
                 f"SELECT COALESCE(max(id),0)+100 FROM public.{source_table};",
             )
         )
         run = uuid.uuid4().hex[:8]
-        compose.stop("destination-postgres")
+        compose.postgres(
+            "postgres-demo",
+            "postgres",
+            "ALTER DATABASE cluecdc_destination WITH ALLOW_CONNECTIONS false; "
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname='cluecdc_destination';",
+        )
         expect_unavailable(
             lambda: api.request(f"/destinations/{destination_id}/test", "POST"),
             "DESTINATION_UNAVAILABLE",
         )
         compose.postgres(
-            "cdc-source-postgres",
-            "commerce",
-            f"SET ROLE cdc_user; INSERT INTO public.{source_table} "
+            "postgres-demo",
+            "cluecdc_source",
+            f"SET ROLE source_user; INSERT INTO public.{source_table} "
             "(id, name, note, balance, occurred_at) "
             f"VALUES ({next_id}, 'destination-outage-{run}', NULL, 4.00000000, now());",
         )
@@ -309,11 +325,17 @@ def main() -> None:
             "destination failure observation",
             180,
         )
-        compose.start("destination-postgres")
+        compose.postgres(
+            "postgres-demo",
+            "postgres",
+            "ALTER DATABASE cluecdc_destination WITH ALLOW_CONNECTIONS true;",
+        )
         wait_for(
-            lambda: compose.postgres("destination-postgres", "analytics", "SELECT 1;"),
+            lambda: compose.postgres(
+                "postgres-demo", "cluecdc_destination", "SELECT 1;"
+            ),
             lambda value: value == "1",
-            "destination database restart",
+            "destination database recovery",
             180,
         )
         api.request(
@@ -328,8 +350,8 @@ def main() -> None:
         )
         wait_for(
             lambda: compose.postgres(
-                "destination-postgres",
-                "analytics",
+                "postgres-demo",
+                "cluecdc_destination",
                 f"SELECT count(*) FROM {destination_schema}.{destination_table} WHERE id={next_id};",
             ),
             lambda value: value == "1",
@@ -358,14 +380,22 @@ def main() -> None:
     finally:
         for service in [
             "kafka",
-            "cdc-source-postgres",
-            "destination-postgres",
+            "postgres-demo",
             "kafka-connect",
             "cluecdc-api",
             "cluecdc-worker",
         ]:
             try:
                 compose.start(service)
+            except AcceptanceError:
+                pass
+        for database in ["cluecdc_source", "cluecdc_destination"]:
+            try:
+                compose.postgres(
+                    "postgres-demo",
+                    "postgres",
+                    f"ALTER DATABASE {database} WITH ALLOW_CONNECTIONS true;",
+                )
             except AcceptanceError:
                 pass
         if paused:

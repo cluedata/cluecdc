@@ -99,10 +99,13 @@ database delete. Use upsert with record-key primary keys for at-least-once deliv
 
 ## Local development
 
-Compose exposes the CDC-ready source at host port `3307` and the destination at `3308`.
-Containers use `cdc-source-mysql:3306` and `destination-mysql:3306`. Bootstrap generates
-private passwords in `.env`. The source database `shop` contains 100 UTF-8/emoji-aware
-customer, order, and order-item fixtures. The destination database is `analytics_mysql`.
+Compose exposes the shared MySQL demo service at host port `3307`.
+Source and destination connections share `mysql-demo:3306` while using separate
+logical databases and users. Public test-only passwords are defined in `.env.test.example` and can be overridden
+in `.env`. The source database `cluecdc_source` contains 100 UTF-8/emoji-aware
+customer, order, and order-item fixtures. The destination database is `cluecdc_destination`.
+Use `source_user` / `source123` for the source and `destination_user` / `destination123`
+for the destination. See [fixture credentials](../getting-started/docker-compose.md#fixture-connections-and-credentials).
 
 ## Troubleshooting
 

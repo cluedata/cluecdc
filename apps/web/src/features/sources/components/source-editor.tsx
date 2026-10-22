@@ -1,8 +1,10 @@
 "use client";
 
 import { ErrorPanel, Field } from "@/components/common";
+import { ConnectionTestControl } from "@/components/connection-test-control";
 import { Panel } from "@/components/operational";
 import { api } from "@/lib/api";
+import type { ConnectionTestFeedback } from "@/lib/connection-test";
 import { SourceForm, sourceSchema } from "@/lib/validation";
 import type { DatabaseProviderMetadata, Source } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
@@ -31,21 +33,29 @@ export function SourceEditor({
   const form = useForm<SourceForm>({
     resolver: zodResolver(sourceSchema),
     defaultValues: source
-      ? { ...source, password: "" }
+      ? {
+          ...source,
+          password: "",
+          provider_options: {
+            connection_timeout_seconds: 10,
+            ...source.provider_options,
+          },
+        }
       : {
           name: "Commerce PostgreSQL",
           type: "postgresql",
           environment: "development",
-          host: "cdc-source-postgres",
+          host: "postgres-demo",
           port: 5432,
-          database_name: "commerce",
-          username: "cdc_user",
+          database_name: "cluecdc_source",
+          username: "source_user",
           password: "",
           ssl_enabled: false,
           provider_options: { connection_timeout_seconds: 10 },
         },
   });
   const selectedType = useWatch({ control: form.control, name: "type" });
+  const testFingerprint = JSON.stringify(useWatch({ control: form.control }));
   const save = useMutation({
     mutationFn: (values: SourceForm) =>
       api<Source>(source ? `/sources/${source.id}` : "/sources", {
@@ -81,6 +91,12 @@ export function SourceEditor({
       </Field>
       <Field label="Environment" error={errors.environment?.message}>
         <select {...form.register("environment")}>
+          {source?.environment &&
+            !["development", "staging", "production"].includes(
+              source.environment,
+            ) && (
+              <option value={source.environment}>{source.environment}</option>
+            )}
           <option>development</option>
           <option>staging</option>
           <option>production</option>
@@ -185,6 +201,30 @@ export function SourceEditor({
           </Field>
         </div>
       </details>
+      <ConnectionTestControl
+        fingerprint={testFingerprint}
+        disabled={save.isPending}
+        validate={async () => {
+          if (!(await form.trigger())) return false;
+          if (!source && !form.getValues("password")) {
+            form.setError("password", { message: "Password is required" });
+            return false;
+          }
+          return true;
+        }}
+        run={() =>
+          api<ConnectionTestFeedback>(
+            `/sources/test-connection${source ? `?identifier=${source.id}` : ""}`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                ...form.getValues(),
+                password: form.getValues("password") || undefined,
+              }),
+            },
+          )
+        }
+      />
       {save.isError && (
         <div className="full-width">
           <ErrorPanel error={save.error} />

@@ -155,6 +155,40 @@ async def make_target(client, target_payload):
     return response.json()
 
 
+async def test_delivery_preview_distinguishes_missing_primary_key_from_missing_schema(
+    client, db_factory, capture, target_payload
+):
+    target = await make_target(client, target_payload)
+    async with db_factory() as db:
+        table = await db.scalar(select(SourceTable))
+        table.primary_key_columns = []
+        await db.commit()
+
+    response = await client.post(f"/api/v1/destinations/{target['id']}/preview", json=capture)
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "SOURCE_PRIMARY_KEY_REQUIRED"
+    assert error["details"] == {
+        "topic": "capture.public.customers",
+        "table": "public.customers",
+    }
+
+    async with db_factory() as db:
+        table = await db.scalar(select(SourceTable))
+        table.primary_key_columns = ["id"]
+        table.columns_json = []
+        await db.commit()
+
+    response = await client.post(f"/api/v1/destinations/{target['id']}/preview", json=capture)
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "SOURCE_SCHEMA_REQUIRED"
+    assert error["details"] == {
+        "topic": "capture.public.customers",
+        "table": "public.customers",
+    }
+
+
 async def test_deliveries_are_first_class_views_of_existing_sink_connectors(
     client, capture, target_payload, db_factory
 ):

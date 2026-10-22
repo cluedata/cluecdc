@@ -101,7 +101,7 @@ export function ConnectionFields({
         </select>
       </Field>
       <Field label="Host" error={errors.host?.message}>
-        <Input {...form.register("host")} placeholder="destination-postgres" />
+        <Input {...form.register("host")} placeholder="postgres-demo" />
       </Field>
       <Field label="Port" error={errors.port?.message}>
         <Input
@@ -110,12 +110,15 @@ export function ConnectionFields({
         />
       </Field>
       <Field label="Database" error={errors.database_name?.message}>
-        <Input {...form.register("database_name")} placeholder="analytics" />
+        <Input
+          {...form.register("database_name")}
+          placeholder="cluecdc_destination"
+        />
       </Field>
       <Field label="Username" error={errors.username?.message}>
         <Input
           {...form.register("username")}
-          placeholder="delivery_user"
+          placeholder="destination_user"
           autoComplete="off"
         />
       </Field>

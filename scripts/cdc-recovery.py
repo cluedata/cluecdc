@@ -16,7 +16,7 @@ from cdc_acceptance_support import (
     ApiClient,
     Compose,
     fixture_table_mapping,
-    load_environment,
+    load_fixture_environment,
     wait_for,
 )
 from kafka_records import sample_records
@@ -91,7 +91,7 @@ def wait_running(
 def main() -> None:
     args = arguments()
     env_files = args.env_file or [ROOT / ".env"]
-    environment = load_environment(env_files)
+    environment = load_fixture_environment(env_files)
     if not args.artifact.is_file():
         raise AcceptanceError(
             "CDC integrity artifact is missing; run scripts/cdc-integrity.py first"
@@ -102,8 +102,8 @@ def main() -> None:
     api = ApiClient(
         args.api_url,
         [
-            environment.get("SOURCE_PASSWORD", ""),
-            environment.get("DESTINATION_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_SOURCE_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_DESTINATION_PASSWORD", ""),
         ],
     )
     compose = Compose(args.compose_project, env_files)
@@ -139,15 +139,15 @@ def main() -> None:
 
     def write_and_wait(identifier: int, marker: str) -> None:
         compose.postgres(
-            "cdc-source-postgres",
-            "commerce",
-            f"SET ROLE cdc_user; INSERT INTO public.{source_table} "
+            "postgres-demo",
+            "cluecdc_source",
+            f"SET ROLE source_user; INSERT INTO public.{source_table} "
             f"VALUES ({identifier}, '{marker}', NULL, 1.00000000, now());",
         )
         wait_for(
             lambda: compose.postgres(
-                "destination-postgres",
-                "analytics",
+                "postgres-demo",
+                "cluecdc_destination",
                 f"SELECT count(*) FROM public.{destination_table} "
                 f"WHERE id={identifier} AND name='{marker}';",
             ),
@@ -193,17 +193,17 @@ def main() -> None:
 
     compose.stop("kafka")
     compose.postgres(
-        "cdc-source-postgres",
-        "commerce",
-        f"SET ROLE cdc_user; INSERT INTO public.{source_table} "
+        "postgres-demo",
+        "cluecdc_source",
+        f"SET ROLE source_user; INSERT INTO public.{source_table} "
         f"VALUES ({next_id + 3}, 'kafka-outage-{run}', NULL, 2.00000000, now());",
     )
     compose.start("kafka")
     wait_running(api, pipeline_id, delivery_id, "Kafka outage recovery")
     wait_for(
         lambda: compose.postgres(
-            "destination-postgres",
-            "analytics",
+            "postgres-demo",
+            "cluecdc_destination",
             f"SELECT count(*) FROM public.{destination_table} WHERE id={next_id + 3};",
         ),
         lambda count: count == "1",
@@ -212,10 +212,10 @@ def main() -> None:
     )
     print("PASS temporary Kafka outage recovery", flush=True)
 
-    compose.stop("cdc-source-postgres")
-    compose.start("cdc-source-postgres")
+    compose.stop("postgres-demo")
+    compose.start("postgres-demo")
     wait_for(
-        lambda: compose.postgres("cdc-source-postgres", "commerce", "SELECT 1;"),
+        lambda: compose.postgres("postgres-demo", "cluecdc_source", "SELECT 1;"),
         lambda result: result == "1",
         "source database readiness",
         180,

@@ -125,7 +125,7 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "apps/api/app/services/object_storage.py",
             "scripts/demo-object-storage.py",
             "infrastructure/docker/minio-test.Dockerfile",
-        } or path.startswith("infrastructure/minio/")
+        }
         cdc = backend_acceptance and not storage_only
         s3 = backend_acceptance
         browser_integration = full_browser or (backend_acceptance and not storage_only)

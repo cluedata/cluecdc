@@ -108,7 +108,6 @@ def test_combined_workload_and_shell_changes_do_not_promote_core_browser_to_full
         "apps/api/app/services/object_storage.py",
         "scripts/demo-object-storage.py",
         "infrastructure/docker/minio-test.Dockerfile",
-        "infrastructure/minio/bootstrap.py",
     ],
 )
 def test_storage_only_changes_do_not_repeat_jdbc_or_browser_acceptance(path):

@@ -8,7 +8,9 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
   request,
 }) => {
   const fileEnv = Object.fromEntries(
-    readFileSync(resolve(root, ".env"), "utf8")
+    [".env.test.example", ".env"]
+      .map((filename) => readFileSync(resolve(root, filename), "utf8"))
+      .join("\n")
       .split(/\r?\n/)
       .filter((l) => l.includes("="))
       .map((l) => {
@@ -18,7 +20,9 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
   );
   const env = {
     ...fileEnv,
-    SOURCE_PASSWORD: process.env.SOURCE_PASSWORD ?? fileEnv.SOURCE_PASSWORD,
+    POSTGRES_DEMO_SOURCE_PASSWORD:
+      process.env.POSTGRES_DEMO_SOURCE_PASSWORD ??
+      fileEnv.POSTGRES_DEMO_SOURCE_PASSWORD,
   };
   const name = `Browser capture ${Date.now()}`;
   const sourceName = `Browser source ${Date.now()}`;
@@ -34,7 +38,7 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
     await page.getByLabel("Source name").fill(sourceName);
     await page
       .getByLabel("Password", { exact: true })
-      .fill(env.SOURCE_PASSWORD);
+      .fill(env.POSTGRES_DEMO_SOURCE_PASSWORD);
     const created = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -54,7 +58,7 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
     await expect(
       page.getByText('Current: "logical"', { exact: false }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Discover tables" }).click();
+    await page.getByRole("button", { name: "Load metadata" }).click();
     await expect(
       page.getByRole("button", { name: "public.customers", exact: true }),
     ).toBeVisible();
@@ -92,7 +96,9 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
     ).toBeVisible();
     await page.getByText("Advanced · Capture configuration").click();
     await expect(page.locator(".json-view")).toContainText("[REDACTED]");
-    await expect(page.locator("body")).not.toContainText(env.SOURCE_PASSWORD);
+    await expect(page.locator("body")).not.toContainText(
+      env.POSTGRES_DEMO_SOURCE_PASSWORD,
+    );
     const createdPipeline = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -132,12 +138,12 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
         "compose.test.yaml",
         "exec",
         "-T",
-        "cdc-source-postgres",
+        "postgres-demo",
         "psql",
         "-U",
         "postgres",
         "-d",
-        "commerce",
+        "cluecdc_source",
         "-v",
         "ON_ERROR_STOP=1",
       ],

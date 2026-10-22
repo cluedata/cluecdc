@@ -312,14 +312,25 @@ async def test(session: AsyncSession, destination: Destination, actor: str) -> d
     return result
 
 
-async def test_unsaved(session: AsyncSession, data: DestinationInput) -> dict:
-    if not data.password or not data.password.get_secret_value():
+async def test_unsaved(
+    session: AsyncSession, data: DestinationInput, identifier: uuid.UUID | None = None
+) -> dict:
+    if identifier is None and (not data.password or not data.password.get_secret_value()):
         raise DomainError("PASSWORD_REQUIRED", "A destination password is required", 422)
-    transient = Destination(**data.model_dump(exclude={"password"}))
-    return (
-        await get_provider(transient.type)
-        .destination_adapter(transient, data.password.get_secret_value())
-        .test_connection()
+    connection = await get(session, Connection, identifier) if identifier else None
+    if connection is not None and "DESTINATION" not in connection.capabilities_json:
+        raise DomainError("NOT_FOUND", "Destination was not found", 404)
+    return await connection_service.test_draft(
+        session,
+        ConnectionInput(
+            name=data.name,
+            description=data.description,
+            provider=data.type.upper(),
+            config=data.model_dump(exclude={"password", "name", "type", "description"}),
+            credentials={"password": data.password} if data.password else {},
+            capabilities=["DESTINATION"],
+        ),
+        connection,
     )
 
 
@@ -559,11 +570,25 @@ async def build(
                 {"topic": mapping.topic},
             )
         source = discovered.get((table.schema_name, table.table_name))
-        if source is None or not source.primary_key_columns:
+        if source is None or not source.columns_json:
             raise DomainError(
                 "SOURCE_SCHEMA_REQUIRED",
-                "Discover source columns and primary keys before configuring delivery",
+                "Load source metadata before configuring this delivery",
                 422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                },
+            )
+        if not source.primary_key_columns:
+            raise DomainError(
+                "SOURCE_PRIMARY_KEY_REQUIRED",
+                "Database deliveries require a primary key on every selected source table",
+                422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                },
             )
         columns = analyze_columns(source.columns_json, source_database.type, destination.type)
         incompatible = [column for column in columns if column["compatibility"] == "INCOMPATIBLE"]

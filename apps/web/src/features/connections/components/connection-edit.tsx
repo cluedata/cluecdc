@@ -1,7 +1,9 @@
 "use client";
 
 import { ErrorPanel, Field, Loading, PageHeader } from "@/components/common";
-import { api } from "@/lib/api";
+import { ConnectionTestControl } from "@/components/connection-test-control";
+import { api, post } from "@/lib/api";
+import type { ConnectionTestFeedback } from "@/lib/connection-test";
 import type { Connection } from "@cluecdc/contracts";
 import { Button, Input } from "@cluecdc/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -32,27 +34,24 @@ export function ConnectionEditor({ value }: { value: Connection }) {
     description: value.description,
     config: {
       ...defaults.config,
-      ...(Object.fromEntries(
-        Object.entries(value.config).filter(([, item]) =>
-          ["string", "number", "boolean"].includes(typeof item),
-        ),
-      ) as Record<string, string | number | boolean>),
+      ...value.config,
     },
     credentials: defaults.credentials,
+  });
+  const payload = () => ({
+    ...form,
+    credentials: Object.fromEntries(
+      Object.entries(form.credentials).filter(([, secret]) => secret),
+    ),
+    provider: value.provider,
+    category: value.category,
+    capabilities: value.capabilities,
   });
   const save = useMutation({
     mutationFn: () =>
       api<Connection>(`/connections/${value.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          ...form,
-          credentials: Object.fromEntries(
-            Object.entries(form.credentials).filter(([, secret]) => secret),
-          ),
-          provider: value.provider,
-          category: value.category,
-          capabilities: value.capabilities,
-        }),
+        body: JSON.stringify(payload()),
       }),
     onSuccess: () => router.push(`/connections/${value.id}`),
   });
@@ -96,6 +95,19 @@ export function ConnectionEditor({ value }: { value: Connection }) {
               secret={secret}
             />
           </div>
+          <p className="muted">
+            Leave credential fields blank to test with saved credentials.
+          </p>
+          <ConnectionTestControl
+            fingerprint={JSON.stringify(payload())}
+            disabled={!form.name.trim() || save.isPending}
+            run={() =>
+              post<ConnectionTestFeedback>(
+                `/connections/test?identifier=${value.id}`,
+                payload(),
+              )
+            }
+          />
           {save.isError && <ErrorPanel error={save.error} />}
           <div className="wizard-actions">
             <Button variant="outline" onClick={() => router.back()}>
