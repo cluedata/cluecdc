@@ -30,7 +30,11 @@ import {
   providerName,
 } from "./shared";
 
-export function ConnectionWizard() {
+export function ConnectionWizard({
+  capability,
+}: {
+  capability?: "SOURCE" | "DESTINATION";
+} = {}) {
   const router = useRouter();
   const [provider, setProvider] = useState<ConnectionProvider | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
@@ -53,8 +57,9 @@ export function ConnectionWizard() {
       credentials,
       provider,
       category: providerCategory(provider),
-      capabilities:
-        providerCategory(provider) === "OBJECT_STORAGE"
+      capabilities: capability
+        ? [capability]
+        : providerCategory(provider) === "OBJECT_STORAGE"
           ? ["DESTINATION"]
           : undefined,
     };
@@ -127,7 +132,12 @@ export function ConnectionWizard() {
                   </div>
                   <div className="provider-grid">
                     {providers.data
-                      ?.filter((item) => item.category === category)
+                      ?.filter(
+                        (item) =>
+                          item.category === category &&
+                          (capability !== "SOURCE" ||
+                            item.category === "DATABASE"),
+                      )
                       .map((item) => (
                         <button
                           key={item.provider}

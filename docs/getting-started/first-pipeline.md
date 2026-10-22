@@ -29,7 +29,7 @@ Open **Connections → Sources → Create Source** and use:
 
 | Field       | Value                          |
 | ----------- | ------------------------------ |
-| Host / port | `cdc-source-postgres` / `5432` |
+| Host / port | `postgres-demo` / `5432`       |
 | Database    | `cluecdc_source`               |
 | User        | `source_user`                  |
 | Password    | `source123` unless overridden  |
@@ -42,7 +42,7 @@ Open **Connections → Destinations → Create Destination** and register Postgr
 
 | Field       | Value                              |
 | ----------- | ---------------------------------- |
-| Host / port | `destination-postgres` / `5432`    |
+| Host / port | `postgres-demo` / `5432`            |
 | Database    | `cluecdc_destination`              |
 | User        | `destination_user`                 |
 | Password    | `destination123` unless overridden |
@@ -74,7 +74,7 @@ a delivery retry. Wait until both connector tasks report **RUNNING**.
 Insert a source record:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres \
+docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
   psql -U postgres -d cluecdc_source -c \
   "INSERT INTO public.customers (email, name) VALUES ('ada-new@example.test', 'Ada Lovelace');"
 ```
@@ -82,7 +82,7 @@ docker compose -f compose.yaml -f compose.test.yaml exec -T cdc-source-postgres 
 Inspect topic metadata and connector state, then query the destination directly:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T destination-postgres \
+docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
   psql -U postgres -d cluecdc_destination -c \
   "SELECT * FROM public.customers WHERE email = 'ada-new@example.test';"
 ```

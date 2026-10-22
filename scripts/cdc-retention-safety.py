@@ -43,8 +43,8 @@ def main() -> None:
     api = ApiClient(
         args.api_url,
         [
-            environment.get("SOURCE_PASSWORD", ""),
-            environment.get("MYSQL_SOURCE_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_SOURCE_PASSWORD", ""),
+            environment.get("MYSQL_DEMO_SOURCE_PASSWORD", ""),
         ],
     )
     compose = Compose(args.compose_project, env_files)
@@ -65,7 +65,7 @@ def main() -> None:
     slot = "cluecdc_retention_probe_" + uuid.uuid4().hex[:8]
     try:
         compose.postgres(
-            "cdc-source-postgres",
+            "postgres-demo",
             "cluecdc_source",
             f"SELECT pg_create_logical_replication_slot('{slot}', 'pgoutput');",
         )
@@ -82,7 +82,7 @@ def main() -> None:
                 "Inactive PostgreSQL probe slot was not reported as retention risk"
             )
         still_present = compose.postgres(
-            "cdc-source-postgres",
+            "postgres-demo",
             "cluecdc_source",
             f"SELECT count(*) FROM pg_replication_slots WHERE slot_name='{slot}';",
         )
@@ -93,21 +93,21 @@ def main() -> None:
         print("PASS inactive slot warns without automatic cleanup", flush=True)
     finally:
         compose.postgres(
-            "cdc-source-postgres",
+            "postgres-demo",
             "cluecdc_source",
             "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots "
             f"WHERE slot_name='{slot}' AND NOT active;",
         )
 
     run = uuid.uuid4().hex[:8]
-    mysql_password = environment.get("MYSQL_SOURCE_PASSWORD", "")
+    mysql_password = environment.get("MYSQL_DEMO_SOURCE_PASSWORD", "")
     if not mysql_password:
-        raise AcceptanceError("MYSQL_SOURCE_PASSWORD is required")
+        raise AcceptanceError("MYSQL_DEMO_SOURCE_PASSWORD is required")
     mysql_payload = {
         "name": f"Retention probe {run}",
         "type": "mysql",
         "environment": "TEST",
-        "host": "cdc-source-mysql",
+        "host": "mysql-demo",
         "port": 3306,
         "database_name": "cluecdc_source",
         "username": "source_user",

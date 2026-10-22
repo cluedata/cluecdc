@@ -158,7 +158,7 @@ def seed_postgresql(names, row_count, reset):
 
 def seed_mysql(names, row_count, reset):
     connection = pymysql.connect(
-        host=os.environ.get("MYSQL_HOST", "cdc-source-mysql"),
+        host=os.environ.get("MYSQL_HOST", "mysql-demo"),
         port=int(os.environ.get("MYSQL_PORT", "3306")),
         user=os.environ.get("MYSQL_USER", "source_user"),
         password=os.environ["MYSQL_PASSWORD"],

@@ -304,11 +304,11 @@ jobs:
             echo "COMPOSE_PROFILES=$COMPOSE_PROFILES" >> "$GITHUB_ENV"
           fi
           if [[ "$CDC_CHECKS" != "true" && "$S3_CHECKS" != "true" && "$BROWSER_INTEGRATION_CHECKS" != "true" ]]; then
-            docker compose up -d --no-build --wait --wait-timeout 300 cdc-source-postgres cdc-source-mysql
+            docker compose up -d --no-build --wait --wait-timeout 300 postgres-demo mysql-demo
           elif [[ "$CDC_CHECKS" != "true" && "$BROWSER_INTEGRATION_CHECKS" != "true" ]]; then
-            fixtures=(cluecdc-api cluecdc-worker cdc-source-postgres minio minio-bootstrap)
+            fixtures=(cluecdc-api cluecdc-worker postgres-demo minio minio-bootstrap)
             if [[ "$WORKLOAD_CHECKS" == "true" ]]; then
-              fixtures+=(cdc-source-mysql)
+              fixtures+=(mysql-demo)
             fi
             docker compose up -d --no-build --wait --wait-timeout 300 "${fixtures[@]}"
           else

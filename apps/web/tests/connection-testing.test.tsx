@@ -250,6 +250,34 @@ describe("unified connection forms", () => {
     },
   );
 
+  it("keeps the destination capability on the destination creation route", async () => {
+    vi.mocked(api).mockResolvedValue([
+      {
+        provider: "POSTGRESQL",
+        category: "DATABASE",
+        name: "PostgreSQL",
+        description: "Fixture provider",
+      },
+    ]);
+    vi.mocked(post).mockResolvedValue({ id: "connection-1" });
+    render(wrap(<ConnectionWizard capability="DESTINATION" />));
+
+    fireEvent.click(await screen.findByText("PostgreSQL"));
+    fireEvent.change(screen.getByLabelText("Connection name"), {
+      target: { value: "Warehouse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to test" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Connection" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/connections",
+        expect.objectContaining({ capabilities: ["DESTINATION"] }),
+      ),
+    );
+  });
+
   it.each(providers)(
     "provides a test button in the %s edit form",
     async (provider) => {

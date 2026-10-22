@@ -84,10 +84,8 @@ def main() -> int:
         "CLUECDC_API_PORT",
         "KAFKA_CONNECT_PORT",
         "KAFKA_PORT",
-        "POSTGRES_SOURCE_PORT",
-        "POSTGRES_DESTINATION_PORT",
-        "MYSQL_SOURCE_PORT",
-        "MYSQL_DESTINATION_PORT",
+        "POSTGRES_DEMO_PORT",
+        "MYSQL_DEMO_PORT",
         "MINIO_PORT",
     ):
         port = available_port()

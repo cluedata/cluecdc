@@ -37,8 +37,7 @@ function destinationPayload(provider: ConnectionProvider) {
     capabilities: ["DESTINATION"],
     config: database
       ? {
-          host:
-            provider === "MYSQL" ? "destination-mysql" : "destination-postgres",
+          host: provider === "MYSQL" ? "mysql-demo" : "postgres-demo",
           port: provider === "MYSQL" ? 3306 : 5432,
           database_name: "cluecdc_destination",
           username: "destination_user",
@@ -55,8 +54,8 @@ function destinationPayload(provider: ConnectionProvider) {
       ? {
           password: env(
             provider === "MYSQL"
-              ? "MYSQL_DESTINATION_PASSWORD"
-              : "DESTINATION_PASSWORD",
+              ? "MYSQL_DEMO_DESTINATION_PASSWORD"
+              : "POSTGRES_DEMO_DESTINATION_PASSWORD",
           ),
         }
       : {
@@ -223,7 +222,7 @@ for (const type of ["postgresql", "mysql"]) {
         provider: type.toUpperCase(),
         capabilities: ["SOURCE"],
         config: {
-          host: type === "mysql" ? "cdc-source-mysql" : "cdc-source-postgres",
+          host: type === "mysql" ? "mysql-demo" : "postgres-demo",
           port: type === "mysql" ? 3306 : 5432,
           database_name: "cluecdc_source",
           username: "source_user",
@@ -231,7 +230,9 @@ for (const type of ["postgresql", "mysql"]) {
         },
         credentials: {
           password: env(
-            type === "mysql" ? "MYSQL_SOURCE_PASSWORD" : "SOURCE_PASSWORD",
+            type === "mysql"
+              ? "MYSQL_DEMO_SOURCE_PASSWORD"
+              : "POSTGRES_DEMO_SOURCE_PASSWORD",
           ),
         },
       },
@@ -275,7 +276,7 @@ for (const type of ["postgresql", "mysql"]) {
     await page.getByLabel("Database type", { exact: true }).selectOption(type);
     await page
       .getByLabel("Host", { exact: true })
-      .fill(type === "mysql" ? "cdc-source-mysql" : "cdc-source-postgres");
+      .fill(type === "mysql" ? "mysql-demo" : "postgres-demo");
     await page
       .getByLabel("Password", { exact: true })
       .fill("incorrect-password");
@@ -289,7 +290,11 @@ for (const type of ["postgresql", "mysql"]) {
     await page
       .getByLabel("Password", { exact: true })
       .fill(
-        env(type === "mysql" ? "MYSQL_SOURCE_PASSWORD" : "SOURCE_PASSWORD"),
+        env(
+          type === "mysql"
+            ? "MYSQL_DEMO_SOURCE_PASSWORD"
+            : "POSTGRES_DEMO_SOURCE_PASSWORD",
+        ),
       );
     await page
       .getByRole("button", { name: "Test connection", exact: true })

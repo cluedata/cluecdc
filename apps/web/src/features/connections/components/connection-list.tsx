@@ -9,20 +9,25 @@ import {
   Status,
 } from "@/components/common";
 import { api, date, post } from "@/lib/api";
-import type {
-  Connection,
-  ConnectionCategory,
-  ConnectionTestResult,
-} from "@cluecdc/contracts";
+import type { Connection, ConnectionCategory } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { categoryCopy, providerName } from "./shared";
 import { useAuthorization } from "@/lib/auth";
+import { ConnectionDialog } from "./connection-dialog";
+import {
+  connectionTestPassed,
+  type ConnectionTestFeedback,
+} from "@/lib/connection-test";
+import {
+  discoveredTableCount,
+  loadSourceMetadata,
+} from "@/lib/source-metadata";
 
 export function ConnectionsPage({
   capability,
@@ -39,6 +44,8 @@ export function ConnectionsPage({
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<ConnectionCategory | "ALL">("ALL");
   const [search, setSearch] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<Connection | null>(null);
   const [deleting, setDeleting] = useState<Connection | null>(null);
   const connections = useQuery({
     queryKey: ["connections", capability],
@@ -48,7 +55,15 @@ export function ConnectionsPage({
       ),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => api(`/connections/${id}`, { method: "DELETE" }),
+    mutationFn: (connection: Connection) =>
+      api(
+        capability === "SOURCE"
+          ? `/sources/${connection.id}`
+          : capability === "DESTINATION"
+            ? `/destinations/${connection.id}`
+            : `/connections/${connection.id}`,
+        { method: "DELETE" },
+      ),
     onSuccess: () => {
       toast.success("Connection deleted");
       setDeleting(null);
@@ -57,10 +72,43 @@ export function ConnectionsPage({
     onError: (error: Error) => toast.error(error.message),
   });
   const test = useMutation({
-    mutationFn: (id: string) =>
-      post<ConnectionTestResult>(`/connections/${id}/test`),
+    mutationFn: (connection: Connection) =>
+      post<ConnectionTestFeedback>(
+        capability === "SOURCE"
+          ? `/sources/${connection.id}/test`
+          : capability === "DESTINATION"
+            ? `/destinations/${connection.id}/test`
+            : `/connections/${connection.id}/test`,
+      ),
     onSuccess: (result) => {
-      toast.success(`${result.checks.length} connection checks passed`);
+      if (connectionTestPassed(result)) {
+        const count = result.checks?.length;
+        toast.success(
+          count
+            ? `${count} connection checks passed`
+            : "Connection test passed",
+        );
+      } else {
+        toast.error("Connection test failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["connections"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const discovery = useMutation({
+    mutationFn: (connection: Connection) => loadSourceMetadata(connection.id),
+    onSuccess: (job, connection) => {
+      const count = discoveredTableCount(job);
+      toast.success(
+        count === null
+          ? `Metadata loaded for ${connection.name}`
+          : `${count} ${count === 1 ? "table" : "tables"} loaded for ${connection.name}`,
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["source-tables", connection.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["source", connection.id] });
       queryClient.invalidateQueries({ queryKey: ["connections"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -114,13 +162,49 @@ export function ConnectionsPage({
               <Button
                 variant="ghost"
                 disabled={test.isPending}
-                onClick={() => test.mutate(row.original.id)}
+                onClick={() => test.mutate(row.original)}
               >
                 Test
               </Button>
             )}
+            {capability === "SOURCE" && canWrite && (
+              <Button
+                variant="ghost"
+                aria-label={`Load metadata for ${row.original.name}`}
+                disabled={discovery.isPending}
+                onClick={() => discovery.mutate(row.original)}
+              >
+                {discovery.isPending &&
+                discovery.variables?.id === row.original.id ? (
+                  <Loader2 className="spin" size={15} />
+                ) : (
+                  <RefreshCw size={15} />
+                )}
+                Load metadata
+              </Button>
+            )}
+            {canWrite && (
+              <Button
+                variant="ghost"
+                aria-label={`Edit ${row.original.name}`}
+                onClick={() => {
+                  setEditing(row.original);
+                  setEditorOpen(true);
+                }}
+              >
+                <Pencil size={15} />
+              </Button>
+            )}
             <Button asChild variant="ghost">
-              <Link href={`/connections/${row.original.id}`}>Open</Link>
+              <Link
+                href={
+                  capability === "SOURCE"
+                    ? `/sources/${row.original.id}`
+                    : `/connections/${row.original.id}`
+                }
+              >
+                Open
+              </Link>
             </Button>
             {canDelete && (
               <Button
@@ -136,7 +220,7 @@ export function ConnectionsPage({
         ),
       },
     ],
-    [canDelete, canWrite, remove, test],
+    [canDelete, canWrite, capability, discovery, remove, test],
   );
   if (connections.isPending) return <Loading />;
   if (connections.isError)
@@ -171,10 +255,13 @@ export function ConnectionsPage({
         eyebrow="CONNECTIONS"
       >
         {canWrite && (
-          <Button asChild>
-            <Link href="/connections/new">
-              <Plus size={16} /> New Connection
-            </Link>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setEditorOpen(true);
+            }}
+          >
+            <Plus size={16} /> New Connection
           </Button>
         )}
       </PageHeader>
@@ -239,14 +326,33 @@ export function ConnectionsPage({
         <DataTable
           data={values}
           columns={columns}
-          getRowHref={(row) => `/connections/${row.id}`}
+          getRowHref={(row) =>
+            capability === "SOURCE"
+              ? `/sources/${row.id}`
+              : `/connections/${row.id}`
+          }
         />
       ) : (
         <Empty
           title="No connections"
           description="Add a database or object storage connection."
-          href={canWrite ? "/connections/new" : undefined}
           action={canWrite ? "Add connection" : undefined}
+          onAction={
+            canWrite
+              ? () => {
+                  setEditing(null);
+                  setEditorOpen(true);
+                }
+              : undefined
+          }
+        />
+      )}
+      {canWrite && editorOpen && (
+        <ConnectionDialog
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          value={editing}
+          capability={capability}
         />
       )}
       {canDelete && (
@@ -263,7 +369,7 @@ export function ConnectionsPage({
             <Button
               variant="destructive"
               disabled={remove.isPending}
-              onClick={() => deleting && remove.mutate(deleting.id)}
+              onClick={() => deleting && remove.mutate(deleting)}
             >
               Delete connection
             </Button>

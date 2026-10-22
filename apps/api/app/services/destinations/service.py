@@ -570,11 +570,25 @@ async def build(
                 {"topic": mapping.topic},
             )
         source = discovered.get((table.schema_name, table.table_name))
-        if source is None or not source.primary_key_columns:
+        if source is None or not source.columns_json:
             raise DomainError(
                 "SOURCE_SCHEMA_REQUIRED",
-                "Discover source columns and primary keys before configuring delivery",
+                "Load source metadata before configuring this delivery",
                 422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                },
+            )
+        if not source.primary_key_columns:
+            raise DomainError(
+                "SOURCE_PRIMARY_KEY_REQUIRED",
+                "Database deliveries require a primary key on every selected source table",
+                422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                },
             )
         columns = analyze_columns(source.columns_json, source_database.type, destination.type)
         incompatible = [column for column in columns if column["compatibility"] == "INCOMPATIBLE"]

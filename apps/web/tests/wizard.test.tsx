@@ -130,3 +130,96 @@ it("builds a review from selected ready tables", async () => {
   ).toBeInTheDocument();
   expect(screen.getAllByText("Analytics").length).toBeGreaterThan(0);
 });
+
+it("loads missing source metadata while selecting tables", async () => {
+  let metadataLoaded = false;
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/session")
+      return {
+        actor: "admin@example.com",
+        email: "admin@example.com",
+        role: "Admin",
+        environment: "test",
+        auth_mode: "session",
+        permissions: ["*"],
+      };
+    if (path === "/sources")
+      return [
+        {
+          id: "s1",
+          name: "Commerce",
+          host: "source",
+          port: 5432,
+          database_name: "commerce",
+          status: "HEALTHY",
+        },
+      ];
+    if (path === "/kafka/clusters")
+      return [{ id: "k1", name: "Kafka", bootstrap_servers: "kafka:29092" }];
+    if (path === "/connect/clusters")
+      return [{ id: "c1", name: "Connect", kafka_cluster_id: "k1" }];
+    if (path === "/destinations") return [];
+    if (path === "/sources/s1/tables")
+      return metadataLoaded
+        ? [
+            {
+              id: "t1",
+              schema_name: "public",
+              table_name: "customers",
+              cdc_ready: true,
+              cdc_status: "READY",
+              primary_key_columns: ["id"],
+              cdc_issues: [],
+              estimated_rows: 100,
+              estimated_size_bytes: 1048576,
+            },
+          ]
+        : [];
+    if (path === "/jobs/metadata-job") {
+      metadataLoaded = true;
+      return {
+        id: "metadata-job",
+        status: "COMPLETED",
+        error: null,
+        result_json: { tables_discovered: 1 },
+      };
+    }
+    return [];
+  });
+  vi.mocked(post).mockImplementation(async (path) => {
+    if (path === "/sources/s1/discover") return { id: "metadata-job" };
+    return {};
+  });
+
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <PipelineWizard />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(await screen.findByRole("radio"));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Where should captured events run?");
+  fireEvent.change(screen.getByLabelText("Kafka cluster"), {
+    target: { value: "k1" },
+  });
+  fireEvent.change(screen.getByLabelText("Kafka Connect cluster"), {
+    target: { value: "c1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(
+    await screen.findByText("No table metadata loaded"),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Load metadata" }));
+
+  expect(
+    await screen.findByRole("checkbox", { name: "Capture public.customers" }),
+  ).toBeInTheDocument();
+  expect(post).toHaveBeenCalledWith("/sources/s1/discover");
+  expect(api).toHaveBeenCalledWith("/jobs/metadata-job");
+});

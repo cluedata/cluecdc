@@ -1,8 +1,9 @@
 # Ecommerce CDC test container
 
 `commerce-generator` contains Python scripts that connect to the existing
-PostgreSQL ecommerce source: database `cluecdc_source` on `cdc-source-postgres`, using
-the table-owning `source_user` role and `SOURCE_PASSWORD` from `.env` (default `source123`, local tests only).
+PostgreSQL ecommerce source: database `cluecdc_source` on `postgres-demo`, using
+the table-owning `source_user` role and `POSTGRES_DEMO_SOURCE_PASSWORD` from `.env`
+(default `source123`, local tests only).
 It uses the existing `customers`, `orders` and `payments` tables. No new database
 or source registration is required.
 

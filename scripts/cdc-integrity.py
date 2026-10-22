@@ -158,7 +158,7 @@ def create_source_fixtures(compose: Compose, run: str) -> dict[str, list[str]]:
     tables = [f"cdc_i_{run}_accounts", f"cdc_i_{run}_ledger"]
     accounts, ledger = tables
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"""
         SET ROLE source_user;
@@ -186,7 +186,7 @@ def create_source_fixtures(compose: Compose, run: str) -> dict[str, list[str]]:
         """,
     )
     compose.mysql(
-        "cdc-source-mysql",
+        "mysql-demo",
         "cluecdc_source",
         f"""
         CREATE TABLE {accounts} (
@@ -220,7 +220,7 @@ def stream_changes(
     accounts, ledger = tables
     if provider == "postgresql":
         compose.postgres(
-            "cdc-source-postgres",
+            "postgres-demo",
             "cluecdc_source",
             f"""
             SET ROLE source_user;
@@ -244,7 +244,7 @@ def stream_changes(
         )
     else:
         compose.mysql(
-            "cdc-source-mysql",
+            "mysql-demo",
             "cluecdc_source",
             f"""
             START TRANSACTION;
@@ -337,10 +337,10 @@ def main() -> None:
     env_files = args.env_file or [ROOT / ".env"]
     environment = load_fixture_environment(env_files)
     required = [
-        "SOURCE_PASSWORD",
-        "MYSQL_SOURCE_PASSWORD",
-        "DESTINATION_PASSWORD",
-        "MYSQL_DESTINATION_PASSWORD",
+        "POSTGRES_DEMO_SOURCE_PASSWORD",
+        "MYSQL_DEMO_SOURCE_PASSWORD",
+        "POSTGRES_DEMO_DESTINATION_PASSWORD",
+        "MYSQL_DEMO_DESTINATION_PASSWORD",
     ]
     missing = [key for key in required if not environment.get(key)]
     if missing:
@@ -383,11 +383,11 @@ def main() -> None:
             {
                 "name": f"Integrity PostgreSQL {run}",
                 "type": "postgresql",
-                "host": "cdc-source-postgres",
+                "host": "postgres-demo",
                 "port": 5432,
                 "database_name": "cluecdc_source",
                 "username": "source_user",
-                "password": environment["SOURCE_PASSWORD"],
+                "password": environment["POSTGRES_DEMO_SOURCE_PASSWORD"],
             },
         ),
         "mysql": api.create(
@@ -395,11 +395,11 @@ def main() -> None:
             {
                 "name": f"Integrity MySQL {run}",
                 "type": "mysql",
-                "host": "cdc-source-mysql",
+                "host": "mysql-demo",
                 "port": 3306,
                 "database_name": "cluecdc_source",
                 "username": "source_user",
-                "password": environment["MYSQL_SOURCE_PASSWORD"],
+                "password": environment["MYSQL_DEMO_SOURCE_PASSWORD"],
             },
         ),
     }
@@ -425,11 +425,11 @@ def main() -> None:
             {
                 "name": f"Integrity PostgreSQL destination {run}",
                 "type": "postgresql",
-                "host": "destination-postgres",
+                "host": "postgres-demo",
                 "port": 5432,
                 "database_name": "cluecdc_destination",
                 "username": "destination_user",
-                "password": environment["DESTINATION_PASSWORD"],
+                "password": environment["POSTGRES_DEMO_DESTINATION_PASSWORD"],
             },
         ),
         "mysql": api.create(
@@ -437,11 +437,11 @@ def main() -> None:
             {
                 "name": f"Integrity MySQL destination {run}",
                 "type": "mysql",
-                "host": "destination-mysql",
+                "host": "mysql-demo",
                 "port": 3306,
                 "database_name": "cluecdc_destination",
                 "username": "destination_user",
-                "password": environment["MYSQL_DESTINATION_PASSWORD"],
+                "password": environment["MYSQL_DEMO_DESTINATION_PASSWORD"],
             },
         ),
     }
@@ -484,9 +484,7 @@ def main() -> None:
             "public" if source_provider == "postgresql" else "cluecdc_source"
         )
         source_service = (
-            "cdc-source-postgres"
-            if source_provider == "postgresql"
-            else "cdc-source-mysql"
+            "postgres-demo" if source_provider == "postgresql" else "mysql-demo"
         )
         source_database = "cluecdc_source"
 
@@ -510,9 +508,9 @@ def main() -> None:
 
         for destination_provider in ("postgresql", "mysql"):
             destination_service = (
-                "destination-postgres"
+                "postgres-demo"
                 if destination_provider == "postgresql"
-                else "destination-mysql"
+                else "mysql-demo"
             )
             destination_database = "cluecdc_destination"
             destination_schema = (

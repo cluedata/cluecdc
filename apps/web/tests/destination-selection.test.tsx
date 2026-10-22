@@ -43,6 +43,13 @@ function renderWizard(
                 topic_name: "capture.public.customers",
                 schema_name: "public",
                 table_name: "customers",
+                primary_key_columns: ["id"],
+              },
+              {
+                topic_name: "capture.public.cars",
+                schema_name: "public",
+                table_name: "cars",
+                primary_key_columns: [],
               },
             ]
           : [],
@@ -138,6 +145,25 @@ it("defaults MySQL mappings to the configured destination database", async () =>
       name: "Schema for capture.public.customers",
     }),
   ).toHaveValue("analytics_mysql");
+});
+
+it("disables database delivery topics whose source table has no primary key", async () => {
+  renderWizard(false, true);
+  await screen.findByRole("option", { name: /Analytics/ });
+  fireEvent.change(screen.getByRole("combobox", { name: "Destination" }), {
+    target: { value: "target-1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(
+    await screen.findByRole("checkbox", { name: /capture.public.customers/ }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("checkbox", { name: /capture.public.cars/ }),
+  ).toBeDisabled();
+  expect(
+    screen.getByText(/Unavailable: source table has no primary key/),
+  ).toBeVisible();
 });
 
 it("prepares missing capture topics and retries preview without deploying a delivery", async () => {

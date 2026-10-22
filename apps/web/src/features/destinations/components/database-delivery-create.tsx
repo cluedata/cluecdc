@@ -416,39 +416,47 @@ export function DestinationWizard({
                       Select the pipeline topics to deliver. Topic existence is
                       verified during review.
                     </p>
-                    {pipeline.data.tables.map((table) => (
-                      <label key={table.topic_name}>
-                        <input
-                          type="checkbox"
-                          checked={mappings.some(
-                            (mapping) => mapping.topic === table.topic_name,
-                          )}
-                          onChange={(event) =>
-                            setMappings((values) =>
-                              event.target.checked
-                                ? [
-                                    ...values,
-                                    {
-                                      topic: table.topic_name,
-                                      schema_name: targetNamespace,
-                                      table_name: table.table_name,
-                                    },
-                                  ]
-                                : values.filter(
-                                    (mapping) =>
-                                      mapping.topic !== table.topic_name,
-                                  ),
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>{table.topic_name}</strong>
-                          <small>
-                            {table.schema_name}.{table.table_name}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
+                    {pipeline.data.tables.map((table) => {
+                      const hasPrimaryKey =
+                        table.primary_key_columns.length > 0;
+                      return (
+                        <label key={table.topic_name}>
+                          <input
+                            type="checkbox"
+                            disabled={!hasPrimaryKey}
+                            checked={mappings.some(
+                              (mapping) => mapping.topic === table.topic_name,
+                            )}
+                            onChange={(event) =>
+                              setMappings((values) =>
+                                event.target.checked
+                                  ? [
+                                      ...values,
+                                      {
+                                        topic: table.topic_name,
+                                        schema_name: targetNamespace,
+                                        table_name: table.table_name,
+                                      },
+                                    ]
+                                  : values.filter(
+                                      (mapping) =>
+                                        mapping.topic !== table.topic_name,
+                                    ),
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>{table.topic_name}</strong>
+                            <small>
+                              {table.schema_name}.{table.table_name}
+                              {hasPrimaryKey
+                                ? ` · Primary key: ${table.primary_key_columns.join(", ")}`
+                                : " · Unavailable: source table has no primary key"}
+                            </small>
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 ))}
               {!pipelines.isPending &&

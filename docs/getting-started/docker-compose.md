@@ -98,25 +98,26 @@ They are not required to open or operate ClueCDC.
 
 ### Fixture connections and credentials
 
-Both engines use the same database and application-account names by role:
+Each engine has one demo service shared by source and destination connections.
+Separate logical databases and users keep sink writes out of the CDC source:
 
-| Fixture                | Host connection  | Database              | User               | Password         |
-| ---------------------- | ---------------- | --------------------- | ------------------ | ---------------- |
-| PostgreSQL source      | `localhost:5434` | `cluecdc_source`      | `source_user`      | `source123`      |
-| MySQL source           | `localhost:3307` | `cluecdc_source`      | `source_user`      | `source123`      |
-| PostgreSQL destination | `localhost:5435` | `cluecdc_destination` | `destination_user` | `destination123` |
-| MySQL destination      | `localhost:3308` | `cluecdc_destination` | `destination_user` | `destination123` |
+| Engine / role          | Host connection  | Compose host    | Database              | User               | Password         |
+| ---------------------- | ---------------- | --------------- | --------------------- | ------------------ | ---------------- |
+| PostgreSQL source      | `localhost:5434` | `postgres-demo` | `cluecdc_source`      | `source_user`      | `source123`      |
+| PostgreSQL destination | `localhost:5434` | `postgres-demo` | `cluecdc_destination` | `destination_user` | `destination123` |
+| MySQL source           | `localhost:3307` | `mysql-demo`    | `cluecdc_source`      | `source_user`      | `source123`      |
+| MySQL destination      | `localhost:3307` | `mysql-demo`    | `cluecdc_destination` | `destination_user` | `destination123` |
 
-When registering connections in ClueCDC, use `cdc-source-postgres:5432`,
-`cdc-source-mysql:3306`, `destination-postgres:5432`, or `destination-mysql:3306`
-instead of the host addresses. PostgreSQL uses the `public` schema; its destination
+When registering connections inside Compose, use `postgres-demo:5432` or
+`mysql-demo:3306`. PostgreSQL uses the `public` schema; its destination
 also provides an `analytics` schema for fan-out tests. MySQL's schema name is its
 database name. PostgreSQL administrators use `postgres` / `postgres123`; MySQL
 administrators use `root` / `mysql123`. MinIO uses `minioadmin` / `minioadmin`,
 endpoint `http://localhost:9000` (`http://minio:9000` inside Compose), and bucket
 `cluecdc-cdc`. All published fixture ports bind to loopback only.
 
-Override passwords through the existing variables in `.env.test.example`, using
+Override the clearly prefixed `POSTGRES_DEMO_*` and `MYSQL_DEMO_*` variables in
+`.env.test.example`, using
 your `.env` or shell environment. These public defaults are for local tests only;
 the core metadata database and application authentication are unchanged.
 Demo/acceptance scripts and browser tests also load `.env.test.example` as

@@ -79,7 +79,7 @@ def wait_count(
 ) -> None:
     wait_for(
         lambda: compose.postgres(
-            "destination-postgres",
+            "postgres-demo",
             "cluecdc_destination",
             f"SELECT count(*) FROM public.{table} WHERE {where};",
         ),
@@ -98,8 +98,8 @@ def main() -> None:
     api = ApiClient(
         args.api_url,
         [
-            environment.get("SOURCE_PASSWORD", ""),
-            environment.get("DESTINATION_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_SOURCE_PASSWORD", ""),
+            environment.get("POSTGRES_DEMO_DESTINATION_PASSWORD", ""),
         ],
     )
     compose = Compose(args.compose_project, env_files)
@@ -124,7 +124,7 @@ def main() -> None:
     destination_added = f"schema_{run}_added"
     destination_bulk = f"schema_{run}_bulk"
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"""
         SET ROLE source_user;
@@ -210,7 +210,7 @@ def main() -> None:
         "added snapshot row",
     )
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"SET ROLE source_user; INSERT INTO public.{source_added} VALUES (2, 'streaming');",
     )
@@ -225,7 +225,7 @@ def main() -> None:
     tables = api.request(f"/pipelines/{pipeline['id']}/tables")
     added_table = next(item for item in tables if item["table_name"] == source_added)
     compose.postgres(
-        "destination-postgres",
+        "postgres-demo",
         "cluecdc_destination",
         f"UPDATE public.{destination_added} SET name='corrupt' WHERE id=1;",
     )
@@ -312,7 +312,7 @@ def main() -> None:
     )
     wait_operation(api, remove["id"], "remove table")
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"""
         SET ROLE source_user;
@@ -336,7 +336,7 @@ def main() -> None:
     )
 
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_base} ADD COLUMN note text NULL, "
         "ADD COLUMN status text NOT NULL DEFAULT 'new';",
@@ -357,7 +357,7 @@ def main() -> None:
         mappings_payload,
     )
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"SET ROLE source_user; INSERT INTO public.{source_base}(id,name,balance,note) "
         "VALUES (3, 'schema-add', 30.75, NULL);",
@@ -391,32 +391,32 @@ def main() -> None:
     )
 
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ADD COLUMN note text NULL, "
         "ADD COLUMN status text NOT NULL DEFAULT 'new';",
     )
     discover(api, source_id)
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ALTER COLUMN code TYPE varchar(64);",
     )
     discover(api, source_id)
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_probe} DROP COLUMN note;",
     )
     discover(api, source_id)
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_probe} ALTER COLUMN code TYPE bigint USING code::bigint;",
     )
     discover(api, source_id)
     compose.postgres(
-        "cdc-source-postgres",
+        "postgres-demo",
         "cluecdc_source",
         f"ALTER TABLE public.{source_probe} DROP CONSTRAINT {source_probe}_pkey, "
         "ADD PRIMARY KEY (code);",

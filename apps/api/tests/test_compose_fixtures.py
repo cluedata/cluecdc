@@ -17,34 +17,43 @@ ENV = dict(
 
 
 @pytest.mark.parametrize(
-    ("service", "engine", "role", "password_variable"),
+    ("service", "source_password", "destination_password"),
     [
-        ("cdc-source-postgres", "POSTGRES", "source", "SOURCE_PASSWORD"),
-        ("cdc-source-mysql", "MYSQL", "source", "MYSQL_CDC_PASSWORD"),
-        ("destination-postgres", "POSTGRES", "destination", "DESTINATION_PASSWORD"),
-        ("destination-mysql", "MYSQL", "destination", "MYSQL_DELIVERY_PASSWORD"),
+        (
+            "postgres-demo",
+            "POSTGRES_DEMO_SOURCE_PASSWORD",
+            "POSTGRES_DEMO_DESTINATION_PASSWORD",
+        ),
+        (
+            "mysql-demo",
+            "MYSQL_DEMO_SOURCE_PASSWORD",
+            "MYSQL_DEMO_DESTINATION_PASSWORD",
+        ),
     ],
 )
-def test_database_fixture_names_credentials_and_authenticated_health(
-    service, engine, role, password_variable
+def test_shared_database_fixtures_have_clear_credentials_and_authenticated_health(
+    service, source_password, destination_password
 ):
     fixture = FIXTURES["services"][service]
-    database = f"cluecdc_{role}"
-    user = f"{role}_user"
-    assert (
-        fixture["environment"]["POSTGRES_DB" if engine == "POSTGRES" else "MYSQL_DATABASE"]
-        == database
+    assert fixture["environment"][source_password] == f"${{{source_password}:-source123}}"
+    assert fixture["environment"][destination_password] == (
+        f"${{{destination_password}:-destination123}}"
     )
     assert fixture["healthcheck"]["test"][0] == "CMD-SHELL"
     health = fixture["healthcheck"]["test"][1]
-    assert database in health and user in health
-    assert f"$${password_variable}" in health
+    for role, password_variable in (
+        ("source", source_password),
+        ("destination", destination_password),
+    ):
+        assert f"cluecdc_{role}" in health and f"{role}_user" in health
+        assert f"$${password_variable}" in health
     assert "SELECT 1" in health
     assert all(port.startswith("127.0.0.1:") for port in fixture["ports"])
     config = fixture["configs"][0]
     assert config["target"].startswith("/docker-entrypoint-initdb.d/")
     init = FIXTURES["configs"][config["source"]]["content"]
-    assert database in init and user in init
+    for role in ("source", "destination"):
+        assert f"cluecdc_{role}" in init and f"{role}_user" in init
     assert all(not volume.startswith("./") for volume in fixture["volumes"])
 
 
@@ -54,10 +63,11 @@ def test_inline_configs_do_not_interpolate_runtime_shell_passwords():
         content = config["content"]
         assert not re.search(r"(?<!\$)\$(?!\$)", content)
         if "mysql" in name:
-            assert "password_hex=$$(" in content
-            assert "CONVERT(X'$${password_hex}' USING utf8mb4)" in content
-            assert "QUOTE(@fixture_password)" in content
-    assert "Xin chào 👋" in FIXTURES["configs"]["source-mysql-init"]["content"]
+            assert "source_password_hex=$$(" in content
+            assert "destination_password_hex=$$(" in content
+            assert "CONVERT(X'$${source_password_hex}' USING utf8mb4)" in content
+            assert "QUOTE(@source_password)" in content
+    assert "Xin chào 👋" in FIXTURES["configs"]["mysql-demo-init"]["content"]
 
 
 def test_compose_password_defaults_match_example_environment():
@@ -71,6 +81,8 @@ def test_compose_password_defaults_match_example_environment():
 def test_workload_and_minio_share_fixture_configuration():
     services = FIXTURES["services"]
     workload = services["commerce-generator"]["environment"]
+    assert workload["PGHOST"] == "postgres-demo"
+    assert workload["MYSQL_HOST"] == "mysql-demo"
     assert workload["PGDATABASE"] == workload["MYSQL_DATABASE"] == "cluecdc_source"
     assert workload["PGUSER"] == workload["MYSQL_USER"] == "source_user"
     bootstrap = services["minio-bootstrap"]
@@ -84,12 +96,12 @@ def test_workload_and_minio_share_fixture_configuration():
 
 
 def test_fixture_scripts_use_defaults_and_allow_file_and_shell_overrides(tmp_path, monkeypatch):
-    monkeypatch.delenv("SOURCE_PASSWORD", raising=False)
-    monkeypatch.delenv("DESTINATION_PASSWORD", raising=False)
+    monkeypatch.delenv("POSTGRES_DEMO_SOURCE_PASSWORD", raising=False)
+    monkeypatch.delenv("POSTGRES_DEMO_DESTINATION_PASSWORD", raising=False)
     custom = tmp_path / "fixture.env"
-    custom.write_text("SOURCE_PASSWORD=custom-source\n", encoding="utf-8")
+    custom.write_text("POSTGRES_DEMO_SOURCE_PASSWORD=custom-source\n", encoding="utf-8")
     environment = load_fixture_environment([custom])
-    assert environment["SOURCE_PASSWORD"] == "custom-source"
-    assert environment["DESTINATION_PASSWORD"] == "destination123"
-    monkeypatch.setenv("SOURCE_PASSWORD", "shell-source")
-    assert load_fixture_environment([custom])["SOURCE_PASSWORD"] == "shell-source"
+    assert environment["POSTGRES_DEMO_SOURCE_PASSWORD"] == "custom-source"
+    assert environment["POSTGRES_DEMO_DESTINATION_PASSWORD"] == "destination123"
+    monkeypatch.setenv("POSTGRES_DEMO_SOURCE_PASSWORD", "shell-source")
+    assert load_fixture_environment([custom])["POSTGRES_DEMO_SOURCE_PASSWORD"] == "shell-source"

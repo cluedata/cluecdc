@@ -101,7 +101,7 @@ export function ConnectionFields({
         </select>
       </Field>
       <Field label="Host" error={errors.host?.message}>
-        <Input {...form.register("host")} placeholder="destination-postgres" />
+        <Input {...form.register("host")} placeholder="postgres-demo" />
       </Field>
       <Field label="Port" error={errors.port?.message}>
         <Input

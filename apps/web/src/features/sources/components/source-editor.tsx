@@ -45,7 +45,7 @@ export function SourceEditor({
           name: "Commerce PostgreSQL",
           type: "postgresql",
           environment: "development",
-          host: "cdc-source-postgres",
+          host: "postgres-demo",
           port: 5432,
           database_name: "cluecdc_source",
           username: "source_user",

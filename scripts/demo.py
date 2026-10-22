@@ -18,9 +18,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--api-url", default="http://localhost:8000/api/v1")
 args = parser.parse_args()
 secrets = load_fixture_environment([root / ".env"])
-source_password = os.environ.get("SOURCE_PASSWORD") or secrets.get("SOURCE_PASSWORD")
+source_password = os.environ.get("POSTGRES_DEMO_SOURCE_PASSWORD") or secrets.get(
+    "POSTGRES_DEMO_SOURCE_PASSWORD"
+)
 if not source_password:
-    raise RuntimeError("SOURCE_PASSWORD is required for the demo fixture")
+    raise RuntimeError("POSTGRES_DEMO_SOURCE_PASSWORD is required for the demo fixture")
 
 
 def request(path, method="GET", data=None):
@@ -69,7 +71,7 @@ source = find_or_create(
     "Commerce PostgreSQL",
     {
         "type": "postgresql",
-        "host": "cdc-source-postgres",
+        "host": "postgres-demo",
         "port": 5432,
         "database_name": "cluecdc_source",
         "username": "source_user",
@@ -145,7 +147,7 @@ result = subprocess.run(
         "compose.test.yaml",
         "exec",
         "-T",
-        "cdc-source-postgres",
+        "postgres-demo",
         "psql",
         "-U",
         "postgres",

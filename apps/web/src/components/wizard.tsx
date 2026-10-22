@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   GitBranch,
   Loader2,
   Plus,
+  RefreshCw,
 } from "lucide-react";
 import type {
   ConnectCluster,
@@ -43,6 +44,11 @@ import {
 } from "./common";
 import { DataFlowRail } from "./data-flow-rail";
 import { useAuthorization } from "@/lib/auth";
+import {
+  discoveredTableCount,
+  loadSourceMetadata,
+} from "@/lib/source-metadata";
+import { toast } from "sonner";
 
 const steps = [
   "Source",
@@ -70,6 +76,7 @@ const deliveryDefaults: DeliveryDraft = {
 export function PipelineWizard() {
   const { can } = useAuthorization();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useSearchParams();
   const [step, setStep] = useState(0);
   const [sourceId, setSourceId] = useState(params.get("source") || "");
@@ -107,6 +114,24 @@ export function PipelineWizard() {
   const destinations = useQuery({
     queryKey: ["destinations"],
     queryFn: () => api<Destination[]>("/destinations"),
+  });
+  const metadata = useMutation({
+    mutationFn: () => loadSourceMetadata(sourceId),
+    onSuccess: async (job) => {
+      setSelected([]);
+      await queryClient.invalidateQueries({
+        queryKey: ["source-tables", sourceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["source", sourceId] });
+      const count = discoveredTableCount(job);
+      toast.success(
+        count === null
+          ? "Source metadata loaded"
+          : `${count} ${count === 1 ? "table" : "tables"} loaded`,
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
   const form = useForm<CaptureForm>({
     resolver: zodResolver(captureSchema),
@@ -308,10 +333,12 @@ export function PipelineWizard() {
                     aria-label="Search tables"
                     placeholder="Search schema or table"
                     value={tableSearch}
+                    disabled={!tables.data?.length}
                     onChange={(event) => setTableSearch(event.target.value)}
                   />
                   <Button
                     variant="outline"
+                    disabled={!eligible.length}
                     onClick={() =>
                       setSelected(
                         eligible.map(
@@ -322,68 +349,96 @@ export function PipelineWizard() {
                   >
                     Select all
                   </Button>
+                  {can("sources.write") && (
+                    <Button
+                      variant="outline"
+                      disabled={metadata.isPending}
+                      onClick={() => metadata.mutate()}
+                    >
+                      {metadata.isPending ? (
+                        <Loader2 className="spin" size={15} />
+                      ) : (
+                        <RefreshCw size={15} />
+                      )}
+                      Load metadata
+                    </Button>
+                  )}
                 </div>
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Select</th>
-                        <th>Table</th>
-                        <th>Rows</th>
-                        <th>Primary key</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(tables.data || [])
-                        .filter((item) =>
-                          `${item.schema_name}.${item.table_name}`
-                            .toLowerCase()
-                            .includes(tableSearch.toLowerCase()),
-                        )
-                        .map((item) => {
-                          const key = `${item.schema_name}.${item.table_name}`;
-                          return (
-                            <tr key={item.id}>
-                              <td>
-                                <input
-                                  type="checkbox"
-                                  aria-label={`Capture ${key}`}
-                                  disabled={!item.cdc_ready}
-                                  checked={selected.includes(key)}
-                                  onChange={(event) =>
-                                    setSelected((old) =>
-                                      event.target.checked
-                                        ? [...old, key]
-                                        : old.filter((value) => value !== key),
-                                    )
-                                  }
-                                />
-                              </td>
-                              <td>
-                                <strong>{key}</strong>
-                                {item.cdc_issues.length > 0 && (
-                                  <small className="field-error">
-                                    {item.cdc_issues.join("; ")}
-                                  </small>
-                                )}
-                              </td>
-                              <td>{number(item.estimated_rows)}</td>
-                              <td>
-                                <code>
-                                  {item.primary_key_columns.join(", ") ||
-                                    "None"}
-                                </code>
-                              </td>
-                              <td>
-                                <Status value={item.cdc_status} />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
+                {metadata.isError && <ErrorPanel error={metadata.error} />}
+                {!tables.data?.length ? (
+                  <Empty
+                    title="No table metadata loaded"
+                    description={
+                      can("sources.write")
+                        ? "Load metadata to discover the source schemas, tables, keys, and CDC readiness."
+                        : "Ask an Admin or Operator to load metadata for this source."
+                    }
+                  />
+                ) : (
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Select</th>
+                          <th>Table</th>
+                          <th>Rows</th>
+                          <th>Primary key</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(tables.data || [])
+                          .filter((item) =>
+                            `${item.schema_name}.${item.table_name}`
+                              .toLowerCase()
+                              .includes(tableSearch.toLowerCase()),
+                          )
+                          .map((item) => {
+                            const key = `${item.schema_name}.${item.table_name}`;
+                            return (
+                              <tr key={item.id}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Capture ${key}`}
+                                    disabled={!item.cdc_ready}
+                                    checked={selected.includes(key)}
+                                    onChange={(event) =>
+                                      setSelected((old) =>
+                                        event.target.checked
+                                          ? [...old, key]
+                                          : old.filter(
+                                              (value) => value !== key,
+                                            ),
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <strong>{key}</strong>
+                                  {item.cdc_issues.length > 0 && (
+                                    <small className="field-error">
+                                      {item.cdc_issues.join("; ")}
+                                    </small>
+                                  )}
+                                </td>
+                                <td>{number(item.estimated_rows)}</td>
+                                <td>
+                                  <code>
+                                    {item.primary_key_columns.join(", ") ||
+                                      "None"}
+                                  </code>
+                                </td>
+                                <td>
+                                  <Status value={item.cdc_status} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 <p className="muted">{chosen.length} tables selected</p>
               </>
             ))}

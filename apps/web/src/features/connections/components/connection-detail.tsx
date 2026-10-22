@@ -8,7 +8,7 @@ import {
   Status,
 } from "@/components/common";
 import { api, date, post } from "@/lib/api";
-import type { Connection, ConnectionTestResult } from "@cluecdc/contracts";
+import type { Connection } from "@cluecdc/contracts";
 import { Button } from "@cluecdc/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
@@ -16,18 +16,32 @@ import Link from "next/link";
 import { useState } from "react";
 import { categoryCopy, providerName } from "./shared";
 import { useAuthorization } from "@/lib/auth";
+import { ConnectionDialog } from "./connection-dialog";
+import {
+  connectionTestPassed,
+  type ConnectionTestFeedback,
+} from "@/lib/connection-test";
 
 export function ConnectionDetailPage({ id }: { id: string }) {
   const { can } = useAuthorization();
-  const canWrite = can("destinations.write");
   const queryClient = useQueryClient();
-  const [checks, setChecks] = useState<ConnectionTestResult | null>(null);
+  const [checks, setChecks] = useState<ConnectionTestFeedback | null>(null);
+  const [edit, setEdit] = useState(false);
   const connection = useQuery({
     queryKey: ["connection", id],
     queryFn: () => api<Connection>(`/connections/${id}`),
   });
   const test = useMutation({
-    mutationFn: () => post<ConnectionTestResult>(`/connections/${id}/test`),
+    mutationFn: () =>
+      post<ConnectionTestFeedback>(
+        connection.data?.capabilities.length === 1 &&
+          connection.data.capabilities[0] === "SOURCE"
+          ? `/sources/${id}/test`
+          : connection.data?.capabilities.length === 1 &&
+              connection.data.capabilities[0] === "DESTINATION"
+            ? `/destinations/${id}/test`
+            : `/connections/${id}/test`,
+      ),
     onSuccess: (value) => {
       setChecks(value);
       queryClient.invalidateQueries({ queryKey: ["connection", id] });
@@ -36,6 +50,9 @@ export function ConnectionDetailPage({ id }: { id: string }) {
   if (connection.isPending) return <Loading />;
   if (connection.isError) return <ErrorPanel error={connection.error} />;
   const value = connection.data;
+  const canWrite =
+    (value.capabilities.includes("SOURCE") && can("sources.write")) ||
+    (value.capabilities.includes("DESTINATION") && can("destinations.write"));
   return (
     <>
       <PageHeader
@@ -45,8 +62,8 @@ export function ConnectionDetailPage({ id }: { id: string }) {
       >
         {canWrite && (
           <>
-            <Button asChild variant="outline">
-              <Link href={`/connections/${id}/edit`}>Edit</Link>
+            <Button variant="outline" onClick={() => setEdit(true)}>
+              Edit
             </Button>
             <Button disabled={test.isPending} onClick={() => test.mutate()}>
               Test Connection
@@ -90,14 +107,29 @@ export function ConnectionDetailPage({ id }: { id: string }) {
             <h2>Connection diagnostics</h2>
           </div>
           <div className="diagnostic-list">
-            {checks.checks.map((check) => (
-              <div key={check.name}>
+            {checks.checks?.length ? (
+              checks.checks.map((check) => (
+                <div key={check.name}>
+                  <CheckCircle2 size={17} />
+                  <strong>{check.name.replaceAll("_", " ")}</strong>
+                  <Status value={check.status} />
+                  <span>{check.message}</span>
+                </div>
+              ))
+            ) : (
+              <div>
                 <CheckCircle2 size={17} />
-                <strong>{check.name.replaceAll("_", " ")}</strong>
-                <Status value={check.status} />
-                <span>{check.message}</span>
+                <strong>Connection</strong>
+                <Status
+                  value={connectionTestPassed(checks) ? "HEALTHY" : "ERROR"}
+                />
+                <span>
+                  {connectionTestPassed(checks)
+                    ? "Connection test passed"
+                    : "Connection test failed"}
+                </span>
               </div>
-            ))}
+            )}
           </div>
         </section>
       )}
@@ -130,6 +162,16 @@ export function ConnectionDetailPage({ id }: { id: string }) {
         <summary>Non-sensitive connection configuration</summary>
         <JsonView value={value.config} />
       </details>
+      {canWrite && edit && (
+        <ConnectionDialog
+          open={edit}
+          onOpenChange={setEdit}
+          value={value}
+          capability={
+            value.capabilities.length === 1 ? value.capabilities[0] : undefined
+          }
+        />
+      )}
     </>
   );
 }

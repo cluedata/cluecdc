@@ -8,7 +8,7 @@
 - At least 6 GB free Docker memory; 8 GB or more recommended for builds/test fixtures
 - At least 20 GB free Docker disk space for images, build cache, and local data
 - Core ports 3000, 8000, 8083, and 9092 available, or overridden in `.env`
-- Test fixtures additionally use ports 5434-5435, 3307-3308, and 9000
+- Test fixtures additionally use ports 5434, 3307, and 9000
 
 Host Python and Node.js are not required for the Compose quick start. Copying
 `.env.example` supplies public demo credentials for a loopback-only installation.

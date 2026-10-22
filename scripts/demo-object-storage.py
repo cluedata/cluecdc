@@ -25,7 +25,7 @@ env = load_fixture_environment(env_files)
 compose = Compose(args.compose_project or "cluecdc", env_files)
 access_key = os.getenv("MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "minioadmin"))
 secret_key = os.getenv("MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "minioadmin"))
-source_password = env["SOURCE_PASSWORD"]
+source_password = env["POSTGRES_DEMO_SOURCE_PASSWORD"]
 
 
 def api(path, method="GET", data=None):
@@ -74,7 +74,7 @@ source = find_or_create(
         "category": "DATABASE",
         "capabilities": ["SOURCE"],
         "config": {
-            "host": "cdc-source-postgres",
+            "host": "postgres-demo",
             "port": 5432,
             "database_name": "cluecdc_source",
             "username": "source_user",
@@ -170,7 +170,7 @@ sql = (
     f"UPDATE customers SET name = 'update {marker}', updated_at = now() WHERE email = '{email}';\n"
     f"DELETE FROM customers WHERE email = '{email}';\n"
 )
-compose.postgres("cdc-source-postgres", "cluecdc_source", sql)
+compose.postgres("postgres-demo", "cluecdc_source", sql)
 client = boto3.client(
     "s3",
     endpoint_url=args.minio_url,
