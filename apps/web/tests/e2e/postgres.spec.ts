@@ -155,10 +155,24 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
     );
     await page.getByRole("tab", { name: "Events", exact: true }).click();
     await expect(
-      page.getByRole("heading", {
-        name: "CDC payloads stay in the data plane",
-      }),
+      page.getByRole("heading", { name: "Event explorer", exact: true }),
     ).toBeVisible();
+    const fetchEvents = page.getByRole("button", {
+      name: "Fetch recent events",
+      exact: true,
+    });
+    await expect(async () => {
+      const sampleResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/v1/events?") &&
+          response.request().method() === "GET",
+      );
+      await fetchEvents.click();
+      expect((await sampleResponse).ok()).toBeTruthy();
+      await expect(
+        page.getByRole("button", { name: "Inspect", exact: true }).first(),
+      ).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 30_000 });
     await page.getByRole("link", { name: "View topic metadata" }).click();
     await expect(
       page.getByRole("heading", { name: "Topic metadata", exact: true }),
@@ -260,12 +274,9 @@ test("desktop overview displays real pipeline health", async ({ page }) => {
   });
 });
 
-test("legacy events route never fetches CDC payloads", async ({
+test("events explorer waits for an explicit topic selection", async ({
   page,
-  request,
 }) => {
-  const response = await request.get("/api/v1/events?topic=customers");
-  expect(response.status()).toBe(410);
   const payloadRequests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/api/v1/events"))
@@ -273,7 +284,10 @@ test("legacy events route never fetches CDC payloads", async ({
   });
   await page.goto("/events");
   await expect(
-    page.getByRole("heading", { name: "CDC payloads stay in the data plane" }),
+    page.getByRole("heading", { name: "CDC events", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Fetch recent events", exact: true }),
+  ).toBeDisabled();
   expect(payloadRequests).toEqual([]);
 });

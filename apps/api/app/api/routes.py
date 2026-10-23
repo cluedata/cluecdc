@@ -32,11 +32,12 @@ from app.models.entities import (
 )
 from app.providers import provider_metadata, provider_metadata_for
 from app.providers.server_ids import assign_mysql_server_id
-from app.repositories.metadata import audit, get, listing, serialize
+from app.repositories.metadata import audit, audit_event, get, listing, serialize
 from app.schemas.connections import ConnectionInput
 from app.schemas.requests import (
     AddPipelineTablesInput,
     ConnectInput,
+    CustomKeyValidationInput,
     DeliveryInput,
     KafkaInput,
     PipelineInput,
@@ -51,9 +52,11 @@ from app.services import pipeline_tables as pipeline_table_service
 from app.services import source as source_service
 from app.services.destinations import service as destination_service
 from app.services.secrets import kafka_credentials, secret_provider
+from app.services.sync_strategy import assess
 
 router = APIRouter(prefix="/api/v1")
 DB = Annotated[AsyncSession, Depends(session_dependency)]
+event_slots = asyncio.Semaphore(4)
 
 
 @router.get("/database-providers")
@@ -359,7 +362,7 @@ async def tables(
         await db.scalars(query.order_by(SourceTable.schema_name, SourceTable.table_name).limit(500))
     ).all()
     return [
-        serialize(t)
+        {**serialize(t), "sync_assessment": assess(t, source.type)}
         for t in results
         if search.lower() in f"{t.schema_name}.{t.table_name}".lower()
         and (has_primary_key is None or bool(t.primary_key_columns) == has_primary_key)
@@ -382,6 +385,35 @@ async def table_readiness(
     return await (await source_service.adapter(db, source)).inspect_table(
         table.schema_name, table.table_name
     )
+
+
+@router.post("/sources/{identifier}/tables/{table_id}/effective-key/validate")
+async def validate_effective_key(
+    identifier: UUID,
+    table_id: UUID,
+    data: CustomKeyValidationInput,
+    db: DB,
+    user: Annotated[Principal, Depends(require("sources.write"))],
+):
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
+    table = await get(db, SourceTable, table_id)
+    if table.source_id != source.id:
+        raise DomainError("NOT_FOUND", "Source table was not found", 404)
+    database = await source_service.adapter(db, source)
+    await db.commit()
+    result = await database.validate_custom_key(table.schema_name, table.table_name, data.columns)
+    audit_event(
+        db,
+        user.actor,
+        "source.effective_key_validated",
+        "source_table",
+        str(table.id),
+        {"columns": data.columns, "status": result["status"]},
+    )
+    await db.commit()
+    return result
 
 
 @router.get("/sources/{identifier}/namespaces")
@@ -423,6 +455,8 @@ async def table_schema(
         "columns": table.columns_json,
         "primary_key": table.primary_key_columns,
         "indexes": table.indexes_json,
+        "source_properties": table.source_properties_json,
+        "sync_assessment": assess(table, (await get(db, Connection, identifier)).type),
     }
 
 
@@ -1312,12 +1346,57 @@ async def delete_topic(
 
 
 @router.get("/events")
-async def events_removed(user: Annotated[Principal, Depends(require("kafka.read"))]):
-    raise DomainError(
-        "CDC_PAYLOAD_API_REMOVED",
-        "CDC records bypass the control plane; inspect Kafka or destination objects directly",
-        410,
+async def events(
+    cluster_id: UUID,
+    topic: str,
+    db: DB,
+    user: Annotated[Principal, Depends(require("kafka.read"))],
+    limit: int = Query(default=50, ge=1, le=200),
+    partition: int | None = Query(default=None, ge=0),
+    offset: int | None = Query(default=None, ge=0),
+    operation: str | None = None,
+    table: str | None = None,
+    key: str | None = None,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+):
+    if len(topic) > 249 or len(key or "") > 1000:
+        raise DomainError("INVALID_FILTER", "Topic or key filter exceeds the allowed length", 422)
+    cluster = await get(db, KafkaCluster, cluster_id)
+    inspectable = await db.scalar(
+        select(PipelineTable.id)
+        .join(Pipeline, Pipeline.id == PipelineTable.pipeline_id)
+        .where(
+            Pipeline.kafka_cluster_id == cluster.id,
+            PipelineTable.topic_name == topic,
+            PipelineTable.cdc_status.not_in(["REMOVING", "REMOVED"]),
+        )
+        .limit(1)
     )
+    if inspectable is None:
+        raise DomainError(
+            "TOPIC_NOT_INSPECTABLE",
+            "Only active capture topics can be inspected through the control plane",
+            403,
+            {"topic": topic},
+        )
+    if event_slots.locked():
+        raise DomainError("EXPLORER_BUSY", "Event exploration is busy; retry shortly", 429)
+    credentials = await kafka_credentials(db, cluster)
+    await db.commit()
+    async with event_slots:
+        return await KafkaExplorer(credentials).events(
+            cluster,
+            topic,
+            limit,
+            partition,
+            offset,
+            operation,
+            table,
+            key,
+            start_ms,
+            end_ms,
+        )
 
 
 @router.get("/data/schemas")

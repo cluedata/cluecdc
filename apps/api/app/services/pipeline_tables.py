@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from datetime import UTC, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.connect import KafkaConnectClient
@@ -37,6 +37,7 @@ from app.services.debezium import notification_topic
 from app.services.destinations import service as destination_service
 from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
+from app.services.sync_strategy import assess
 
 ADD_STEPS = [
     "validate_source",
@@ -106,6 +107,7 @@ async def enqueue_add(
             )
         ).all()
     }
+    source = await get(session, Source, pipeline.source_id)
     operations = []
     for request in data.tables:
         key = (request.schema_name, request.table_name)
@@ -121,7 +123,62 @@ async def enqueue_add(
             raise DomainError(
                 "TABLE_NOT_DISCOVERED", "Discover the source before adding this table", 422
             )
+        requested_columns = request.key_columns or request.custom_key_columns
+        requested_mode = request.key_mode or ("CUSTOM" if request.custom_key_columns else None)
+        strategy = assess(
+            source_table,
+            source.type,
+            requested_sync_mode=request.sync_mode,
+            requested_key_mode=requested_mode,
+            requested_key_columns=requested_columns,
+        )
+        if (
+            request.initial_data_strategy == "BACKFILL"
+            and strategy["capabilities"]["incremental_snapshot"] != "SUPPORTED"
+        ):
+            raise DomainError(
+                "INCREMENTAL_SNAPSHOT_UNSUPPORTED",
+                "Backfill is supported only for primary-key tables; choose future changes only",
+                422,
+                {"table": f"{request.schema_name}.{request.table_name}"},
+            )
         if current:
+            previous_key = list(current.effective_key_columns or current.primary_key_columns)
+            next_key = list(strategy["effective_key"]["columns"])
+            previous_mode = current.effective_key_mode or (
+                "PRIMARY_KEY" if current.primary_key_columns else "NONE"
+            )
+            next_mode = strategy["effective_key"]["mode"]
+            if previous_key != next_key or previous_mode != next_mode:
+                delivery_count = await session.scalar(
+                    select(func.count(PipelineDestination.id)).where(
+                        PipelineDestination.pipeline_id == pipeline_id
+                    )
+                )
+                raise DomainError(
+                    "EFFECTIVE_KEY_CHANGE_REQUIRES_RECREATION",
+                    "A removed table cannot be re-added with a different effective key in place",
+                    409,
+                    {
+                        "table": f"{request.schema_name}.{request.table_name}",
+                        "previous_key": {
+                            "mode": previous_mode,
+                            "columns": previous_key,
+                        },
+                        "requested_key": {"mode": next_mode, "columns": next_key},
+                        "delivery_count": delivery_count or 0,
+                        "impact": [
+                            "Kafka record keys would change for the existing topic",
+                            "Existing deliveries may have incompatible destination constraints",
+                            "Historical events and pending offsets still use the previous key",
+                        ],
+                        "required_action": (
+                            "Create a new pipeline/topic prefix and explicitly rebuild each "
+                            "destination; ClueCDC will not reset offsets, delete topics, or "
+                            "truncate destination tables automatically"
+                        ),
+                    },
+                )
             table = current
             table.removed_at = None
             table.cdc_status = "PENDING"
@@ -133,7 +190,13 @@ async def enqueue_add(
                 topic_name=f"{pipeline.topic_prefix}.{request.schema_name}.{request.table_name}",
             )
             session.add(table)
-        table.primary_key_columns = request.custom_key_columns or source_table.primary_key_columns
+        table.primary_key_columns = source_table.primary_key_columns
+        table.sync_mode = strategy["selected_sync_mode"]
+        table.effective_key_mode = strategy["effective_key"]["mode"]
+        table.effective_key_columns = strategy["effective_key"]["columns"]
+        table.effective_key_name = strategy["effective_key"]["constraint_name"]
+        table.effective_key_enforcement = strategy["effective_key"]["enforcement"]
+        table.sync_capabilities_json = strategy["capabilities"]
         table.destination_schema = request.destination_schema or request.schema_name
         table.destination_table = request.destination_table or request.table_name
         table.initial_data_strategy = request.initial_data_strategy
@@ -175,6 +238,23 @@ async def enqueue_resync(
     await pipeline_service.locked(session, table.pipeline_id)
     if table.cdc_status == "REMOVED":
         raise DomainError("TABLE_REMOVED", "Removed tables cannot be resynced", 409)
+    effective_mode = table.effective_key_mode or (
+        "PRIMARY_KEY" if table.primary_key_columns else "NONE"
+    )
+    if effective_mode != "PRIMARY_KEY":
+        raise DomainError(
+            "INCREMENTAL_SNAPSHOT_UNSUPPORTED",
+            "Incremental resnapshot is supported only for primary-key tables",
+            422,
+            {
+                "table": f"{table.schema_name}.{table.table_name}",
+                "effective_key_mode": effective_mode,
+                "alternative": (
+                    "Use streaming-only capture or create an explicit isolated destination "
+                    "rebuild; ClueCDC will not truncate targets or reset offsets"
+                ),
+            },
+        )
     await _assert_no_active_operation(session, table.id)
     operation = PipelineOperation(
         pipeline_id=table.pipeline_id,
@@ -350,6 +430,26 @@ async def _run_add(session: AsyncSession, operation: PipelineOperation) -> None:
                 422,
                 readiness,
             )
+        live_table = SourceTable(
+            source_id=source.id,
+            schema_name=table.schema_name,
+            table_name=table.table_name,
+            primary_key_columns=readiness.get("primary_key_columns", []),
+            columns_json=readiness.get("columns", []),
+            indexes_json=readiness.get("indexes", []),
+            source_properties_json=readiness.get("source_properties", {}),
+            cdc_ready=True,
+            cdc_status="READY",
+            cdc_issues=[],
+        )
+        strategy = assess(
+            live_table,
+            source.type,
+            requested_sync_mode=table.sync_mode,
+            requested_key_mode=table.effective_key_mode,
+            requested_key_columns=table.effective_key_columns or [],
+        )
+        readiness["sync_assessment"] = strategy
         if table.initial_data_strategy == "BACKFILL" and not readiness["primary_key_columns"]:
             raise DomainError(
                 "INCREMENTAL_SNAPSHOT_REQUIRES_KEY",

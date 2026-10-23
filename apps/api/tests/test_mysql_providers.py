@@ -1,7 +1,9 @@
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
+from app.adapters.mysql import MySQLAdapter
 from app.core.errors import DomainError
 from app.models.entities import Destination, Source
 from app.providers import get_provider, provider_metadata
@@ -67,6 +69,45 @@ def test_mysql_builder_uses_persisted_identity_and_multi_table_filters():
     assert "shop\\.orders" in config["table.include.list"]
     assert config["signal.data.collection"].startswith("shop.cluecdc_signal_")
     assert config["schema.history.internal.kafka.topic"].startswith("cluecdc.schema-history.")
+
+
+async def test_mysql_index_discovery_uses_stable_column_aliases():
+    adapter = MySQLAdapter(mysql_source(), "private")
+    adapter._all = AsyncMock(  # type: ignore[method-assign]
+        return_value=[
+            {
+                "name": "orders_business_key",
+                "unique_index": 1,
+                "primary_index": 0,
+                "column_value": "tenant_id",
+                "nullable_value": "",
+                "expression_value": None,
+            },
+            {
+                "name": "orders_business_key",
+                "unique_index": 1,
+                "primary_index": 0,
+                "column_value": "external_id",
+                "nullable_value": "",
+                "expression_value": None,
+            },
+        ]
+    )
+
+    indexes = await adapter._indexes(object(), "shop", "orders")
+
+    assert indexes == [
+        {
+            "name": "orders_business_key",
+            "unique": True,
+            "primary": False,
+            "valid": True,
+            "partial": False,
+            "expression": False,
+            "columns": ["tenant_id", "external_id"],
+            "definition": "tenant_id,external_id",
+        }
+    ]
 
 
 def test_managed_debezium_properties_cannot_be_overridden():

@@ -68,4 +68,18 @@ describe("pipeline orchestration", () => {
       completed: ["capture_validated", "pipeline_saved", "capture_deployed"],
     });
   });
+
+  it("supports capture-only pipelines without creating a sink", async () => {
+    vi.mocked(post)
+      .mockResolvedValueOnce({ config: {}, topics: [] })
+      .mockResolvedValueOnce({ id: "pipeline" })
+      .mockResolvedValueOnce({});
+    const result = await createPipelineFlow(capture, null, null);
+    expect(result.delivery).toBeNull();
+    expect(vi.mocked(post).mock.calls.map(([path]) => path)).toEqual([
+      "/pipelines/preview",
+      "/pipelines",
+      "/pipelines/pipeline/deploy",
+    ]);
+  });
 });

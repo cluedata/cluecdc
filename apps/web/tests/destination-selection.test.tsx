@@ -32,6 +32,17 @@ function renderWizard(
       return [target];
     }
     if (path === "/destinations/target-1") return target;
+    if (path === "/connections?category=OBJECT_STORAGE&capability=DESTINATION")
+      return [
+        {
+          id: "storage-1",
+          name: "MinIO archive",
+          type: "MINIO",
+          provider: "MINIO",
+          category: "OBJECT_STORAGE",
+          capabilities: ["DESTINATION"],
+        },
+      ];
     if (path === "/pipelines/capture-1")
       return {
         id: "capture-1",
@@ -46,10 +57,24 @@ function renderWizard(
                 primary_key_columns: ["id"],
               },
               {
-                topic_name: "capture.public.cars",
+                topic_name: "capture.public.cars_unique",
                 schema_name: "public",
-                table_name: "cars",
+                table_name: "cars_unique",
                 primary_key_columns: [],
+                sync_mode: "CURRENT_STATE",
+                effective_key_mode: "UNIQUE_INDEX",
+                effective_key_columns: ["car_code"],
+                effective_key_enforcement: "DATABASE_ENFORCED",
+              },
+              {
+                topic_name: "capture.public.keyless_events",
+                schema_name: "public",
+                table_name: "keyless_events",
+                primary_key_columns: [],
+                sync_mode: "CHANGE_EVENT_LOG",
+                effective_key_mode: "NONE",
+                effective_key_columns: [],
+                effective_key_enforcement: null,
               },
             ]
           : [],
@@ -147,7 +172,7 @@ it("defaults MySQL mappings to the configured destination database", async () =>
   ).toHaveValue("analytics_mysql");
 });
 
-it("disables database delivery topics whose source table has no primary key", async () => {
+it("uses effective-key readiness instead of requiring a source primary key", async () => {
   renderWizard(false, true);
   await screen.findByRole("option", { name: /Analytics/ });
   fireEvent.change(screen.getByRole("combobox", { name: "Destination" }), {
@@ -159,11 +184,56 @@ it("disables database delivery topics whose source table has no primary key", as
     await screen.findByRole("checkbox", { name: /capture.public.customers/ }),
   ).toBeEnabled();
   expect(
-    screen.getByRole("checkbox", { name: /capture.public.cars/ }),
+    screen.getByRole("checkbox", { name: /capture.public.cars_unique/ }),
+  ).toBeEnabled();
+  expect(screen.getByText(/Unique key: car_code/)).toBeVisible();
+  expect(
+    screen.getByRole("checkbox", { name: /capture.public.keyless_events/ }),
   ).toBeDisabled();
   expect(
-    screen.getByText(/Unavailable: source table has no primary key/),
+    screen.getByText(
+      /Unavailable for database Current State: CHANGE EVENT LOG/,
+    ),
   ).toBeVisible();
+});
+
+it("uses the same wizard for MinIO and allows keyless event-log topics", async () => {
+  renderWizard(false, true);
+  vi.mocked(post).mockResolvedValue({ config: {} });
+  await screen.findByRole("option", { name: /MinIO archive/ });
+  fireEvent.change(screen.getByRole("combobox", { name: "Destination" }), {
+    target: { value: "storage-1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  const keyless = await screen.findByRole("checkbox", {
+    name: /capture.public.keyless_events/,
+  });
+  expect(keyless).toBeEnabled();
+  expect(screen.getAllByText(/source key optional/)).toHaveLength(3);
+  fireEvent.click(keyless);
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(
+    screen.getByText(/Table mapping and primary keys are not required/),
+  ).toBeVisible();
+  expect(screen.queryByLabelText(/Schema for/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+  expect(screen.getByLabelText("Compression")).toBeVisible();
+  expect(screen.getByLabelText("Object key template")).toBeVisible();
+  expect(screen.queryByLabelText("Write mode")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Validate and review" }));
+
+  expect(await screen.findByRole("heading", { name: "Review" })).toBeVisible();
+  expect(post).toHaveBeenCalledWith(
+    "/destinations/storage-1/preview",
+    expect.objectContaining({
+      delivery_type: "OBJECT_STORAGE",
+      topics: ["capture.public.keyless_events"],
+      output_format: "JSONL",
+    }),
+  );
 });
 
 it("prepares missing capture topics and retries preview without deploying a delivery", async () => {

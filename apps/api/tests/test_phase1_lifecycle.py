@@ -23,6 +23,7 @@ from app.schemas.requests import (
     AddPipelineTablesInput,
     PipelineInput,
     RemovePipelineTableInput,
+    ResyncPipelineTableInput,
 )
 from app.services.debezium import PostgresDebeziumConfigBuilder, signal_table_name
 from app.services.pipeline import (
@@ -34,6 +35,7 @@ from app.services.pipeline_tables import (
     _wait_connector_healthy,
     enqueue_add,
     enqueue_remove,
+    enqueue_resync,
     retry_failed_operation,
     run_operation,
     sync_snapshot_operations,
@@ -220,6 +222,78 @@ async def test_add_table_request_persists_operation_without_replacing_connector(
         assert pipeline.connector_id == connector.id
 
 
+async def test_readding_removed_table_blocks_effective_key_change(db_factory):
+    async with db_factory() as db:
+        source, _, _, pipeline = await _metadata(db)
+        db.add(
+            SourceTable(
+                source_id=source.id,
+                schema_name="public",
+                table_name="orders",
+                primary_key_columns=[],
+                columns_json=[
+                    {
+                        "name": "new_code",
+                        "type": "text",
+                        "nullable": False,
+                        "ordinal": 1,
+                    }
+                ],
+                indexes_json=[
+                    {
+                        "name": "orders_new_code_key",
+                        "columns": ["new_code"],
+                        "unique": True,
+                        "primary": False,
+                        "valid": True,
+                        "partial": False,
+                        "expression": False,
+                    }
+                ],
+                source_properties_json={"replica_identity": "f"},
+                cdc_ready=True,
+                cdc_status="READY",
+            )
+        )
+        db.add(
+            PipelineTable(
+                pipeline_id=pipeline.id,
+                schema_name="public",
+                table_name="orders",
+                topic_name="commerce.public.orders",
+                cdc_status="REMOVED",
+                primary_key_columns=[],
+                effective_key_mode="UNIQUE_INDEX",
+                effective_key_columns=["old_code"],
+            )
+        )
+        await db.flush()
+
+        with pytest.raises(DomainError) as captured:
+            await enqueue_add(
+                db,
+                pipeline.id,
+                AddPipelineTablesInput(
+                    tables=[
+                        {
+                            "schema_name": "public",
+                            "table_name": "orders",
+                            "initial_data_strategy": "FUTURE_ONLY",
+                            "sync_mode": "CURRENT_STATE",
+                            "key_mode": "UNIQUE_INDEX",
+                            "key_columns": ["new_code"],
+                        }
+                    ]
+                ),
+                "tester",
+            )
+
+        assert captured.value.code == "EFFECTIVE_KEY_CHANGE_REQUIRES_RECREATION"
+        assert captured.value.details["previous_key"]["columns"] == ["old_code"]
+        assert captured.value.details["requested_key"]["columns"] == ["new_code"]
+        assert "new pipeline/topic prefix" in captured.value.details["required_action"]
+
+
 async def test_remove_final_table_requires_pipeline_deletion(db_factory):
     async with db_factory() as db:
         _, _, _, pipeline = await _metadata(db)
@@ -233,6 +307,29 @@ async def test_remove_final_table_requires_pipeline_deletion(db_factory):
         await db.flush()
         with pytest.raises(DomainError, match="final captured table"):
             await enqueue_remove(db, table.id, RemovePipelineTableInput(), "tester")
+
+
+async def test_resync_rejects_non_primary_effective_key(db_factory):
+    async with db_factory() as db:
+        _, _, _, pipeline = await _metadata(db)
+        table = PipelineTable(
+            pipeline_id=pipeline.id,
+            schema_name="public",
+            table_name="cars_unique",
+            topic_name="commerce.public.cars_unique",
+            cdc_status="STREAMING",
+            primary_key_columns=[],
+            effective_key_mode="UNIQUE_INDEX",
+            effective_key_columns=["car_code"],
+        )
+        db.add(table)
+        await db.flush()
+
+        with pytest.raises(DomainError) as captured:
+            await enqueue_resync(db, table.id, ResyncPipelineTableInput(), "tester")
+
+        assert captured.value.code == "INCREMENTAL_SNAPSHOT_UNSUPPORTED"
+        assert captured.value.details["effective_key_mode"] == "UNIQUE_INDEX"
 
 
 async def test_remove_rejects_concurrent_snapshot_operation(db_factory):

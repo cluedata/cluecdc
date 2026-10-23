@@ -33,6 +33,7 @@ from app.services.connector_operations import release as release_connector_opera
 from app.services.debezium import derive_actual_state, notification_topic
 from app.services.secrets import kafka_credentials
 from app.services.source import adapter as source_adapter
+from app.services.sync_strategy import assess
 
 log = structlog.get_logger()
 
@@ -88,6 +89,17 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
                 422,
                 {"table": f"{table.schema_name}.{table.table_name}", "issues": found.cdc_issues},
             )
+        strategy = assess(
+            found,
+            source.type,
+            requested_sync_mode=table.sync_mode,
+            requested_key_mode=table.key_mode,
+            requested_key_columns=table.key_columns,
+        )
+        table.sync_mode = strategy["selected_sync_mode"]
+        table.key_mode = strategy["effective_key"]["mode"]
+        table.key_columns = strategy["effective_key"]["columns"]
+        table.key_name = strategy["effective_key"]["constraint_name"]
     # Connect persists only this reference. Its ConfigProvider resolves the encrypted value.
     config = get_provider(source.type).build_source_config(
         source,
@@ -124,6 +136,25 @@ async def validate_tables_live(
                 422,
                 readiness,
             )
+        live_table = SourceTable(
+            source_id=source.id,
+            schema_name=table.schema_name,
+            table_name=table.table_name,
+            primary_key_columns=readiness.get("primary_key_columns", []),
+            columns_json=readiness.get("columns", []),
+            indexes_json=readiness.get("indexes", []),
+            source_properties_json=readiness.get("source_properties", {}),
+            cdc_ready=True,
+            cdc_status="READY",
+            cdc_issues=[],
+        )
+        readiness["sync_assessment"] = assess(
+            live_table,
+            source.type,
+            requested_sync_mode=table.sync_mode,
+            requested_key_mode=table.key_mode,
+            requested_key_columns=table.key_columns,
+        )
         results[(table.schema_name, table.table_name)] = readiness
     return results
 
@@ -164,6 +195,7 @@ async def create(session: AsyncSession, data: PipelineInput, actor: str) -> Pipe
     await session.flush()
     for t in data.tables:
         current = readiness[(t.schema_name, t.table_name)]
+        strategy = current["sync_assessment"]
         session.add(
             PipelineTable(
                 pipeline_id=pipeline.id,
@@ -171,6 +203,12 @@ async def create(session: AsyncSession, data: PipelineInput, actor: str) -> Pipe
                 table_name=t.table_name,
                 topic_name=f"{data.topic_prefix}.{t.schema_name}.{t.table_name}",
                 primary_key_columns=current["primary_key_columns"],
+                sync_mode=strategy["selected_sync_mode"],
+                effective_key_mode=strategy["effective_key"]["mode"],
+                effective_key_columns=strategy["effective_key"]["columns"],
+                effective_key_name=strategy["effective_key"]["constraint_name"],
+                effective_key_enforcement=strategy["effective_key"]["enforcement"],
+                sync_capabilities_json=strategy["capabilities"],
                 destination_schema=t.schema_name,
                 destination_table=t.table_name,
                 snapshot_status="NOT_REQUIRED" if data.snapshot_mode == "no_data" else "PENDING",
@@ -199,7 +237,27 @@ async def input_for(session: AsyncSession, pipeline: Pipeline) -> PipelineInput:
         snapshot_mode=cast(
             Literal["initial", "no_data", "never", "always"], pipeline.snapshot_mode
         ),
-        tables=[TableSelection(schema_name=t.schema_name, table_name=t.table_name) for t in tables],
+        tables=[
+            TableSelection(
+                schema_name=t.schema_name,
+                table_name=t.table_name,
+                sync_mode=cast(
+                    Literal["CURRENT_STATE", "APPEND_ONLY", "CHANGE_EVENT_LOG"],
+                    t.sync_mode or "CURRENT_STATE",
+                ),
+                key_mode=cast(
+                    Literal["PRIMARY_KEY", "UNIQUE_INDEX", "CUSTOM", "NONE"],
+                    t.effective_key_mode or ("PRIMARY_KEY" if t.primary_key_columns else "NONE"),
+                ),
+                key_columns=(
+                    list(t.effective_key_columns)
+                    if t.effective_key_columns is not None
+                    else list(t.primary_key_columns)
+                ),
+                key_name=t.effective_key_name,
+            )
+            for t in tables
+        ],
         **pipeline.config_options,
     )
 

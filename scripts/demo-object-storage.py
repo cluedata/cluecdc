@@ -2,6 +2,7 @@
 
 import argparse
 import gzip
+import http.cookiejar
 import json
 import os
 import pathlib
@@ -26,6 +27,15 @@ compose = Compose(args.compose_project or "cluecdc", env_files)
 access_key = os.getenv("MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "minioadmin"))
 secret_key = os.getenv("MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "minioadmin"))
 source_password = env["POSTGRES_DEMO_SOURCE_PASSWORD"]
+admin_email = os.getenv(
+    "DEFAULT_ADMIN_EMAIL", env.get("DEFAULT_ADMIN_EMAIL", "admin@cluecdc.local")
+)
+admin_password = os.getenv(
+    "DEFAULT_ADMIN_PASSWORD", env.get("DEFAULT_ADMIN_PASSWORD", "cluecdc-admin")
+)
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+)
 
 
 def api(path, method="GET", data=None):
@@ -39,15 +49,29 @@ def api(path, method="GET", data=None):
         data=json.dumps(data).encode() if data is not None else None,
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with opener.open(request, timeout=120) as response:
             raw = response.read().decode()
             assert all(
-                value not in raw for value in (access_key, secret_key, source_password)
+                value not in raw
+                for value in (access_key, secret_key, source_password, admin_password)
+                if value
             )
             return json.loads(raw)
     except urllib.error.HTTPError as error:
         payload = json.loads(error.read())
         raise RuntimeError(f"{method} {path}: {payload['error']['code']}") from None
+
+
+if not os.getenv("CLUECDC_TOKEN"):
+    if not admin_email or not admin_password:
+        raise RuntimeError(
+            "DEFAULT_ADMIN_EMAIL and DEFAULT_ADMIN_PASSWORD are required without CLUECDC_TOKEN"
+        )
+    api(
+        "/auth/login",
+        "POST",
+        {"email": admin_email, "password": admin_password},
+    )
 
 
 def wait_for(fn, predicate, label, seconds=180):

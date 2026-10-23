@@ -332,6 +332,9 @@ main {
   margin: 0 auto;
   flex: 1;
 }
+main:has(.wizard-layout) {
+  max-width: none;
+}
 footer {
   display: flex;
   gap: 24px;
@@ -1155,6 +1158,8 @@ button.text-link {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 250px;
   gap: 24px;
+  width: 100%;
+  max-width: none;
 }
 .wizard-panel {
   padding: 27px;
@@ -1375,6 +1380,14 @@ button.text-link {
 }
 .before-after h3 {
   margin-top: 0;
+}
+.stack-list {
+  display: grid;
+  gap: var(--space-3);
+}
+.stack-list > a {
+  display: block;
+  overflow-wrap: anywhere;
 }
 .task-list {
   margin-top: 10px;

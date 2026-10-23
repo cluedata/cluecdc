@@ -21,7 +21,10 @@ WORKDIR /build
 COPY --from=upstream /kafka/libs/ ./libs/
 COPY --from=connector-download /plugins/aiven-s3/ ./aiven-s3/
 COPY infrastructure/connect/*.java ./
+COPY infrastructure/connect/tests/*.java ./tests/
 RUN javac --release 17 -Xlint:all -cp "libs/*:aiven-s3/*" -d classes *.java \
+    && javac --release 17 -Xlint:all -cp "classes:libs/*:aiven-s3/*" -d test-classes tests/*.java \
+    && java -ea -cp "test-classes:classes:libs/*:aiven-s3/*" io.cluecdc.connect.ClueDeliveryTransformTest \
     && mkdir -p core-classes/io/cluecdc/connect \
     && cp classes/io/cluecdc/connect/ClueSecretConfigProvider.class \
           classes/io/cluecdc/connect/ClueDeliveryTransform*.class core-classes/io/cluecdc/connect/ \

@@ -18,10 +18,13 @@ import {
 } from "lucide-react";
 import type {
   ConnectCluster,
+  CustomKeyValidation,
   Destination,
   KafkaCluster,
+  KeyMode,
   Source,
   SourceTable,
+  SyncMode,
   TopicMapping,
 } from "@cluecdc/contracts";
 import { Button, Input } from "@cluecdc/ui";
@@ -59,6 +62,13 @@ const steps = [
   "Review",
 ];
 type DeliveryDraft = Omit<DeliveryCreateInput, "pipeline_id" | "mappings">;
+type TableChoice = {
+  syncMode: SyncMode;
+  keyMode: KeyMode;
+  keyColumns: string[];
+  keyName: string | null;
+  currentStateReady: boolean;
+};
 const deliveryDefaults: DeliveryDraft = {
   name: "Primary delivery",
   write_mode: "upsert" as const,
@@ -73,6 +83,23 @@ const deliveryDefaults: DeliveryDraft = {
   tasks_max: 1,
 };
 
+function tableStrategy(table: SourceTable): TableChoice {
+  const assessment = table.sync_assessment;
+  return {
+    syncMode:
+      assessment?.recommendation.sync_mode ||
+      (table.primary_key_columns.length ? "CURRENT_STATE" : "CHANGE_EVENT_LOG"),
+    keyMode:
+      assessment?.effective_key.mode ||
+      (table.primary_key_columns.length ? "PRIMARY_KEY" : "NONE"),
+    keyColumns: assessment?.effective_key.columns || table.primary_key_columns,
+    keyName: assessment?.effective_key.constraint_name || null,
+    currentStateReady:
+      assessment?.capabilities.current_state.status === "SUPPORTED" ||
+      (!assessment && table.primary_key_columns.length > 0),
+  };
+}
+
 export function PipelineWizard() {
   const { can } = useAuthorization();
   const router = useRouter();
@@ -81,12 +108,25 @@ export function PipelineWizard() {
   const [step, setStep] = useState(0);
   const [sourceId, setSourceId] = useState(params.get("source") || "");
   const [selected, setSelected] = useState<string[]>([]);
+  const [tableChoices, setTableChoices] = useState<Record<string, TableChoice>>(
+    {},
+  );
+  const [configuringTableId, setConfiguringTableId] = useState<string | null>(
+    null,
+  );
+  const [customColumns, setCustomColumns] = useState("");
+  const [customValidation, setCustomValidation] =
+    useState<CustomKeyValidation | null>(null);
+  const [customValidationError, setCustomValidationError] =
+    useState<Error | null>(null);
+  const [validatingCustomKey, setValidatingCustomKey] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
   const [clusterId, setClusterId] = useState("");
   const [connectId, setConnectId] = useState("");
   const [destinationId, setDestinationId] = useState(
     params.get("destination_id") || "",
   );
+  const [captureOnly, setCaptureOnly] = useState(false);
   const [delivery, setDelivery] = useState<DeliveryDraft>(deliveryDefaults);
   const [preview, setPreview] = useState<{
     config: Record<string, string>;
@@ -119,6 +159,7 @@ export function PipelineWizard() {
     mutationFn: () => loadSourceMetadata(sourceId),
     onSuccess: async (job) => {
       setSelected([]);
+      setTableChoices({});
       await queryClient.invalidateQueries({
         queryKey: ["source-tables", sourceId],
       });
@@ -150,6 +191,19 @@ export function PipelineWizard() {
   const chosen = eligible.filter((table) =>
     selected.includes(`${table.schema_name}.${table.table_name}`),
   );
+  const choiceFor = (table: SourceTable) =>
+    tableChoices[`${table.schema_name}.${table.table_name}`] ||
+    tableStrategy(table);
+  const databaseDeliveryReady = chosen.every((table) => {
+    const choice = choiceFor(table);
+    return choice.syncMode === "CURRENT_STATE" && choice.currentStateReady;
+  });
+  const configuringTable = (tables.data || []).find(
+    (table) => table.id === configuringTableId,
+  );
+  const configuringChoice = configuringTable
+    ? choiceFor(configuringTable)
+    : null;
   const source = sources.data?.find((item) => item.id === sourceId);
   const stream = kafka.data?.find((item) => item.id === clusterId);
   const connectCluster = connect.data?.find((item) => item.id === connectId);
@@ -177,8 +231,75 @@ export function PipelineWizard() {
     tables: chosen.map((table) => ({
       schema_name: table.schema_name,
       table_name: table.table_name,
+      sync_mode: choiceFor(table).syncMode,
+      key_mode: choiceFor(table).keyMode,
+      key_columns: choiceFor(table).keyColumns,
+      key_name: choiceFor(table).keyName,
     })),
   });
+
+  const configureTable = (table: SourceTable) => {
+    setConfiguringTableId(table.id);
+    setCustomColumns("");
+    setCustomValidation(null);
+    setCustomValidationError(null);
+  };
+  const updateTableChoice = (
+    table: SourceTable,
+    update: Partial<TableChoice>,
+  ) => {
+    const key = `${table.schema_name}.${table.table_name}`;
+    setTableChoices((current) => ({
+      ...current,
+      [key]: { ...choiceFor(table), ...update },
+    }));
+  };
+  const validateCustomKey = async () => {
+    if (!configuringTable) return;
+    const columns = [
+      ...new Set(
+        customColumns
+          .split(",")
+          .map((column) => column.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (!columns.length) {
+      setCustomValidationError(
+        new Error("Enter at least one comma-separated column name"),
+      );
+      return;
+    }
+    setValidatingCustomKey(true);
+    setCustomValidation(null);
+    setCustomValidationError(null);
+    try {
+      const result = await post<CustomKeyValidation>(
+        `/sources/${sourceId}/tables/${configuringTable.id}/effective-key/validate`,
+        { columns },
+      );
+      setCustomValidation(result);
+      if (result.status === "DATABASE_ENFORCED") {
+        const candidate = configuringTable.sync_assessment?.key_candidates.find(
+          (item) =>
+            item.eligible &&
+            item.columns.length === columns.length &&
+            item.columns.every((column, index) => column === columns[index]),
+        );
+        if (candidate) {
+          updateTableChoice(configuringTable, {
+            keyMode: candidate.mode,
+            keyColumns: candidate.columns,
+            keyName: candidate.constraint_name,
+          });
+        }
+      }
+    } catch (error) {
+      setCustomValidationError(error as Error);
+    } finally {
+      setValidatingCustomKey(false);
+    }
+  };
   const deliveryPayload = (): Omit<DeliveryCreateInput, "pipeline_id"> => ({
     ...delivery,
     mappings,
@@ -197,7 +318,11 @@ export function PipelineWizard() {
   });
   const create = useMutation({
     mutationFn: () =>
-      createPipelineFlow(capturePayload(), destinationId, deliveryPayload()),
+      createPipelineFlow(
+        capturePayload(),
+        captureOnly ? null : destinationId,
+        captureOnly ? null : deliveryPayload(),
+      ),
     onSuccess: ({ pipeline }) => router.push(`/pipelines/${pipeline.id}`),
     onError: (error) => {
       if (error instanceof PipelineCreationError) setPartial(error);
@@ -216,7 +341,11 @@ export function PipelineWizard() {
     if (step === 0) return !!sourceId;
     if (step === 1) return !!clusterId && !!connectId;
     if (step === 2) return chosen.length > 0;
-    if (step === 4) return !!destinationId && !!delivery.name.trim();
+    if (step === 4)
+      return (
+        captureOnly ||
+        (databaseDeliveryReady && !!destinationId && !!delivery.name.trim())
+      );
     return true;
   })();
   const next = async () => {
@@ -298,6 +427,7 @@ export function PipelineWizard() {
                         onChange={() => {
                           setSourceId(item.id);
                           setSelected([]);
+                          setTableChoices({});
                         }}
                       />
                       <Database size={22} />
@@ -382,8 +512,10 @@ export function PipelineWizard() {
                           <th>Select</th>
                           <th>Table</th>
                           <th>Rows</th>
-                          <th>Primary key</th>
+                          <th>Effective key</th>
+                          <th>Strategy</th>
                           <th>Status</th>
+                          <th>Configuration</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -395,6 +527,8 @@ export function PipelineWizard() {
                           )
                           .map((item) => {
                             const key = `${item.schema_name}.${item.table_name}`;
+                            const strategy = choiceFor(item);
+                            const assessment = item.sync_assessment;
                             return (
                               <tr key={item.id}>
                                 <td>
@@ -425,12 +559,50 @@ export function PipelineWizard() {
                                 <td>{number(item.estimated_rows)}</td>
                                 <td>
                                   <code>
-                                    {item.primary_key_columns.join(", ") ||
-                                      "None"}
+                                    {strategy.keyColumns.join(", ") || "None"}
                                   </code>
+                                  <small className="muted">
+                                    {strategy.keyMode.replaceAll("_", " ")}
+                                  </small>
                                 </td>
                                 <td>
-                                  <Status value={item.cdc_status} />
+                                  <strong>
+                                    {strategy.syncMode.replaceAll("_", " ")}
+                                  </strong>
+                                  <small className="muted">
+                                    {assessment?.recommendation.reason}
+                                  </small>
+                                </td>
+                                <td>
+                                  <Status
+                                    value={
+                                      strategy.currentStateReady
+                                        ? "READY"
+                                        : strategy.syncMode ===
+                                            "CHANGE_EVENT_LOG"
+                                          ? "EVENT LOG READY"
+                                          : "INSERT ONLY"
+                                    }
+                                  />
+                                  {assessment?.requirements.map(
+                                    (requirement) => (
+                                      <small
+                                        className="field-error"
+                                        key={requirement.code}
+                                      >
+                                        {requirement.message}
+                                      </small>
+                                    ),
+                                  )}
+                                </td>
+                                <td>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => configureTable(item)}
+                                  >
+                                    Configure
+                                  </Button>
                                 </td>
                               </tr>
                             );
@@ -580,89 +752,141 @@ export function PipelineWizard() {
                 />
               ) : (
                 <>
-                  <Field label="Destination">
-                    <select
-                      value={destinationId}
-                      onChange={(event) => setDestinationId(event.target.value)}
+                  <div className="choice-grid">
+                    <button
+                      type="button"
+                      className={
+                        captureOnly ? "choice-card selected" : "choice-card"
+                      }
+                      onClick={() => {
+                        setCaptureOnly(true);
+                        setDestinationId("");
+                      }}
                     >
-                      <option value="">Select an existing destination</option>
-                      {destinationOptions.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {item.type} · {item.status}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {can("destinations.write") && (
-                    <Button asChild variant="outline">
-                      <Link href="/destinations/new">
-                        <Plus size={14} /> Create New Destination
-                      </Link>
-                    </Button>
+                      <strong>Kafka capture only</strong>
+                      <span>
+                        Keep each table&apos;s supported event strategy in Kafka
+                        without creating a sink connector.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!databaseDeliveryReady}
+                      className={
+                        !captureOnly ? "choice-card selected" : "choice-card"
+                      }
+                      onClick={() => setCaptureOnly(false)}
+                    >
+                      <strong>Database current state</strong>
+                      <span>
+                        Requires a safe effective key for every selected table.
+                      </span>
+                    </button>
+                  </div>
+                  {!databaseDeliveryReady && (
+                    <div className="info-strip">
+                      One or more tables cannot safely maintain database current
+                      state. Use Kafka event log only, or apply the reported
+                      source requirements and reload metadata.
+                    </div>
                   )}
-                  <h3>Delivery Settings</h3>
-                  <p className="muted">JDBC Sink · Powered by Kafka Connect</p>
-                  <div className="form-grid">
-                    <Field label="Delivery name">
-                      <Input
-                        value={delivery.name}
-                        onChange={(event) =>
-                          setDelivery((old) => ({
-                            ...old,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label="Insert mode">
-                      <select
-                        value={delivery.write_mode}
-                        onChange={(event) =>
-                          setDelivery((old) => ({
-                            ...old,
-                            write_mode: event.target.value as
-                              "upsert" | "insert",
-                          }))
-                        }
-                      >
-                        <option value="upsert">Upsert</option>
-                        <option value="insert">Insert</option>
-                      </select>
-                    </Field>
-                    {(
-                      ["delete_enabled", "auto_create", "auto_evolve"] as const
-                    ).map((key) => (
-                      <label className="check-row" key={key}>
-                        <input
-                          type="checkbox"
-                          checked={delivery[key]}
+                  {!captureOnly && (
+                    <>
+                      <Field label="Destination">
+                        <select
+                          value={destinationId}
                           onChange={(event) =>
-                            setDelivery((old) => ({
-                              ...old,
-                              [key]: event.target.checked,
-                            }))
+                            setDestinationId(event.target.value)
                           }
-                        />{" "}
-                        {key.replaceAll("_", " ")}
-                      </label>
-                    ))}
-                  </div>
-                  <h3>Topic → destination table</h3>
-                  <div className="mapping-list">
-                    {mappings.map((item) => (
-                      <div key={item.topic}>
-                        <code>{item.topic}</code>
-                        <ArrowRight size={15} />
-                        <code>
-                          {item.schema_name}.{item.table_name}
-                        </code>
+                        >
+                          <option value="">
+                            Select an existing destination
+                          </option>
+                          {destinationOptions.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} · {item.type} · {item.status}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      {can("destinations.write") && (
+                        <Button asChild variant="outline">
+                          <Link href="/destinations/new">
+                            <Plus size={14} /> Create New Destination
+                          </Link>
+                        </Button>
+                      )}
+                      <h3>Delivery Settings</h3>
+                      <p className="muted">
+                        JDBC Sink · Powered by Kafka Connect
+                      </p>
+                      <div className="form-grid">
+                        <Field label="Delivery name">
+                          <Input
+                            value={delivery.name}
+                            onChange={(event) =>
+                              setDelivery((old) => ({
+                                ...old,
+                                name: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Insert mode">
+                          <select
+                            value={delivery.write_mode}
+                            onChange={(event) =>
+                              setDelivery((old) => ({
+                                ...old,
+                                write_mode: event.target.value as
+                                  "upsert" | "insert",
+                              }))
+                            }
+                          >
+                            <option value="upsert">Upsert</option>
+                            <option value="insert">Insert</option>
+                          </select>
+                        </Field>
+                        {(
+                          [
+                            "delete_enabled",
+                            "auto_create",
+                            "auto_evolve",
+                          ] as const
+                        ).map((key) => (
+                          <label className="check-row" key={key}>
+                            <input
+                              type="checkbox"
+                              checked={delivery[key]}
+                              onChange={(event) =>
+                                setDelivery((old) => ({
+                                  ...old,
+                                  [key]: event.target.checked,
+                                }))
+                              }
+                            />{" "}
+                            {key.replaceAll("_", " ")}
+                          </label>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <details className="advanced">
-                    <summary>Advanced delivery settings</summary>
-                    <JsonView value={{ ...delivery, topics }} />
-                  </details>
+                      <h3>Topic → destination table</h3>
+                      <div className="mapping-list">
+                        {mappings.map((item) => (
+                          <div key={item.topic}>
+                            <code>{item.topic}</code>
+                            <ArrowRight size={15} />
+                            <code>
+                              {item.schema_name}.{item.table_name}
+                            </code>
+                          </div>
+                        ))}
+                      </div>
+                      <details className="advanced">
+                        <summary>Advanced delivery settings</summary>
+                        <JsonView value={{ ...delivery, topics }} />
+                      </details>
+                    </>
+                  )}
                 </>
               )}
             </>
@@ -693,15 +917,19 @@ export function PipelineWizard() {
                   },
                   {
                     label: "Delivery",
-                    name: delivery.name,
-                    detail: "Kafka Connect JDBC Sink",
-                    status: "CREATING",
+                    name: captureOnly ? "Kafka capture" : delivery.name,
+                    detail: captureOnly
+                      ? "No sink connector"
+                      : "Kafka Connect JDBC Sink",
+                    status: captureOnly ? "READY" : "CREATING",
                   },
                   {
                     label: "Destination",
-                    name: destination?.name || "Destination",
-                    detail: destination?.type,
-                    status: destination?.status,
+                    name: captureOnly
+                      ? "Capture only"
+                      : destination?.name || "Destination",
+                    detail: captureOnly ? "Kafka topics" : destination?.type,
+                    status: captureOnly ? "READY" : destination?.status,
                   },
                 ]}
               />
@@ -713,17 +941,41 @@ export function PipelineWizard() {
                 <dt>Tables</dt>
                 <dd>
                   {chosen
-                    .map((item) => `${item.schema_name}.${item.table_name}`)
-                    .join(", ")}
+                    .map((item) => {
+                      const strategy = choiceFor(item);
+                      return `${item.schema_name}.${item.table_name} · ${strategy.syncMode} · ${strategy.keyMode}: ${strategy.keyColumns.join(", ") || "none"}`;
+                    })
+                    .join("; ")}
+                </dd>
+                <dt>Initial load</dt>
+                <dd>{form.getValues("snapshot_mode").replaceAll("_", " ")}</dd>
+                <dt>Limitations</dt>
+                <dd>
+                  {chosen
+                    .flatMap((item) => [
+                      ...(item.sync_assessment?.requirements || []).map(
+                        (requirement) =>
+                          `${item.schema_name}.${item.table_name}: ${requirement.message}`,
+                      ),
+                      ...(item.sync_assessment?.warnings || []).map(
+                        (warning) =>
+                          `${item.schema_name}.${item.table_name}: ${warning.message}`,
+                      ),
+                    ])
+                    .join("; ") || "None"}
                 </dd>
                 <dt>Kafka</dt>
                 <dd>{stream?.name}</dd>
                 <dt>Topics</dt>
                 <dd>{topics.join(", ")}</dd>
                 <dt>Delivery</dt>
-                <dd>JDBC Sink · {delivery.name}</dd>
+                <dd>
+                  {captureOnly
+                    ? "Kafka capture only"
+                    : `JDBC Sink · ${delivery.name}`}
+                </dd>
                 <dt>Destination</dt>
-                <dd>{destination?.name}</dd>
+                <dd>{captureOnly ? "None" : destination?.name}</dd>
                 <dt>Connect cluster</dt>
                 <dd>{connectCluster?.name}</dd>
               </dl>
@@ -805,14 +1057,219 @@ export function PipelineWizard() {
           </div>
           <div>
             <small>DELIVERY</small>
-            <strong>{delivery.name}</strong>
+            <strong>{captureOnly ? "Kafka capture" : delivery.name}</strong>
           </div>
           <div>
             <small>DESTINATION</small>
-            <strong>{destination?.name || "Choose destination"}</strong>
+            <strong>
+              {captureOnly
+                ? "Capture only"
+                : destination?.name || "Choose destination"}
+            </strong>
           </div>
         </aside>
       </div>
+      {configuringTable && configuringChoice && (
+        <>
+          <div
+            className="dialog-overlay"
+            aria-hidden="true"
+            onClick={() => setConfiguringTableId(null)}
+          />
+          <section
+            className="dialog-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="table-strategy-title"
+          >
+            <div className="dialog-heading">
+              <span id="table-strategy-title">Configure synchronization</span>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setConfiguringTableId(null)}
+              >
+                ×
+              </button>
+            </div>
+            <p className="muted">
+              {configuringTable.schema_name}.{configuringTable.table_name}
+            </p>
+            <div className="form-grid">
+              <Field label="Sync strategy">
+                <select
+                  value={configuringChoice.syncMode}
+                  onChange={(event) =>
+                    updateTableChoice(configuringTable, {
+                      syncMode: event.target.value as SyncMode,
+                    })
+                  }
+                >
+                  {(
+                    [
+                      ["CURRENT_STATE", "Current state", "current_state"],
+                      [
+                        "CHANGE_EVENT_LOG",
+                        "Change event log",
+                        "change_event_log",
+                      ],
+                      ["APPEND_ONLY", "Append only", "append_only"],
+                    ] as const
+                  ).map(([value, label, capability]) => {
+                    const status =
+                      configuringTable.sync_assessment?.capabilities[capability]
+                        .status ||
+                      (value === "CURRENT_STATE" &&
+                      configuringTable.primary_key_columns.length
+                        ? "SUPPORTED"
+                        : "UNKNOWN");
+                    return (
+                      <option
+                        key={value}
+                        value={value}
+                        disabled={status !== "SUPPORTED"}
+                      >
+                        {label} · {status.replaceAll("_", " ")}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+              <Field
+                label="Effective row key"
+                hint="Required for current-state database delivery"
+              >
+                <select
+                  value={
+                    configuringTable.sync_assessment?.key_candidates.findIndex(
+                      (candidate) =>
+                        candidate.mode === configuringChoice.keyMode &&
+                        candidate.columns.length ===
+                          configuringChoice.keyColumns.length &&
+                        candidate.columns.every(
+                          (column, index) =>
+                            column === configuringChoice.keyColumns[index],
+                        ),
+                    ) ?? -1
+                  }
+                  onChange={(event) => {
+                    const candidate =
+                      configuringTable.sync_assessment?.key_candidates[
+                        Number(event.target.value)
+                      ];
+                    if (candidate)
+                      updateTableChoice(configuringTable, {
+                        keyMode: candidate.mode,
+                        keyColumns: candidate.columns,
+                        keyName: candidate.constraint_name,
+                      });
+                  }}
+                >
+                  {!configuringTable.sync_assessment?.key_candidates.some(
+                    (candidate) => candidate.eligible,
+                  ) && <option value={-1}>No eligible row key</option>}
+                  {configuringTable.sync_assessment?.key_candidates.map(
+                    (candidate, index) => (
+                      <option
+                        key={`${candidate.mode}-${candidate.constraint_name}-${candidate.columns.join("-")}`}
+                        value={index}
+                        disabled={!candidate.eligible}
+                      >
+                        {candidate.mode.replaceAll("_", " ")} ·{" "}
+                        {candidate.columns.join(", ")} ·{" "}
+                        {candidate.eligible ? "eligible" : candidate.reason}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </Field>
+            </div>
+            <div className="info-strip">
+              {configuringTable.sync_assessment?.capabilities[
+                configuringChoice.syncMode === "CURRENT_STATE"
+                  ? "current_state"
+                  : configuringChoice.syncMode === "CHANGE_EVENT_LOG"
+                    ? "change_event_log"
+                    : "append_only"
+              ].reason || "Reload metadata to calculate table capabilities."}
+            </div>
+            {(configuringTable.sync_assessment?.requirements.length || 0) >
+              0 && (
+              <div className="error-panel" role="alert">
+                <div>
+                  <strong>Source configuration required</strong>
+                  {configuringTable.sync_assessment?.requirements.map(
+                    (requirement) => (
+                      <div key={requirement.code}>
+                        <p>{requirement.message}</p>
+                        {requirement.suggested_sql && (
+                          <code>{requirement.suggested_sql}</code>
+                        )}
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+            <details className="advanced">
+              <summary>Advanced · Validate custom key</summary>
+              <p className="muted">
+                Validation checks column existence, NULLs, duplicates, and
+                database enforcement with bounded queries. A verified-only key
+                is diagnostic and cannot enable safe current-state sync.
+              </p>
+              <Field label="Columns" hint="Comma-separated, in key order">
+                <Input
+                  value={customColumns}
+                  placeholder="tenant_id, external_id"
+                  onChange={(event) => setCustomColumns(event.target.value)}
+                />
+              </Field>
+              {can("sources.write") ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={validatingCustomKey}
+                  onClick={validateCustomKey}
+                >
+                  {validatingCustomKey && (
+                    <Loader2 className="spin" size={15} />
+                  )}
+                  Validate key
+                </Button>
+              ) : (
+                <p className="muted">
+                  Ask an Admin or Operator to validate a custom key.
+                </p>
+              )}
+              {customValidationError && (
+                <ErrorPanel error={customValidationError} />
+              )}
+              {customValidation && (
+                <div className="info-strip">
+                  <strong>
+                    {customValidation.status.replaceAll("_", " ")}
+                  </strong>
+                  {customValidation.errors.map((error) => (
+                    <p key={error}>{error}</p>
+                  ))}
+                  {customValidation.warning && (
+                    <p>{customValidation.warning}</p>
+                  )}
+                  {customValidation.suggested_sql && (
+                    <code>{customValidation.suggested_sql}</code>
+                  )}
+                </div>
+              )}
+            </details>
+            <div className="dialog-actions">
+              <Button type="button" onClick={() => setConfiguringTableId(null)}>
+                Done
+              </Button>
+            </div>
+          </section>
+        </>
+      )}
     </>
   );
 }

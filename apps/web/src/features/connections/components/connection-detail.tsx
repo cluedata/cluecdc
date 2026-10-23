@@ -72,7 +72,9 @@ export function ConnectionDetailPage({ id }: { id: string }) {
         )}
         {value.category === "OBJECT_STORAGE" && can("deliveries.write") && (
           <Button asChild>
-            <Link href={`/deliveries/new/object-storage?destination_id=${id}`}>
+            <Link
+              href={`/deliveries/new?destination_id=${id}&type=OBJECT_STORAGE`}
+            >
               Create delivery
             </Link>
           </Button>

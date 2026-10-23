@@ -174,12 +174,49 @@ configs:
         amount numeric(12,2) NOT NULL,
         status text NOT NULL DEFAULT 'pending'
       );
+      CREATE TABLE cars_unique (
+        car_code text NOT NULL,
+        model text NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT cars_unique_code UNIQUE (car_code)
+      );
+      CREATE TABLE keyless_events (
+        event_type text NOT NULL,
+        payload text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE composite_unique (
+        tenant_id text NOT NULL,
+        external_id text NOT NULL,
+        payload text NOT NULL,
+        CONSTRAINT composite_business_key UNIQUE (tenant_id, external_id)
+      );
+      CREATE TABLE nullable_unique (
+        optional_code text,
+        payload text NOT NULL,
+        CONSTRAINT nullable_code_key UNIQUE (optional_code)
+      );
+      CREATE TABLE custom_key_probe (
+        duplicate_code text NOT NULL,
+        nullable_code text,
+        payload text NOT NULL
+      );
       ALTER TABLE customers REPLICA IDENTITY FULL;
       ALTER TABLE orders REPLICA IDENTITY FULL;
       ALTER TABLE payments REPLICA IDENTITY FULL;
+      ALTER TABLE cars_unique REPLICA IDENTITY FULL;
+      ALTER TABLE keyless_events REPLICA IDENTITY FULL;
+      ALTER TABLE composite_unique REPLICA IDENTITY FULL;
+      ALTER TABLE nullable_unique REPLICA IDENTITY FULL;
+      ALTER TABLE custom_key_probe REPLICA IDENTITY FULL;
       INSERT INTO customers(name, email) VALUES ('Ada Lovelace', 'ada@example.test'), ('Grace Hopper', 'grace@example.test');
       INSERT INTO orders(customer_id, total) VALUES (1, 149.00), (2, 299.00);
       INSERT INTO payments(order_id, amount) VALUES (1, 149.00);
+      INSERT INTO cars_unique(car_code, model) VALUES ('CAR-001', 'Roadster');
+      INSERT INTO keyless_events(event_type, payload) VALUES ('seed', 'initial');
+      INSERT INTO composite_unique(tenant_id, external_id, payload) VALUES ('tenant-a', 'external-1', 'seed');
+      INSERT INTO nullable_unique(optional_code, payload) VALUES (NULL, 'nullable key');
+      INSERT INTO custom_key_probe(duplicate_code, nullable_code, payload) VALUES ('duplicate', 'one', 'first'), ('duplicate', 'two', 'second'), ('other', NULL, 'null key');
       RESET ROLE;
       \connect cluecdc_destination
       GRANT CONNECT ON DATABASE cluecdc_destination TO destination_user;
@@ -253,6 +290,34 @@ configs:
         price DECIMAL(18,4) NOT NULL,
         CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
       );
+      CREATE TABLE cars_unique (
+        car_code VARCHAR(80) NOT NULL,
+        model VARCHAR(255) NOT NULL,
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+          ON UPDATE CURRENT_TIMESTAMP(6),
+        UNIQUE KEY cars_unique_code (car_code)
+      );
+      CREATE TABLE keyless_events (
+        event_type VARCHAR(80) NOT NULL,
+        payload TEXT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+      );
+      CREATE TABLE composite_unique (
+        tenant_id VARCHAR(32) NOT NULL,
+        external_id VARCHAR(64) NOT NULL,
+        payload VARCHAR(255) NOT NULL,
+        UNIQUE KEY composite_business_key (tenant_id, external_id)
+      );
+      CREATE TABLE nullable_unique (
+        optional_code VARCHAR(64) NULL,
+        payload VARCHAR(255) NOT NULL,
+        UNIQUE KEY nullable_code_key (optional_code)
+      );
+      CREATE TABLE custom_key_probe (
+        duplicate_code VARCHAR(64) NOT NULL,
+        nullable_code VARCHAR(64) NULL,
+        payload VARCHAR(255) NOT NULL
+      );
       INSERT INTO customers(name,email,credit,profile)
       SELECT CONCAT('Khách hàng ', n), CONCAT('customer', n, '@example.test'), n * 10.125,
              JSON_OBJECT('locale','vi-VN','note',IF(n=1,'Xin chào 👋',''))
@@ -266,6 +331,11 @@ configs:
       SELECT id, id * 3.1415, IF(id % 2 = 0,'paid','pending'), IF(id=1,'Đơn hàng đầu tiên','') FROM customers;
       INSERT INTO order_items(order_id,sku,quantity,price)
       SELECT id, CONCAT('SKU-',id), (id % 5) + 1, total FROM orders;
+      INSERT INTO cars_unique(car_code,model) VALUES ('CAR-001','Roadster');
+      INSERT INTO keyless_events(event_type,payload) VALUES ('seed','initial');
+      INSERT INTO composite_unique(tenant_id,external_id,payload) VALUES ('tenant-a','external-1','seed');
+      INSERT INTO nullable_unique(optional_code,payload) VALUES (NULL,'nullable key');
+      INSERT INTO custom_key_probe(duplicate_code,nullable_code,payload) VALUES ('duplicate','one','first'),('duplicate','two','second'),('other',NULL,'null key');
       FLUSH PRIVILEGES;
       SQL
       )

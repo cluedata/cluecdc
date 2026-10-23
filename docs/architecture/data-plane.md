@@ -14,11 +14,13 @@ keys are required for reliable updates, deletes, and incremental snapshots.
 Deleting a pipeline removes its connector but preserves topics and source-side
 replication artifacts.
 
-Topic inspection uses Kafka admin metadata only. The former `/events` payload
-endpoint returns HTTP 410: CDC records must not pass through the control-plane
-API. Inspect records directly in Kafka or destination objects. Test-only direct
-Kafka verification is bounded and never commits offsets; the worker's bounded
-consumer reads Debezium snapshot control notifications, not table CDC records.
+Topic inspection includes Kafka admin metadata and an explicit recent-record
+sample for topics registered to active pipelines. `/events` bounds each read by
+records, bytes, partitions, time, and global concurrency and never commits
+consumer offsets. It is an operational inspection tool, not a history/search or
+export API; full data access remains in Kafka and destination objects. The
+worker's separate bounded consumer reads Debezium snapshot control
+notifications, not table CDC records.
 
 State derives from Connect: connector FAILED → FAILED; connector RUNNING plus a failed task → DEGRADED; connector PAUSED → PAUSED; RUNNING with all observed tasks running → RUNNING; no tasks, malformed response, missing connector, or unreachable worker → UNKNOWN. Desired state is never overwritten from these observations.
 

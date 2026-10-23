@@ -295,15 +295,42 @@ def admin_metadata(monkeypatch):
     monkeypatch.setattr(KafkaExplorer, "topics", metadata)
 
 
-async def test_api_never_exposes_cdc_payloads(client, monkeypatch):
+async def test_bounded_recent_sample_never_commits(monkeypatch):
+    consumer = Consumer()
+
+    def factory(**kwargs):
+        consumer.options = kwargs
+        return consumer
+
+    monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", factory)
+
+    result = await KafkaExplorer().events(cluster(), "commerce.public.customers", limit=50)
+
+    assert result["bounded"] is True
+    assert result["scanned"] == 1000
+    assert len(result["events"]) == 50
+    assert min(event["offset"] for event in result["events"]) >= 4000
+    assert result["events"][0]["changed_fields"] == ["name"]
+    assert consumer.options["group_id"] is None
+    assert consumer.options["enable_auto_commit"] is False
+    consumer.stop.assert_awaited_once()
+
+
+async def test_event_api_rejects_topics_outside_registered_pipelines(client, monkeypatch):
     consumer = Consumer()
     monkeypatch.setattr("app.adapters.kafka.AIOKafkaConsumer", lambda **kwargs: consumer)
-    response = await client.get("/api/v1/events?cluster_id=invalid&topic=customers")
-    assert response.status_code == 410
-    assert response.json()["error"]["code"] == "CDC_PAYLOAD_API_REMOVED"
-    assert consumer.assigned == []
+    cluster_response = await client.post(
+        "/api/v1/kafka/clusters",
+        json={"name": "Local Kafka", "bootstrap_servers": "kafka:9092"},
+    )
+
+    response = await client.get(
+        f"/api/v1/events?cluster_id={cluster_response.json()['id']}&topic=customers"
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "TOPIC_NOT_INSPECTABLE"
     consumer.start.assert_not_awaited()
-    assert not hasattr(KafkaExplorer, "events")
 
 
 async def test_consumer_group_report_uses_committed_and_end_offsets(monkeypatch):

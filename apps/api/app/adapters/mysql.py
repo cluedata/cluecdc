@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -32,6 +33,10 @@ class MySQLAdapter:
         self.source = source
         self.password = password
         self.role = role
+
+    @staticmethod
+    def _quote(value: str) -> str:
+        return "`" + value.replace("`", "``") + "`"
 
     @asynccontextmanager
     async def connection(self, select_database: bool = True) -> AsyncIterator[aiomysql.Connection]:
@@ -73,6 +78,40 @@ class MySQLAdapter:
         async with connection.cursor() as cursor:
             await cursor.execute(query, args)
             return list(await cursor.fetchall())
+
+    async def _indexes(self, connection, schema_name: str, table_name: str) -> list[dict]:
+        rows = await self._all(
+            connection,
+            "SELECT index_name AS name, non_unique=0 AS unique_index, "
+            "index_name='PRIMARY' AS primary_index, seq_in_index, "
+            "column_name AS column_value, nullable AS nullable_value, "
+            "expression AS expression_value "
+            "FROM information_schema.statistics WHERE table_schema=%s "
+            "AND table_name=%s ORDER BY index_name, seq_in_index",
+            (schema_name, table_name),
+        )
+        grouped: dict[str, dict] = {}
+        for row in rows:
+            index = grouped.setdefault(
+                row["name"],
+                {
+                    "name": row["name"],
+                    "unique": bool(row["unique_index"]),
+                    "primary": bool(row["primary_index"]),
+                    "valid": True,
+                    "partial": False,
+                    "expression": False,
+                    "columns": [],
+                    "definition": "",
+                },
+            )
+            if row.get("expression_value") or not row.get("column_value"):
+                index["expression"] = True
+            else:
+                index["columns"].append(row["column_value"])
+        for index in grouped.values():
+            index["definition"] = ",".join(index["columns"])
+        return list(grouped.values())
 
     @staticmethod
     def _check(
@@ -328,6 +367,10 @@ class MySQLAdapter:
                 (schema_name, table_name),
             )
             primary = [row["name"] for row in keys]
+            indexes = await self._indexes(connection, schema_name, table_name)
+            row_image = await self._one(
+                connection, "SELECT @@GLOBAL.binlog_row_image AS binlog_row_image"
+            )
             warnings = (
                 []
                 if primary
@@ -350,12 +393,101 @@ class MySQLAdapter:
                 "warnings": warnings,
                 "primary_key_columns": primary,
                 "columns": columns,
+                "indexes": indexes,
+                "source_properties": {
+                    "binlog_row_image": row_image["binlog_row_image"] if row_image else None
+                },
                 "estimated_rows": table["estimated_rows"],
                 "estimated_size_bytes": table["estimated_size_bytes"],
             }
 
+    async def validate_custom_key(
+        self, schema_name: str, table_name: str, key_columns: list[str]
+    ) -> dict:
+        metadata = await self.inspect_table(schema_name, table_name)
+        columns = {column["name"]: column for column in metadata.get("columns", [])}
+        if any(column not in columns for column in key_columns):
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": ["One or more selected columns no longer exist"],
+            }
+        if any(columns[column]["nullable"] for column in key_columns):
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": ["Custom key columns must be declared NOT NULL"],
+            }
+        candidate = next(
+            (
+                index
+                for index in metadata.get("indexes", [])
+                if index.get("unique")
+                and not index.get("expression")
+                and list(index.get("columns") or []) == key_columns
+            ),
+            None,
+        )
+        qualified = f"{self._quote(schema_name)}.{self._quote(table_name)}"
+        fields = ",".join(self._quote(column) for column in key_columns)
+        try:
+            async with asyncio.timeout(10):
+                async with self.connection() as connection:
+                    async with connection.cursor() as cursor:
+                        await cursor.execute("SET SESSION MAX_EXECUTION_TIME=5000")
+                        await cursor.execute(
+                            f"SELECT EXISTS (SELECT 1 FROM {qualified} WHERE "
+                            + " OR ".join(
+                                f"{self._quote(column)} IS NULL" for column in key_columns
+                            )
+                            + " LIMIT 1) AS present"
+                        )
+                        has_null = bool((await cursor.fetchone())["present"])
+                        await cursor.execute(
+                            f"SELECT EXISTS (SELECT 1 FROM {qualified} GROUP BY {fields} "
+                            "HAVING COUNT(*) > 1 LIMIT 1) AS present"
+                        )
+                        duplicate = bool((await cursor.fetchone())["present"])
+        except TimeoutError as exc:
+            raise DomainError(
+                "CUSTOM_KEY_VALIDATION_TIMEOUT",
+                "Custom key validation exceeded the bounded query timeout",
+                422,
+            ) from exc
+        if has_null or duplicate:
+            errors = []
+            if has_null:
+                errors.append("At least one selected key column contains NULL")
+            if duplicate:
+                errors.append("Duplicate key combinations exist")
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": errors,
+            }
+        index_name = f"cluecdc_{table_name}_effective_key"
+        return {
+            "status": "DATABASE_ENFORCED" if candidate else "VERIFIED_ONLY",
+            "enforced": bool(candidate),
+            "verified": True,
+            "constraint_name": candidate.get("name") if candidate else None,
+            "errors": [],
+            "warning": None
+            if candidate
+            else "A one-time scan does not guarantee future uniqueness",
+            "suggested_sql": None
+            if candidate
+            else f"ALTER TABLE {qualified} ADD UNIQUE INDEX {self._quote(index_name)} ({fields});",
+        }
+
     async def discover(self) -> list[dict]:
         async with self.connection() as connection:
+            row_image = await self._one(
+                connection, "SELECT @@GLOBAL.binlog_row_image AS binlog_row_image"
+            )
             rows = await self._all(
                 connection,
                 "SELECT table_schema AS schema_name, table_name AS table_name, "
@@ -384,19 +516,31 @@ class MySQLAdapter:
                     "AND constraint_name='PRIMARY' ORDER BY ordinal_position",
                     (schema, table),
                 )
-                indexes = await self._all(
-                    connection,
-                    "SELECT index_name AS name, "
-                    "GROUP_CONCAT(column_name ORDER BY seq_in_index) AS definition "
-                    "FROM information_schema.statistics WHERE table_schema=%s "
-                    "AND table_name=%s GROUP BY index_name ORDER BY index_name",
-                    (schema, table),
+                indexes = await self._indexes(connection, schema, table)
+                columns_by_name = {column["name"]: column for column in columns}
+                eligible_unique = next(
+                    (
+                        index
+                        for index in indexes
+                        if index["unique"]
+                        and not index["primary"]
+                        and not index["expression"]
+                        and index["columns"]
+                        and all(not columns_by_name[name]["nullable"] for name in index["columns"])
+                    ),
+                    None,
                 )
-                issues = (
-                    []
-                    if keys
-                    else ["No primary key; stable CDC keys and delete identity are unavailable"]
-                )
+                issues = []
+                if not keys and eligible_unique:
+                    issues.append(
+                        "No primary key; using an enforced unique key for current-state "
+                        "sync. Incremental snapshots remain unavailable"
+                    )
+                elif not keys:
+                    issues.append(
+                        "No stable row identity; use append-only capture or a supported "
+                        "change-event log strategy"
+                    )
                 tables.append(
                     {
                         "schema_name": schema,
@@ -404,6 +548,11 @@ class MySQLAdapter:
                         "primary_key_columns": [key["name"] for key in keys],
                         "columns_json": columns,
                         "indexes_json": indexes,
+                        "source_properties_json": {
+                            "binlog_row_image": (
+                                row_image["binlog_row_image"] if row_image else None
+                            )
+                        },
                         "estimated_rows": row["estimated_rows"],
                         "estimated_size_bytes": row["estimated_size_bytes"],
                         "cdc_ready": True,

@@ -144,6 +144,20 @@ class ConnectInput(BaseModel):
 class TableSelection(BaseModel):
     schema_name: str = Field(min_length=1, max_length=128)
     table_name: str = Field(min_length=1, max_length=128)
+    sync_mode: Literal["CURRENT_STATE", "APPEND_ONLY", "CHANGE_EVENT_LOG"] | None = None
+    key_mode: Literal["PRIMARY_KEY", "UNIQUE_INDEX", "CUSTOM", "NONE"] | None = None
+    key_columns: list[str] = Field(default_factory=list, max_length=16)
+    key_name: str | None = Field(default=None, max_length=255)
+
+    @field_validator("key_columns")
+    @classmethod
+    def validate_key_columns(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            not column or len(column) > 128 or any(ord(char) < 32 for char in column)
+            for column in value
+        ):
+            raise ValueError("Effective key columns must be unique valid column names")
+        return value
 
 
 class AddPipelineTableInput(TableSelection):
@@ -161,9 +175,10 @@ class AddPipelineTableInput(TableSelection):
     @classmethod
     def validate_custom_keys(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)) or any(
-            not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", column) for column in value
+            not column or len(column) > 128 or any(ord(char) < 32 for char in column)
+            for column in value
         ):
-            raise ValueError("Custom key columns must be unique PostgreSQL identifiers")
+            raise ValueError("Custom key columns must be unique valid column names")
         return value
 
 
@@ -176,6 +191,20 @@ class AddPipelineTablesInput(BaseModel):
         if len(keys) != len(set(keys)):
             raise ValueError("Tables must be unique")
         return self
+
+
+class CustomKeyValidationInput(BaseModel):
+    columns: list[str] = Field(min_length=1, max_length=16)
+
+    @field_validator("columns")
+    @classmethod
+    def validate_columns(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            not column or len(column) > 128 or any(ord(char) < 32 for char in column)
+            for column in value
+        ):
+            raise ValueError("Custom key columns must be unique valid column names")
+        return value
 
 
 class RemovePipelineTableInput(BaseModel):
@@ -231,6 +260,7 @@ class PipelineInput(BaseModel):
             "schema.history.internal.kafka.bootstrap.servers",
             "schema.history.internal.kafka.topic",
             "signal.data.collection",
+            "message.key.columns",
         }
         denied = protected & set(self.additional_debezium_properties)
         if denied:

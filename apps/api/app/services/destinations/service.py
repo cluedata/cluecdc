@@ -35,6 +35,7 @@ from app.services.debezium import derive_actual_state
 from app.services.destinations.adapter import DestinationAdapter
 from app.services.destinations.providers import delivery_provider
 from app.services.secrets import kafka_credentials, secret_provider
+from app.services.sync_strategy import key_candidates, pipeline_effective_key
 
 log = structlog.get_logger()
 
@@ -580,14 +581,51 @@ async def build(
                     "table": f"{table.schema_name}.{table.table_name}",
                 },
             )
-        if not source.primary_key_columns:
+        effective_keys = pipeline_effective_key(table)
+        if (table.sync_mode or "CURRENT_STATE") != "CURRENT_STATE":
             raise DomainError(
-                "SOURCE_PRIMARY_KEY_REQUIRED",
-                "Database deliveries require a primary key on every selected source table",
+                "CURRENT_STATE_REQUIRED",
+                "Database deliveries require CURRENT_STATE synchronization for every table",
                 422,
                 {
                     "topic": mapping.topic,
                     "table": f"{table.schema_name}.{table.table_name}",
+                    "sync_mode": table.sync_mode,
+                },
+            )
+        if not effective_keys:
+            raise DomainError(
+                "SOURCE_EFFECTIVE_KEY_REQUIRED",
+                "Database deliveries require a safe effective row key on every selected table",
+                422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                },
+            )
+        key_mode = table.effective_key_mode or (
+            "PRIMARY_KEY" if table.primary_key_columns else "NONE"
+        )
+        discovered_key = next(
+            (
+                candidate
+                for candidate in key_candidates(source, source_database.type)
+                if candidate["eligible"]
+                and candidate["mode"] == key_mode
+                and candidate["columns"] == effective_keys
+            ),
+            None,
+        )
+        if discovered_key is None:
+            raise DomainError(
+                "SOURCE_EFFECTIVE_KEY_INVALID",
+                "The captured effective key no longer matches current source metadata",
+                422,
+                {
+                    "topic": mapping.topic,
+                    "table": f"{table.schema_name}.{table.table_name}",
+                    "key_mode": key_mode,
+                    "key_columns": effective_keys,
                 },
             )
         columns = analyze_columns(source.columns_json, source_database.type, destination.type)
@@ -601,7 +639,10 @@ async def build(
             )
         metadata[mapping.topic] = {
             "columns": columns,
-            "primary_keys": source.primary_key_columns,
+            "effective_keys": effective_keys,
+            # Retained for older transforms during rolling upgrades.
+            "primary_keys": effective_keys,
+            "key_mode": key_mode,
             "schema_name": mapping.schema_name,
             "table_name": mapping.table_name,
         }

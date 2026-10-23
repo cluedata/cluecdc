@@ -92,9 +92,9 @@ replication slots, pipeline definitions or delivery mappings.
    The existing demo typically captures `public.customers` and `public.orders`;
    include `public.payments` in a pipeline to inspect payment events too.
 2. Open **Infrastructure → Topics** and confirm partition end offsets advance.
-   ClueCDC intentionally does not read payloads; use a direct Kafka consumer or
-   query the configured destination to verify inserted IDs and generated
-   customer email. With the standard `commerce` topic prefix, topics are
+   Open a topic's **Messages** tab to fetch a bounded recent sample, or use a
+   direct Kafka consumer/query the configured destination for full-history
+   verification. With the standard `commerce` topic prefix, topics are
    `commerce.public.customers`, `commerce.public.orders` and
    `commerce.public.payments`.
 3. After an ALTER, run **Discover tables** on the source. Check **Schemas** for
