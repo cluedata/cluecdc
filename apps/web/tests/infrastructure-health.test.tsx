@@ -111,4 +111,87 @@ describe("infrastructure connection testing", () => {
       ),
     );
   });
+
+  it("opens Kafka cluster details and lists broker topics", async () => {
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path === "/kafka/clusters")
+        return [
+          {
+            id: "kafka-id",
+            name: "Local Kafka",
+            bootstrap_servers: "kafka:29092",
+            security_protocol: "PLAINTEXT",
+            status: "HEALTHY",
+            status_reason: "Broker metadata is available",
+            last_health_check_at: "2026-10-19T00:00:00Z",
+          },
+        ];
+      if (path === "/kafka/topics?cluster_id=kafka-id")
+        return [
+          {
+            name: "pgdev.public.customers",
+            partitions: 1,
+            replication_factor: 1,
+          },
+        ];
+      return [];
+    });
+    renderPage("kafka");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Local Kafka" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Kafka cluster" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: /pgdev\.public\.customers/ }),
+    ).toHaveAttribute(
+      "href",
+      "/kafka/topics/pgdev.public.customers?cluster=kafka-id",
+    );
+  });
+
+  it("opens Kafka Connect details and lists managed connectors", async () => {
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path === "/connect/clusters")
+        return [
+          {
+            id: "connect-id",
+            name: "Local Connect",
+            base_url: "http://kafka-connect:8083",
+            kafka_cluster_id: "kafka-id",
+            status: "HEALTHY",
+            status_reason: "Worker is available",
+            last_health_check_at: "2026-10-19T00:00:00Z",
+          },
+        ];
+      if (path === "/kafka/clusters")
+        return [{ id: "kafka-id", name: "Local Kafka" }];
+      if (path === "/connect/connectors")
+        return [
+          {
+            id: "connector-id",
+            name: "pgdev-source",
+            connect_cluster_id: "connect-id",
+            connector_type: "source",
+            actual_state: "RUNNING",
+          },
+        ];
+      return [];
+    });
+    renderPage("connect");
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Local Connect" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Kafka Connect cluster" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", {
+        name: /pgdev-source · source · RUNNING/,
+      }),
+    ).toHaveAttribute("href", "/connect/connectors?connector=pgdev-source");
+  });
 });

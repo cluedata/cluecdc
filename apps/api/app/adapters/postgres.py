@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -14,6 +15,9 @@ class SourceAdapter(Protocol):
     async def readiness(self) -> dict: ...
     async def discover(self) -> list[dict]: ...
     async def inspect_table(self, schema_name: str, table_name: str) -> dict: ...
+    async def validate_custom_key(
+        self, schema_name: str, table_name: str, key_columns: list[str]
+    ) -> dict: ...
 
 
 class PostgresAdapter:
@@ -272,6 +276,27 @@ class PostgresAdapter:
                 """,
                 table["oid"],
             )
+            indexes = await conn.fetch(
+                """
+                SELECT ci.relname AS name, i.indisunique AS "unique",
+                    i.indisprimary AS "primary", i.indisvalid AS valid,
+                    i.indpred IS NOT NULL AS partial,
+                    i.indexprs IS NOT NULL AS expression,
+                    i.indisreplident AS replica_identity,
+                    pg_get_indexdef(i.indexrelid) AS definition,
+                    array_remove(array_agg(a.attname ORDER BY k.ord), NULL) AS columns,
+                    bool_and(a.attnotnull) FILTER (WHERE k.attnum > 0) AS all_not_null
+                FROM pg_index i
+                JOIN pg_class ci ON ci.oid = i.indexrelid
+                LEFT JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE
+                LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+                WHERE i.indrelid = $1
+                GROUP BY ci.relname, i.indisunique, i.indisprimary, i.indisvalid,
+                    i.indpred, i.indexprs, i.indisreplident, i.indexrelid
+                ORDER BY ci.relname
+                """,
+                table["oid"],
+            )
             primary_keys = [row["name"] for row in keys]
             replica_identity = table["relreplident"]
             if isinstance(replica_identity, bytes):
@@ -321,14 +346,115 @@ class PostgresAdapter:
                 "warnings": warnings,
                 "primary_key_columns": primary_keys,
                 "columns": [dict(column) for column in columns],
+                "indexes": [
+                    {
+                        **dict(index),
+                        "columns": list(index["columns"] or []),
+                        "replica_identity_eligible": bool(
+                            index["unique"]
+                            and index["valid"]
+                            and not index["partial"]
+                            and not index["expression"]
+                            and index["all_not_null"]
+                        ),
+                    }
+                    for index in indexes
+                ],
+                "source_properties": {"replica_identity": replica_identity},
                 "estimated_rows": table["estimated_rows"],
                 "estimated_size_bytes": table["estimated_size_bytes"],
             }
+
+    async def validate_custom_key(
+        self, schema_name: str, table_name: str, key_columns: list[str]
+    ) -> dict:
+        metadata = await self.inspect_table(schema_name, table_name)
+        columns = {column["name"]: column for column in metadata.get("columns", [])}
+        missing = [column for column in key_columns if column not in columns]
+        if missing:
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": ["One or more selected columns no longer exist"],
+            }
+        if any(columns[column]["nullable"] for column in key_columns):
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": ["Custom key columns must be declared NOT NULL"],
+            }
+        candidate = next(
+            (
+                index
+                for index in metadata.get("indexes", [])
+                if index.get("unique")
+                and index.get("valid")
+                and not index.get("partial")
+                and not index.get("expression")
+                and list(index.get("columns") or []) == key_columns
+            ),
+            None,
+        )
+
+        def quote(value: str) -> str:
+            return '"' + value.replace('"', '""') + '"'
+
+        qualified = f"{quote(schema_name)}.{quote(table_name)}"
+        fields = ",".join(quote(column) for column in key_columns)
+        try:
+            async with asyncio.timeout(10):
+                async with self.connection() as conn:
+                    async with conn.transaction():
+                        await conn.execute("SET LOCAL statement_timeout = '5000ms'")
+                        has_null = await conn.fetchval(
+                            f"SELECT EXISTS (SELECT 1 FROM {qualified} WHERE "
+                            + " OR ".join(f"{quote(column)} IS NULL" for column in key_columns)
+                            + " LIMIT 1)"
+                        )
+                        duplicate = await conn.fetchval(
+                            f"SELECT EXISTS (SELECT 1 FROM {qualified} GROUP BY {fields} "
+                            "HAVING COUNT(*) > 1 LIMIT 1)"
+                        )
+        except TimeoutError as exc:
+            raise DomainError(
+                "CUSTOM_KEY_VALIDATION_TIMEOUT",
+                "Custom key validation exceeded the bounded query timeout",
+                422,
+            ) from exc
+        if has_null or duplicate:
+            errors = []
+            if has_null:
+                errors.append("At least one selected key column contains NULL")
+            if duplicate:
+                errors.append("Duplicate key combinations exist")
+            return {
+                "status": "INVALID",
+                "enforced": False,
+                "verified": False,
+                "errors": errors,
+            }
+        index_name = f"cluecdc_{table_name}_effective_key"
+        return {
+            "status": "DATABASE_ENFORCED" if candidate else "VERIFIED_ONLY",
+            "enforced": bool(candidate),
+            "verified": True,
+            "constraint_name": candidate.get("name") if candidate else None,
+            "errors": [],
+            "warning": None
+            if candidate
+            else "A one-time scan does not guarantee future uniqueness",
+            "suggested_sql": None
+            if candidate
+            else f"CREATE UNIQUE INDEX CONCURRENTLY {quote(index_name)} ON {qualified} ({fields});",
+        }
 
     async def discover(self) -> list[dict]:
         async with self.connection() as conn:
             rows = await conn.fetch("""
                 SELECT n.nspname AS schema_name, c.relname AS table_name, c.oid,
+                    c.relreplident,
                     CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint END AS estimated_rows,
                     pg_total_relation_size(c.oid) AS estimated_size_bytes,
                     pg_has_role(c.relowner, 'USAGE') AS owns_table,
@@ -363,18 +489,56 @@ class PostgresAdapter:
                 )
                 indexes = await conn.fetch(
                     """
-                    SELECT indexname AS name, indexdef AS definition FROM pg_indexes
-                    WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname
+                    SELECT ci.relname AS name, i.indisunique AS "unique",
+                        i.indisprimary AS "primary", i.indisvalid AS valid,
+                        i.indpred IS NOT NULL AS partial,
+                        i.indexprs IS NOT NULL AS expression,
+                        i.indisreplident AS replica_identity,
+                        pg_get_indexdef(i.indexrelid) AS definition,
+                        array_remove(array_agg(a.attname ORDER BY k.ord), NULL) AS columns,
+                        bool_and(a.attnotnull) FILTER (WHERE k.attnum > 0) AS all_not_null
+                    FROM pg_index i
+                    JOIN pg_class ci ON ci.oid = i.indexrelid
+                    LEFT JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE
+                    LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+                    WHERE i.indrelid = $1
+                    GROUP BY ci.relname, i.indisunique, i.indisprimary, i.indisvalid,
+                        i.indpred, i.indexprs, i.indisreplident, i.indexrelid
+                    ORDER BY ci.relname
                 """,
-                    row["schema_name"],
-                    row["table_name"],
+                    row["oid"],
                 )
                 issues = []
                 warnings = []
                 if not pk:
-                    warnings.append(
-                        "No primary key; stable CDC keys and delete identity are unavailable"
+                    eligible_unique = next(
+                        (
+                            index
+                            for index in indexes
+                            if index["unique"]
+                            and not index["primary"]
+                            and index["valid"]
+                            and not index["partial"]
+                            and not index["expression"]
+                            and index["all_not_null"]
+                        ),
+                        None,
                     )
+                    if eligible_unique and row["relreplident"] in {"f", b"f"}:
+                        warnings.append(
+                            "No primary key; using an enforced unique key for current-state "
+                            "sync. Incremental snapshots remain unavailable"
+                        )
+                    elif eligible_unique:
+                        warnings.append(
+                            "A unique key is available, but REPLICA IDENTITY FULL is required "
+                            "for safe UPDATE and DELETE synchronization"
+                        )
+                    else:
+                        warnings.append(
+                            "No stable row identity; use append-only capture or a supported "
+                            "change-event log strategy"
+                        )
                 if not row["can_select"]:
                     issues.append("SELECT permission is required")
                 if not row["owns_table"]:
@@ -387,7 +551,27 @@ class PostgresAdapter:
                         "table_name": row["table_name"],
                         "primary_key_columns": [r["name"] for r in pk],
                         "columns_json": [dict(r) for r in columns],
-                        "indexes_json": [dict(r) for r in indexes],
+                        "indexes_json": [
+                            {
+                                **dict(index),
+                                "columns": list(index["columns"] or []),
+                                "replica_identity_eligible": bool(
+                                    index["unique"]
+                                    and index["valid"]
+                                    and not index["partial"]
+                                    and not index["expression"]
+                                    and index["all_not_null"]
+                                ),
+                            }
+                            for index in indexes
+                        ],
+                        "source_properties_json": {
+                            "replica_identity": (
+                                row["relreplident"].decode("ascii", errors="replace")
+                                if isinstance(row["relreplident"], bytes)
+                                else row["relreplident"]
+                            )
+                        },
                         "estimated_rows": row["estimated_rows"],
                         "estimated_size_bytes": row["estimated_size_bytes"],
                         "cdc_ready": not issues,

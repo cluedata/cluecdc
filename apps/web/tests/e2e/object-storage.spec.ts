@@ -91,25 +91,35 @@ test("MinIO connection and storage-only delivery UI deploy a real S3 sink withou
     const response = await created;
     expect(response.ok()).toBeTruthy();
     connectionId = (await response.json()).id;
-    await page.goto(
-      `/deliveries/new/object-storage?destination_id=${connectionId}`,
-    );
+    await page.goto("/deliveries/new");
     await page
-      .getByLabel("Capture pipeline", { exact: true })
+      .getByLabel("Destination", { exact: true })
+      .selectOption(connectionId);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page
+      .getByLabel("Pipeline", { exact: true })
       .selectOption(pipeline.id);
     await page.getByRole("checkbox").first().check();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(
+      page.getByText(/Table mapping and primary keys are not required/),
+    ).toBeVisible();
     await expect(
       page.getByLabel("Database schema", { exact: true }),
     ).toHaveCount(0);
     await expect(
       page.getByLabel("Primary key mode", { exact: true }),
     ).toHaveCount(0);
-    await page.getByRole("button", { name: "Validate", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page.getByLabel("Compression", { exact: true })).toBeVisible();
+    await page
+      .getByRole("button", { name: "Validate and review", exact: true })
+      .click();
     await expect(
-      page.getByRole("button", { name: "Deploy delivery", exact: true }),
+      page.getByRole("button", { name: "Deploy destination", exact: true }),
     ).toBeEnabled();
     await page
-      .getByText("Validated connector configuration (redacted)", {
+      .getByText("Advanced · Generated sink connector configuration", {
         exact: true,
       })
       .click();
@@ -123,7 +133,7 @@ test("MinIO connection and storage-only delivery UI deploy a real S3 sink withou
         response.request().method() === "POST",
     );
     await page
-      .getByRole("button", { name: "Deploy delivery", exact: true })
+      .getByRole("button", { name: "Deploy destination", exact: true })
       .click();
     const deployed = await deployment;
     expect(deployed.ok()).toBeTruthy();

@@ -17,18 +17,27 @@ import {
   type ConnectionTestFeedback,
 } from "@/lib/connection-test";
 import type {
+  Connection,
   ConnectCluster,
   DatabaseProviderMetadata,
   Delivery,
   Destination,
   Pipeline,
   PipelineDetail,
+  PipelineTable,
   TopicMapping,
 } from "@cluecdc/contracts";
 import { Button, Input } from "@cluecdc/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Database, Rocket } from "lucide-react";
+import {
+  Archive,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Database,
+  Rocket,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -51,14 +60,69 @@ export const steps = [
   "Review",
 ];
 
+type DeliveryType = "DATABASE" | "OBJECT_STORAGE";
+
+const defaultObjectKeyTemplate =
+  "{{topic}}/year={{timestamp:unit=yyyy}}/month={{timestamp:unit=MM}}/day={{timestamp:unit=dd}}/{{topic}}-{{partition:padding=true}}-{{start_offset:padding=true}}.jsonl.gz";
+
+function databaseDeliveryReadiness(table: PipelineTable) {
+  const syncMode = table.sync_mode || "CURRENT_STATE";
+  const keyMode =
+    table.effective_key_mode ||
+    (table.primary_key_columns.length ? "PRIMARY_KEY" : "NONE");
+  const keyColumns = table.effective_key_columns ?? table.primary_key_columns;
+  const databaseEnforced =
+    keyMode === "PRIMARY_KEY" ||
+    table.effective_key_enforcement === "DATABASE_ENFORCED";
+  const ready =
+    syncMode === "CURRENT_STATE" && keyColumns.length > 0 && databaseEnforced;
+
+  if (ready) {
+    const label =
+      keyMode === "PRIMARY_KEY"
+        ? "Primary key"
+        : keyMode === "UNIQUE_INDEX"
+          ? keyColumns.length > 1
+            ? "Composite unique key"
+            : "Unique key"
+          : "Effective key";
+    return { ready, message: `${label}: ${keyColumns.join(", ")}` };
+  }
+  if (syncMode !== "CURRENT_STATE") {
+    return {
+      ready,
+      message: `Unavailable for database Current State: ${syncMode.replaceAll("_", " ")}`,
+    };
+  }
+  if (keyColumns.length && !databaseEnforced) {
+    return {
+      ready,
+      message: "Unavailable: effective key is not database-enforced",
+    };
+  }
+  return {
+    ready,
+    message: "Unavailable: no database-enforced effective key",
+  };
+}
+
 export function DestinationWizard({
   deliveryFirst = false,
-}: { deliveryFirst?: boolean } = {}) {
+  initialDeliveryType,
+}: {
+  deliveryFirst?: boolean;
+  initialDeliveryType?: DeliveryType;
+} = {}) {
   const { can } = useAuthorization();
   const canCreateDestination = can("destinations.write");
   const router = useRouter();
   const params = useSearchParams();
   const client = useQueryClient();
+  const requestedType = params.get("type")?.toUpperCase();
+  const [deliveryType, setDeliveryType] = useState<DeliveryType>(
+    initialDeliveryType ||
+      (requestedType === "OBJECT_STORAGE" ? "OBJECT_STORAGE" : "DATABASE"),
+  );
   const providers = useQuery({
     queryKey: ["database-providers"],
     queryFn: () => api<DatabaseProviderMetadata[]>("/database-providers"),
@@ -73,8 +137,18 @@ export function DestinationWizard({
   );
   const [pipelineId, setPipelineId] = useState(params.get("pipeline_id") || "");
   const [mappings, setMappings] = useState<TopicMapping[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
   const [automatic, setAutomatic] = useState(true);
   const [options, setOptions] = useState(initialDelivery);
+  const [storageOptions, setStorageOptions] = useState({
+    name: "Object storage archive",
+    compression: "gzip" as "gzip" | "none",
+    file_max_records: 100000,
+    flush_interval_ms: 60000,
+    tasks_max: 1,
+    error_policy: "fail" as "fail" | "continue",
+    file_name_template: defaultObjectKeyTemplate,
+  });
   const [preview, setPreview] = useState<{
     config: Record<string, string>;
   } | null>(null);
@@ -96,7 +170,7 @@ export function DestinationWizard({
   const existing = useQuery({
     queryKey: ["destination", destinationId],
     queryFn: () => api<Destination>(`/destinations/${destinationId}`),
-    enabled: !!destinationId,
+    enabled: !!destinationId && deliveryType === "DATABASE",
   });
   const registeredDestinations = useQuery({
     queryKey: ["destinations"],
@@ -105,6 +179,14 @@ export function DestinationWizard({
         (item) => item.type === "postgresql" || item.type === "mysql",
       ),
     enabled: step === 0,
+  });
+  const storageDestinations = useQuery({
+    queryKey: ["connections", "object-storage-destinations"],
+    queryFn: () =>
+      api<Connection[]>(
+        "/connections?category=OBJECT_STORAGE&capability=DESTINATION",
+      ),
+    enabled: step === 0 || deliveryType === "OBJECT_STORAGE",
   });
   const pipelines = useQuery({
     queryKey: ["pipelines"],
@@ -119,7 +201,30 @@ export function DestinationWizard({
     queryKey: ["connect-clusters"],
     queryFn: () => api<ConnectCluster[]>("/connect/clusters"),
   });
-  const payload = () => ({ ...options, pipeline_id: pipelineId, mappings });
+  const payload = () =>
+    deliveryType === "OBJECT_STORAGE"
+      ? {
+          pipeline_id: pipelineId,
+          name: storageOptions.name,
+          delivery_type: "OBJECT_STORAGE" as const,
+          topics,
+          output_format: "JSONL" as const,
+          compression: storageOptions.compression,
+          file_max_records: storageOptions.file_max_records,
+          flush_interval_ms: storageOptions.flush_interval_ms,
+          tasks_max: storageOptions.tasks_max,
+          error_policy: storageOptions.error_policy,
+          file_name_template:
+            storageOptions.compression === "none"
+              ? storageOptions.file_name_template.replace(/\.gz$/, "")
+              : storageOptions.file_name_template,
+        }
+      : {
+          ...options,
+          pipeline_id: pipelineId,
+          delivery_type: "DATABASE" as const,
+          mappings,
+        };
   const test = useMutation({
     mutationFn: async () => {
       const values = connection.getValues();
@@ -188,7 +293,10 @@ export function DestinationWizard({
       setStep(2);
       return;
     }
-    if (step === 0 && !canCreateDestination) return;
+    if (step === 0) {
+      if (!canCreateDestination) return;
+      setDeliveryType("DATABASE");
+    }
     if (step === 1) {
       if (!(await connection.trigger())) return;
       if (!connection.getValues("password")) {
@@ -202,7 +310,12 @@ export function DestinationWizard({
       save.mutate();
       return;
     }
-    if (step === 2 && (!pipelineId || !mappings.length)) return;
+    if (
+      step === 2 &&
+      (!pipelineId ||
+        (deliveryType === "OBJECT_STORAGE" ? !topics.length : !mappings.length))
+    )
+      return;
     if (step === 4) {
       review.mutate();
       return;
@@ -210,20 +323,28 @@ export function DestinationWizard({
     setStep((value) => value + 1);
   };
   const chosenName =
-    registeredDestinations.data?.find(
-      (target) => target.id === selectedDestinationId,
-    )?.name ||
+    (deliveryType === "OBJECT_STORAGE"
+      ? storageDestinations.data?.find(
+          (target) => target.id === selectedDestinationId,
+        )?.name
+      : registeredDestinations.data?.find(
+          (target) => target.id === selectedDestinationId,
+        )?.name) ||
     existing.data?.name ||
     connection.getValues("name");
   const chosenDestination =
-    registeredDestinations.data?.find(
-      (target) => target.id === selectedDestinationId,
-    ) || existing.data;
+    deliveryType === "DATABASE"
+      ? registeredDestinations.data?.find(
+          (target) => target.id === selectedDestinationId,
+        ) || existing.data
+      : undefined;
   const targetNamespace =
     (chosenDestination?.type || connection.getValues("type")) === "mysql"
       ? chosenDestination?.database_name ||
         connection.getValues("database_name")
       : "public";
+  const selectedTopicCount =
+    deliveryType === "OBJECT_STORAGE" ? topics.length : mappings.length;
   return (
     <>
       <Link
@@ -261,8 +382,10 @@ export function DestinationWizard({
           {step === 0 && (
             <>
               <p className="muted">
-                Choose a registered destination for this delivery.
-                {canCreateDestination && " You can also add a new destination."}
+                Choose a registered database, S3, or MinIO destination for this
+                delivery.
+                {canCreateDestination &&
+                  " You can also add a new database destination."}
               </p>
               <Field
                 label="Destination"
@@ -271,28 +394,61 @@ export function DestinationWizard({
                 <select
                   value={selectedDestinationId}
                   onChange={(event) => {
+                    const selected = event.target.selectedOptions[0];
                     setSelectedDestinationId(event.target.value);
+                    setDeliveryType(
+                      selected?.dataset.deliveryType === "OBJECT_STORAGE"
+                        ? "OBJECT_STORAGE"
+                        : "DATABASE",
+                    );
                     setDestinationId("");
+                    setMappings([]);
+                    setTopics([]);
                     setPreview(null);
                   }}
                 >
                   <option value="">
                     {canCreateDestination
-                      ? "Add a new destination"
+                      ? "Add a new database destination"
                       : "Select a destination"}
                   </option>
-                  {registeredDestinations.data
-                    ?.slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((target) => (
-                      <option key={target.id} value={target.id}>
-                        {target.name} · {databaseName(target.type)} ·{" "}
-                        {target.environment}
-                      </option>
-                    ))}
+                  {!!registeredDestinations.data?.length && (
+                    <optgroup label="Database">
+                      {registeredDestinations.data
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((target) => (
+                          <option
+                            key={target.id}
+                            value={target.id}
+                            data-delivery-type="DATABASE"
+                          >
+                            {target.name} · {databaseName(target.type)} ·{" "}
+                            {target.environment}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {!!storageDestinations.data?.length && (
+                    <optgroup label="S3 / MinIO">
+                      {storageDestinations.data
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((target) => (
+                          <option
+                            key={target.id}
+                            value={target.id}
+                            data-delivery-type="OBJECT_STORAGE"
+                          >
+                            {target.name} · {target.provider}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
                 </select>
               </Field>
-              {registeredDestinations.isPending && (
+              {(registeredDestinations.isPending ||
+                storageDestinations.isPending) && (
                 <p className="muted" role="status">
                   Loading registered destinations…
                 </p>
@@ -303,8 +459,16 @@ export function DestinationWizard({
                   retry={() => registeredDestinations.refetch()}
                 />
               )}
+              {storageDestinations.isError && (
+                <ErrorPanel
+                  error={storageDestinations.error}
+                  retry={() => storageDestinations.refetch()}
+                />
+              )}
               {registeredDestinations.isSuccess &&
-                !registeredDestinations.data.length && (
+                storageDestinations.isSuccess &&
+                !registeredDestinations.data.length &&
+                !storageDestinations.data.length && (
                   <p className="muted">
                     {canCreateDestination
                       ? "No destinations registered yet. Add your first destination below."
@@ -313,10 +477,18 @@ export function DestinationWizard({
                 )}
               {selectedDestinationId ? (
                 <div className="info-strip">
-                  <Database size={17} />
+                  {deliveryType === "OBJECT_STORAGE" ? (
+                    <Archive size={17} />
+                  ) : (
+                    <Database size={17} />
+                  )}
                   <span>
-                    The saved connection will be reused. No new destination will
-                    be created.
+                    The saved{" "}
+                    {deliveryType === "OBJECT_STORAGE"
+                      ? "S3 / MinIO"
+                      : "database"}{" "}
+                    connection will be reused. No new destination will be
+                    created.
                   </span>
                 </div>
               ) : canCreateDestination ? (
@@ -387,6 +559,8 @@ export function DestinationWizard({
                   onChange={(event) => {
                     setPipelineId(event.target.value);
                     setMappings([]);
+                    setTopics([]);
+                    setPreview(null);
                     setOptions((value) => ({
                       ...value,
                       connect_cluster_id: undefined,
@@ -417,17 +591,33 @@ export function DestinationWizard({
                       verified during review.
                     </p>
                     {pipeline.data.tables.map((table) => {
-                      const hasPrimaryKey =
-                        table.primary_key_columns.length > 0;
+                      const readiness = databaseDeliveryReadiness(table);
+                      const storage = deliveryType === "OBJECT_STORAGE";
                       return (
                         <label key={table.topic_name}>
                           <input
                             type="checkbox"
-                            disabled={!hasPrimaryKey}
-                            checked={mappings.some(
-                              (mapping) => mapping.topic === table.topic_name,
-                            )}
-                            onChange={(event) =>
+                            disabled={!storage && !readiness.ready}
+                            checked={
+                              storage
+                                ? topics.includes(table.topic_name)
+                                : mappings.some(
+                                    (mapping) =>
+                                      mapping.topic === table.topic_name,
+                                  )
+                            }
+                            onChange={(event) => {
+                              setPreview(null);
+                              if (storage) {
+                                setTopics((values) =>
+                                  event.target.checked
+                                    ? [...values, table.topic_name]
+                                    : values.filter(
+                                        (topic) => topic !== table.topic_name,
+                                      ),
+                                );
+                                return;
+                              }
                               setMappings((values) =>
                                 event.target.checked
                                   ? [
@@ -442,16 +632,16 @@ export function DestinationWizard({
                                       (mapping) =>
                                         mapping.topic !== table.topic_name,
                                     ),
-                              )
-                            }
+                              );
+                            }}
                           />
                           <span>
                             <strong>{table.topic_name}</strong>
                             <small>
-                              {table.schema_name}.{table.table_name}
-                              {hasPrimaryKey
-                                ? ` · Primary key: ${table.primary_key_columns.join(", ")}`
-                                : " · Unavailable: source table has no primary key"}
+                              {table.schema_name}.{table.table_name} ·{" "}
+                              {storage
+                                ? "CDC event stream · source key optional"
+                                : readiness.message}
                             </small>
                           </span>
                         </label>
@@ -470,228 +660,357 @@ export function DestinationWizard({
                 )}
             </>
           )}
-          {step === 3 && (
-            <>
-              <label className="check-line">
-                <input
-                  type="checkbox"
-                  checked={automatic}
-                  onChange={(event) => {
-                    setAutomatic(event.target.checked);
-                    if (event.target.checked)
-                      setMappings((values) =>
-                        values.map((mapping) => ({
-                          ...mapping,
-                          schema_name: targetNamespace,
-                          table_name:
-                            pipeline.data?.tables.find(
-                              (table) => table.topic_name === mapping.topic,
-                            )?.table_name || mapping.table_name,
-                        })),
-                      );
-                  }}
-                />
-                Use topic table name automatically
-              </label>
-              <p className="muted">
-                Namespaces must already exist. Use lowercase portable
-                identifiers with letters, numbers, and underscores.
-              </p>
-              <div className="mapping-editor">
-                {mappings.map((mapping, index) => (
-                  <div className="mapping-row" key={mapping.topic}>
-                    <strong>{mapping.topic}</strong>
-                    <ArrowRight size={16} />
-                    <Field label={`Schema for ${mapping.topic}`}>
-                      <Input
-                        disabled={automatic}
-                        value={mapping.schema_name}
-                        onChange={(event) =>
-                          setMappings((values) =>
-                            values.map((value, i) =>
-                              i === index
-                                ? { ...value, schema_name: event.target.value }
-                                : value,
-                            ),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field label={`Table for ${mapping.topic}`}>
-                      <Input
-                        disabled={automatic}
-                        value={mapping.table_name}
-                        onChange={(event) =>
-                          setMappings((values) =>
-                            values.map((value, i) =>
-                              i === index
-                                ? { ...value, table_name: event.target.value }
-                                : value,
-                            ),
-                          )
-                        }
-                      />
-                    </Field>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          {step === 4 && (
-            <>
-              <div className="form-grid">
-                <Field label="Delivery name">
-                  <Input
-                    value={options.name}
-                    onChange={(event) =>
-                      setOptions((value) => ({
-                        ...value,
-                        name: event.target.value,
-                      }))
-                    }
+          {step === 3 &&
+            (deliveryType === "OBJECT_STORAGE" ? (
+              <>
+                <div className="info-strip">
+                  <Archive size={17} />
+                  <span>
+                    Object storage keeps the Debezium event envelope as JSONL.
+                    Table mapping and primary keys are not required.
+                  </span>
+                </div>
+                <div className="mapping-editor">
+                  {topics.map((topic) => (
+                    <div className="mapping-row" key={topic}>
+                      <strong>{topic}</strong>
+                      <ArrowRight size={16} />
+                      <span>S3 / MinIO JSONL objects</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="check-line">
+                  <input
+                    type="checkbox"
+                    checked={automatic}
+                    onChange={(event) => {
+                      setAutomatic(event.target.checked);
+                      if (event.target.checked)
+                        setMappings((values) =>
+                          values.map((mapping) => ({
+                            ...mapping,
+                            schema_name: targetNamespace,
+                            table_name:
+                              pipeline.data?.tables.find(
+                                (table) => table.topic_name === mapping.topic,
+                              )?.table_name || mapping.table_name,
+                          })),
+                        );
+                    }}
                   />
-                </Field>
-                <Field
-                  label="Write mode"
-                  hint="Upsert is idempotent. Insert can fail when records are replayed."
-                >
-                  <select
-                    value={options.write_mode}
-                    onChange={(event) =>
-                      setOptions((value) => ({
-                        ...value,
-                        write_mode: event.target.value as "upsert" | "insert",
-                      }))
-                    }
-                  >
-                    <option value="upsert">Upsert</option>
-                    <option value="insert">Insert</option>
-                  </select>
-                </Field>
-                <Field label="Primary key mode">
-                  <select value="record_key" disabled>
-                    <option value="record_key">Record key</option>
-                  </select>
-                </Field>
-                <Field label="Auto create table">
-                  <select
-                    value={options.auto_create ? "on" : "off"}
-                    onChange={(event) =>
-                      setOptions((value) => ({
-                        ...value,
-                        auto_create: event.target.value === "on",
-                        auto_evolve:
-                          event.target.value === "on" && value.auto_evolve,
-                      }))
-                    }
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                  </select>
-                </Field>
-                <Field
-                  label="Auto evolve schema"
-                  hint="Adds columns only; never drops or changes column types."
-                >
-                  <select
-                    disabled={!options.auto_create}
-                    value={options.auto_evolve ? "on" : "off"}
-                    onChange={(event) =>
-                      setOptions((value) => ({
-                        ...value,
-                        auto_evolve: event.target.value === "on",
-                      }))
-                    }
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                  </select>
-                </Field>
-              </div>
-              <details className="advanced">
-                <summary>Advanced delivery options</summary>
+                  Use topic table name automatically
+                </label>
+                <p className="muted">
+                  Namespaces must already exist. Use lowercase portable
+                  identifiers with letters, numbers, and underscores.
+                </p>
+                <div className="mapping-editor">
+                  {mappings.map((mapping, index) => (
+                    <div className="mapping-row" key={mapping.topic}>
+                      <strong>{mapping.topic}</strong>
+                      <ArrowRight size={16} />
+                      <Field label={`Schema for ${mapping.topic}`}>
+                        <Input
+                          disabled={automatic}
+                          value={mapping.schema_name}
+                          onChange={(event) =>
+                            setMappings((values) =>
+                              values.map((value, i) =>
+                                i === index
+                                  ? {
+                                      ...value,
+                                      schema_name: event.target.value,
+                                    }
+                                  : value,
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+                      <Field label={`Table for ${mapping.topic}`}>
+                        <Input
+                          disabled={automatic}
+                          value={mapping.table_name}
+                          onChange={(event) =>
+                            setMappings((values) =>
+                              values.map((value, i) =>
+                                i === index
+                                  ? { ...value, table_name: event.target.value }
+                                  : value,
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ))}
+          {step === 4 &&
+            (deliveryType === "OBJECT_STORAGE" ? (
+              <>
                 <div className="form-grid">
-                  <Field label="Connect cluster">
-                    <select
-                      value={
-                        options.connect_cluster_id ||
-                        pipeline.data?.connect_cluster_id ||
-                        ""
-                      }
+                  <Field label="Delivery name">
+                    <Input
+                      value={storageOptions.name}
                       onChange={(event) =>
-                        setOptions((value) => ({
+                        setStorageOptions((value) => ({
                           ...value,
-                          connect_cluster_id: event.target.value,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Compression">
+                    <select
+                      value={storageOptions.compression}
+                      onChange={(event) =>
+                        setStorageOptions((value) => ({
+                          ...value,
+                          compression: event.target.value as "gzip" | "none",
                         }))
                       }
                     >
-                      {clusters.data
-                        ?.filter(
-                          (cluster) =>
-                            cluster.kafka_cluster_id ===
-                            pipeline.data?.kafka_cluster_id,
-                        )
-                        .map((cluster) => (
-                          <option key={cluster.id} value={cluster.id}>
-                            {cluster.name}
-                          </option>
-                        ))}
+                      <option value="gzip">gzip</option>
+                      <option value="none">None</option>
                     </select>
                   </Field>
-                  {(
-                    [
-                      ["batch_size", "Batch size"],
-                      ["max_retries", "Max retries"],
-                      ["retry_backoff_ms", "Retry backoff (ms)"],
-                      ["tasks_max", "Max tasks"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <Field key={key} label={label}>
+                  <Field label="Maximum records per file">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={storageOptions.file_max_records}
+                      onChange={(event) =>
+                        setStorageOptions((value) => ({
+                          ...value,
+                          file_max_records: Number(event.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Flush interval (milliseconds)">
+                    <Input
+                      type="number"
+                      min={1000}
+                      value={storageOptions.flush_interval_ms}
+                      onChange={(event) =>
+                        setStorageOptions((value) => ({
+                          ...value,
+                          flush_interval_ms: Number(event.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Maximum tasks">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={4}
+                      value={storageOptions.tasks_max}
+                      onChange={(event) =>
+                        setStorageOptions((value) => ({
+                          ...value,
+                          tasks_max: Number(event.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Error policy">
+                    <select
+                      value={storageOptions.error_policy}
+                      onChange={(event) =>
+                        setStorageOptions((value) => ({
+                          ...value,
+                          error_policy: event.target.value as
+                            "fail" | "continue",
+                        }))
+                      }
+                    >
+                      <option value="fail">Stop on error</option>
+                      <option value="continue">
+                        Continue past bad records
+                      </option>
+                    </select>
+                  </Field>
+                  <div className="full-width">
+                    <Field label="Object key template">
                       <Input
-                        type="number"
-                        min={key === "max_retries" ? 0 : 1}
-                        value={options[key]}
+                        value={storageOptions.file_name_template}
                         onChange={(event) =>
-                          setOptions((value) => ({
+                          setStorageOptions((value) => ({
                             ...value,
-                            [key]: Number(event.target.value),
+                            file_name_template: event.target.value,
                           }))
                         }
                       />
                     </Field>
-                  ))}
-                  <Field label="Delete handling">
-                    <select
-                      value={options.delete_enabled ? "delete" : "ignore"}
+                  </div>
+                </div>
+                <p className="muted">
+                  JSONL preserves the Debezium event envelope, including
+                  deletes. Files are grouped by topic, partition, and starting
+                  offset; replaying data may duplicate event content.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="form-grid">
+                  <Field label="Delivery name">
+                    <Input
+                      value={options.name}
                       onChange={(event) =>
                         setOptions((value) => ({
                           ...value,
-                          delete_enabled: event.target.value === "delete",
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Write mode"
+                    hint="Upsert is idempotent. Insert can fail when records are replayed."
+                  >
+                    <select
+                      value={options.write_mode}
+                      onChange={(event) =>
+                        setOptions((value) => ({
+                          ...value,
+                          write_mode: event.target.value as "upsert" | "insert",
                         }))
                       }
                     >
-                      <option value="delete">
-                        Delete matching destination rows
-                      </option>
-                      <option value="ignore">Ignore source deletes</option>
+                      <option value="upsert">Upsert</option>
+                      <option value="insert">Insert</option>
+                    </select>
+                  </Field>
+                  <Field label="Primary key mode">
+                    <select value="record_key" disabled>
+                      <option value="record_key">Record key</option>
+                    </select>
+                  </Field>
+                  <Field label="Auto create table">
+                    <select
+                      value={options.auto_create ? "on" : "off"}
+                      onChange={(event) =>
+                        setOptions((value) => ({
+                          ...value,
+                          auto_create: event.target.value === "on",
+                          auto_evolve:
+                            event.target.value === "on" && value.auto_evolve,
+                        }))
+                      }
+                    >
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
                     </select>
                   </Field>
                   <Field
-                    label="Null handling"
-                    hint="Null tombstones are skipped. DELETE envelopes handle row deletion."
+                    label="Auto evolve schema"
+                    hint="Adds columns only; never drops or changes column types."
                   >
-                    <select disabled>
-                      <option>Ignore tombstones</option>
+                    <select
+                      disabled={!options.auto_create}
+                      value={options.auto_evolve ? "on" : "off"}
+                      onChange={(event) =>
+                        setOptions((value) => ({
+                          ...value,
+                          auto_evolve: event.target.value === "on",
+                        }))
+                      }
+                    >
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
                     </select>
                   </Field>
                 </div>
-              </details>
-              <p className="muted">
-                Schema changes require refreshed source discovery and delivery
-                mappings. Unsupported types fail validation.
-              </p>
-            </>
-          )}
+                <details className="advanced">
+                  <summary>Advanced delivery options</summary>
+                  <div className="form-grid">
+                    <Field label="Connect cluster">
+                      <select
+                        value={
+                          options.connect_cluster_id ||
+                          pipeline.data?.connect_cluster_id ||
+                          ""
+                        }
+                        onChange={(event) =>
+                          setOptions((value) => ({
+                            ...value,
+                            connect_cluster_id: event.target.value,
+                          }))
+                        }
+                      >
+                        {clusters.data
+                          ?.filter(
+                            (cluster) =>
+                              cluster.kafka_cluster_id ===
+                              pipeline.data?.kafka_cluster_id,
+                          )
+                          .map((cluster) => (
+                            <option key={cluster.id} value={cluster.id}>
+                              {cluster.name}
+                            </option>
+                          ))}
+                      </select>
+                    </Field>
+                    {(
+                      [
+                        ["batch_size", "Batch size"],
+                        ["max_retries", "Max retries"],
+                        ["retry_backoff_ms", "Retry backoff (ms)"],
+                        ["tasks_max", "Max tasks"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <Field key={key} label={label}>
+                        <Input
+                          type="number"
+                          min={key === "max_retries" ? 0 : 1}
+                          value={options[key]}
+                          onChange={(event) =>
+                            setOptions((value) => ({
+                              ...value,
+                              [key]: Number(event.target.value),
+                            }))
+                          }
+                        />
+                      </Field>
+                    ))}
+                    <Field label="Delete handling">
+                      <select
+                        value={options.delete_enabled ? "delete" : "ignore"}
+                        onChange={(event) =>
+                          setOptions((value) => ({
+                            ...value,
+                            delete_enabled: event.target.value === "delete",
+                          }))
+                        }
+                      >
+                        <option value="delete">
+                          Delete matching destination rows
+                        </option>
+                        <option value="ignore">Ignore source deletes</option>
+                      </select>
+                    </Field>
+                    <Field
+                      label="Null handling"
+                      hint="Null tombstones are skipped. DELETE envelopes handle row deletion."
+                    >
+                      <select disabled>
+                        <option>Ignore tombstones</option>
+                      </select>
+                    </Field>
+                  </div>
+                </details>
+                <p className="muted">
+                  Schema changes require refreshed source discovery and delivery
+                  mappings. Unsupported types fail validation.
+                </p>
+              </>
+            ))}
           {step === 5 && (
             <>
               <div className="review-grid">
@@ -704,28 +1023,49 @@ export function DestinationWizard({
                   <strong>{pipeline.data?.name}</strong>
                 </div>
                 <div>
-                  <small>Write mode</small>
-                  <strong>{options.write_mode}</strong>
+                  <small>Delivery mode</small>
+                  <strong>
+                    {deliveryType === "OBJECT_STORAGE"
+                      ? `JSONL · ${storageOptions.compression}`
+                      : options.write_mode}
+                  </strong>
                 </div>
                 <div>
                   <small>Topics</small>
-                  <strong>{mappings.length}</strong>
+                  <strong>{selectedTopicCount}</strong>
                 </div>
               </div>
-              <h3>Mappings</h3>
-              <DataTable
-                search={false}
-                data={mappings}
-                columns={[
-                  { accessorKey: "topic", header: "Kafka topic" },
-                  {
-                    id: "table",
-                    header: "Destination table",
-                    cell: ({ row }) =>
-                      `${row.original.schema_name}.${row.original.table_name}`,
-                  },
-                ]}
-              />
+              <h3>
+                {deliveryType === "OBJECT_STORAGE" ? "Topics" : "Mappings"}
+              </h3>
+              {deliveryType === "OBJECT_STORAGE" ? (
+                <DataTable
+                  search={false}
+                  data={topics.map((topic) => ({ topic }))}
+                  columns={[
+                    { accessorKey: "topic", header: "Kafka topic" },
+                    {
+                      id: "output",
+                      header: "Destination format",
+                      cell: () => "S3 / MinIO JSONL objects",
+                    },
+                  ]}
+                />
+              ) : (
+                <DataTable
+                  search={false}
+                  data={mappings}
+                  columns={[
+                    { accessorKey: "topic", header: "Kafka topic" },
+                    {
+                      id: "table",
+                      header: "Destination table",
+                      cell: ({ row }) =>
+                        `${row.original.schema_name}.${row.original.table_name}`,
+                    },
+                  ]}
+                />
+              )}
               <div className="info-strip">
                 Connection, topic existence, installed plugin, target readiness,
                 and connector configuration validated. Deployment checks them
@@ -793,7 +1133,7 @@ export function DestinationWizard({
                   (step === 0 &&
                     !canCreateDestination &&
                     !selectedDestinationId) ||
-                  (step === 2 && (!pipelineId || !mappings.length))
+                  (step === 2 && (!pipelineId || !selectedTopicCount))
                 }
                 onClick={next}
               >
@@ -819,11 +1159,15 @@ export function DestinationWizard({
           </div>
           <div>
             <small>Topics</small>
-            <strong>{mappings.length} selected</strong>
+            <strong>{selectedTopicCount} selected</strong>
           </div>
           <div>
-            <small>Write mode</small>
-            <strong>{options.write_mode}</strong>
+            <small>Delivery mode</small>
+            <strong>
+              {deliveryType === "OBJECT_STORAGE"
+                ? `JSONL · ${storageOptions.compression}`
+                : options.write_mode}
+            </strong>
           </div>
           <p className="summary-note">
             Capture keeps running independently. Each delivery has its own

@@ -201,7 +201,12 @@ async def discover(session: AsyncSession, source_id: UUID, actor: str) -> dict:
         else:
             for k, v in data.items():
                 setattr(entity, k, v)
-        schema = {"columns": data["columns_json"], "primary_key": data["primary_key_columns"]}
+        schema = {
+            "columns": data["columns_json"],
+            "primary_key": data["primary_key_columns"],
+            "indexes": data.get("indexes_json", []),
+            "source_properties": data.get("source_properties_json", {}),
+        }
         digest = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
         previous = previous_versions.get(key)
         if previous is None or previous.schema_hash != digest:

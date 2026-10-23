@@ -96,6 +96,12 @@ it("builds a review from selected ready tables", async () => {
   expect(
     screen.getByRole("checkbox", { name: "Capture public.bad" }),
   ).toBeEnabled();
+  fireEvent.click(screen.getAllByRole("button", { name: "Configure" })[0]);
+  expect(
+    screen.getByRole("dialog", { name: "Configure synchronization" }),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText("Sync strategy")).toHaveValue("CURRENT_STATE");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
   fireEvent.click(checkbox);
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   await screen.findByText("How should capture behave?");
@@ -121,7 +127,16 @@ it("builds a review from selected ready tables", async () => {
         source_id: "s1",
         kafka_cluster_id: "k1",
         connect_cluster_id: "c1",
-        tables: [{ schema_name: "public", table_name: "customers" }],
+        tables: [
+          {
+            schema_name: "public",
+            table_name: "customers",
+            sync_mode: "CURRENT_STATE",
+            key_mode: "PRIMARY_KEY",
+            key_columns: ["id"],
+            key_name: null,
+          },
+        ],
       }),
     ),
   );

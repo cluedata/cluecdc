@@ -36,18 +36,7 @@ import { DestinationWizard } from "./destinations";
 import { useAuthorization } from "@/lib/auth";
 
 export function DeliveryCreatePage() {
-  return (
-    <>
-      <div className="wizard-actions">
-        <Button asChild variant="outline">
-          <Link href="/deliveries/new/object-storage">
-            Create S3 / MinIO delivery
-          </Link>
-        </Button>
-      </div>
-      <DestinationWizard deliveryFirst />
-    </>
-  );
+  return <DestinationWizard deliveryFirst />;
 }
 
 function deliveryType(delivery: Delivery): string {

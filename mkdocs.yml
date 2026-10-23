@@ -105,6 +105,7 @@ nav:
       - Apache Kafka: concepts/kafka.md
       - Kafka Connect: concepts/kafka-connect.md
       - Sources and Destinations: concepts/sources-destinations.md
+      - Synchronization Strategies: concepts/sync-strategies.md
       - Pipeline Lifecycle: architecture/pipeline-lifecycle.md
       - Snapshots and Offsets: concepts/snapshots-offsets.md
       - Schema Evolution: concepts/schema-evolution.md

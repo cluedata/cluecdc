@@ -18,6 +18,18 @@ class DebeziumConfigBuilder(Protocol):
     ) -> dict[str, str]: ...
 
 
+def message_key_columns(tables: list) -> str | None:
+    """Compile all non-primary effective keys without disturbing sibling mappings."""
+    mappings = []
+    for table in sorted(tables, key=lambda item: (item.schema_name, item.table_name)):
+        if table.key_mode not in {"UNIQUE_INDEX", "CUSTOM"} or not table.key_columns:
+            continue
+        relation = re.escape(f"{table.schema_name}.{table.table_name}")
+        columns = ",".join(re.escape(column) for column in table.key_columns)
+        mappings.append(f"{relation}:{columns}")
+    return ";".join(mappings) or None
+
+
 class PostgresDebeziumConfigBuilder:
     def build(
         self,
@@ -74,6 +86,8 @@ class PostgresDebeziumConfigBuilder:
                     "signal.enabled.channels": "source",
                 }
             )
+        if custom_keys := message_key_columns(pipeline.tables):
+            config["message.key.columns"] = custom_keys
         config.update(pipeline.additional_debezium_properties)
         return config
 
@@ -148,6 +162,8 @@ class MySQLDebeziumConfigBuilder:
                     "signal.enabled.channels": "source",
                 }
             )
+        if custom_keys := message_key_columns(pipeline.tables):
+            config["message.key.columns"] = custom_keys
         config.update(pipeline.additional_debezium_properties)
         return config
 

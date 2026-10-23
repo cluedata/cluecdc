@@ -1129,7 +1129,7 @@ tbody tr:hover {
   color: var(--text-muted);
 }
 .wizard-layout {
-  max-width: 1100px;
+  max-width: none;
 }
 .wizard-main {
   max-width: 880px;
@@ -1771,9 +1771,9 @@ footer {
   gap: var(--space-4);
 }
 .wizard-layout {
-  max-width: 1100px;
+  max-width: none;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 880px) 220px;
+  grid-template-columns: minmax(0, 1fr) 220px;
 }
 .wizard-panel {
   padding: var(--space-5);
@@ -1782,7 +1782,7 @@ footer {
   font-size: var(--font-section);
 }
 .wizard-steps {
-  max-width: 1100px;
+  max-width: none;
 }
 .data-flow {
   gap: var(--space-2);

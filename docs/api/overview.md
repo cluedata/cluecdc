@@ -6,6 +6,7 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | Sources                  | GET/POST /sources; GET/PUT/DELETE /sources/{uuid}                                                                    |
 | Source operations        | POST /sources/{uuid}/test, /discover, /health; GET /tables, /cdc-readiness                                           |
+| Effective-key validation | POST /sources/{uuid}/tables/{table_uuid}/effective-key/validate                                                      |
 | Jobs                     | GET /jobs/{uuid}                                                                                                     |
 | Kafka clusters           | GET/POST /kafka/clusters; PUT/DELETE /kafka/clusters/{uuid}                                                          |
 | Connect clusters         | GET/POST /connect/clusters; PUT/DELETE /connect/clusters/{uuid}                                                      |
@@ -25,7 +26,7 @@ Base: `/api/v1`. OpenAPI: API `/docs` and `/openapi.json`. Frontend requests use
 | Topics                   | GET /kafka/topics?cluster_id=uuid; GET /kafka/topics/{name}?cluster_id=uuid                                          |
 | Consumer groups          | GET /kafka/consumer-groups?cluster_id=uuid                                                                           |
 | Topic deletion (Admin)   | DELETE /kafka/topics/{name}?cluster_id=uuid                                                                          |
-| Legacy events            | GET /events returns 410; inspect CDC payloads directly in Kafka/storage                                              |
+| Recent CDC sample        | GET /events?cluster_id=uuid&topic=name; bounded read for active pipeline topics                                      |
 | Operations               | GET /monitoring/overview, /operations/errors, /audit                                                                 |
 | Incident lifecycle       | PATCH /operations/errors/{uuid}?status=OPEN\|ACKNOWLEDGED\|RESOLVED                                                  |
 | Schema versions          | GET /data/schemas?source_id=uuid                                                                                     |
@@ -40,7 +41,7 @@ Connection credentials are write-only. Responses expose a configured flag and
 mask, never secret values. Public providers are PostgreSQL and MySQL for source
 or database destination use, plus destination-only AWS S3 and MinIO.
 
-Discovery/health return 202 with a durable Job. Poll until COMPLETED/FAILED; results and sanitized errors are stored. Test/readiness requests are bounded asynchronous read-only database calls. Source tables support search/schema/cdc_ready/has_primary_key/min_size filters. Discovery/list bounds are 500 entries; audit supports a bounded limit and resource_id filter.
+Discovery/health return 202 with a durable Job. Poll until COMPLETED/FAILED; results and sanitized errors are stored. Test/readiness requests are bounded asynchronous read-only database calls. Source-table responses include the backend-authoritative synchronization assessment, effective-key candidates, snapshot compatibility, requirements, and warnings. Custom-key validation is bounded, returns no row values, and never executes suggested DDL. Source tables support search/schema/cdc_ready/has_primary_key/min_size filters. Discovery/list bounds are 500 entries; audit supports a bounded limit and resource_id filter.
 
 Pipeline creation validates with Connect but does not deploy; deployment is a separate explicit operation. Preview generates config without saving metadata and without exposing a secret value. A deployment error leaves the validated draft available for retry. API metadata mutations and operations are authorized/audited. Desired state is stored separately from observed runtime state.
 
@@ -48,7 +49,10 @@ Destination registration stores an encrypted logical target without claiming del
 
 Audit supports `meaningful=true` to exclude routine state observations/jobs from overview activity and `include_related=true` with `resource_id` to include a destination's delivery actions. Operational errors include nullable destination and connector associations. Incident updates require operations permission and are audited. The same-origin web proxy supports PATCH as well as GET/POST/PUT/DELETE.
 
-The removed event endpoint accepts no payload filters or reads. Unknown or
+The event endpoint requires `kafka.read` and accepts only topics registered to
+an active pipeline on the selected cluster. Optional operation, table, key,
+time, partition and minimum-offset filters apply within a bounded recent window;
+the endpoint never commits offsets and is not a full-topic search. Unknown or
 unavailable metrics are JSON null. Connector traces are withheld; task
 identity/state and sanitized diagnostic hints remain inspectable.
 

@@ -2,6 +2,8 @@ import type {
   Delivery,
   DeliveryConfiguration,
   Pipeline,
+  KeyMode,
+  SyncMode,
   TopicMapping,
 } from "@cluecdc/contracts";
 import { post } from "@/lib/api";
@@ -11,7 +13,14 @@ export type PipelineCreateInput = Record<string, unknown> & {
   source_id: string;
   kafka_cluster_id: string;
   connect_cluster_id: string;
-  tables: { schema_name: string; table_name: string }[];
+  tables: {
+    schema_name: string;
+    table_name: string;
+    sync_mode?: SyncMode;
+    key_mode?: KeyMode;
+    key_columns?: string[];
+    key_name?: string | null;
+  }[];
 };
 
 export type DeliveryCreateInput = DeliveryConfiguration & {
@@ -40,11 +49,11 @@ export class PipelineCreationError extends Error {
 
 export async function createPipelineFlow(
   capture: PipelineCreateInput,
-  destinationId: string,
-  delivery: Omit<DeliveryCreateInput, "pipeline_id">,
+  destinationId: string | null,
+  delivery: Omit<DeliveryCreateInput, "pipeline_id"> | null,
 ): Promise<{
   pipeline: Pipeline;
-  delivery: Delivery;
+  delivery: Delivery | null;
   completed: PipelineCreationStep[];
 }> {
   const completed: PipelineCreationStep[] = [];
@@ -64,6 +73,10 @@ export async function createPipelineFlow(
       "capture",
       error,
     );
+  }
+
+  if (!destinationId || !delivery) {
+    return { pipeline, delivery: null, completed };
   }
 
   const payload = { ...delivery, pipeline_id: pipeline.id };

@@ -3,9 +3,10 @@
 Register the broker bootstrap list visible from the API and Connect network. The local value is `kafka:29092`; host tooling uses `localhost:9092`.
 
 ClueCDC implements cluster/topic metadata, topic preparation and deletion, and
-consumer-group inspection. CDC payload inspection requires direct Kafka or
-destination access, never the API. It does not configure brokers, ACLs, quotas,
-replication, or schema registry.
+consumer-group inspection. The event explorer can read a bounded recent sample
+from active pipeline topics without committing offsets. Full history, search,
+and export require direct Kafka or destination access. ClueCDC does not
+configure brokers, ACLs, quotas, replication, or schema registry.
 
 Supported client protocols are `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, and
 `SASL_SSL`. SASL mechanisms are PLAIN, SCRAM-SHA-256, and SCRAM-SHA-512. TLS

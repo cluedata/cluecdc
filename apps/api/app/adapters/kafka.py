@@ -530,6 +530,179 @@ class KafkaExplorer:
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await admin.close()
 
+    async def events(
+        self,
+        cluster: KafkaCluster,
+        topic: str,
+        limit: int = 50,
+        partition: int | None = None,
+        offset: int | None = None,
+        operation: str | None = None,
+        table: str | None = None,
+        key: str | None = None,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+    ) -> dict:
+        """Read a bounded recent window without joining a group or committing offsets."""
+        consumer = AIOKafkaConsumer(
+            **options(cluster, self.credentials),
+            group_id=None,
+            enable_auto_commit=False,
+            auto_offset_reset="latest",
+            fetch_max_bytes=2_000_000,
+            max_partition_fetch_bytes=1_000_000,
+        )
+        try:
+            async with asyncio.timeout(12):
+                await consumer.start()
+                metadata = await self.topics(cluster, topic)
+                partitions = (
+                    {item["partition"] for item in metadata[0]["partition_details"]}
+                    if metadata
+                    else set()
+                )
+                if not partitions:
+                    raise DomainError("TOPIC_NOT_FOUND", "Kafka topic was not found", 404)
+                if partition is not None and partition not in partitions:
+                    raise DomainError("PARTITION_NOT_FOUND", "Partition was not found", 404)
+                selected = [partition] if partition is not None else sorted(partitions)
+                if len(selected) > 32:
+                    raise DomainError(
+                        "SCAN_TOO_LARGE",
+                        "Choose a partition for topics with more than 32 partitions",
+                        422,
+                    )
+                topic_partitions = [TopicPartition(topic, value) for value in selected]
+                consumer.assign(topic_partitions)
+                ends = await consumer.end_offsets(topic_partitions)
+                beginnings = await consumer.beginning_offsets(topic_partitions)
+                scan_limit = 1000
+                byte_limit = 2_000_000
+                per_partition = max(1, scan_limit // len(topic_partitions))
+                for topic_partition in topic_partitions:
+                    lower = max(
+                        beginnings[topic_partition],
+                        ends[topic_partition] - per_partition,
+                    )
+                    requested = offset if offset is not None else lower
+                    consumer.seek(
+                        topic_partition, min(ends[topic_partition], max(lower, requested))
+                    )
+
+                events: list[dict] = []
+                scanned = 0
+                total_bytes = 0
+                deadline = time.monotonic() + 4
+                exhausted = False
+                while time.monotonic() < deadline and scanned < scan_limit and not exhausted:
+                    batch = await consumer.getmany(
+                        timeout_ms=500,
+                        max_records=min(250, scan_limit - scanned),
+                    )
+                    for topic_partition, records in batch.items():
+                        for record in records:
+                            if record.offset >= ends[topic_partition]:
+                                continue
+                            scanned += 1
+                            total_bytes += len(record.value or b"") + len(record.key or b"")
+                            if total_bytes > byte_limit:
+                                exhausted = True
+                                break
+                            raw = decode(record.value)
+                            payload = raw.get("payload", raw) if isinstance(raw, dict) else {}
+                            if not isinstance(payload, dict):
+                                payload = {}
+                            source = payload.get("source")
+                            if not isinstance(source, dict):
+                                source = {}
+                            event_operation = {
+                                "c": "CREATE",
+                                "u": "UPDATE",
+                                "d": "DELETE",
+                                "r": "READ",
+                            }.get(
+                                str(payload.get("op", "")),
+                                "TOMBSTONE" if record.value is None else "UNKNOWN",
+                            )
+                            decoded_key = decode(record.key)
+                            if operation and event_operation != operation:
+                                continue
+                            if table and source.get("table") != table:
+                                continue
+                            if key and key not in json.dumps(decoded_key, default=str):
+                                continue
+                            timestamp = int(record.timestamp or 0)
+                            if (start_ms is not None and timestamp < start_ms) or (
+                                end_ms is not None and timestamp > end_ms
+                            ):
+                                continue
+                            before = payload.get("before")
+                            after = payload.get("after")
+                            changed = (
+                                sorted(
+                                    column
+                                    for column in set(before or {}) | set(after or {})
+                                    if (before or {}).get(column) != (after or {}).get(column)
+                                )
+                                if event_operation == "UPDATE"
+                                and isinstance(before, dict)
+                                and isinstance(after, dict)
+                                else []
+                            )
+                            events.append(
+                                {
+                                    "topic": topic,
+                                    "partition": record.partition,
+                                    "offset": record.offset,
+                                    "timestamp": timestamp,
+                                    "operation": event_operation,
+                                    "key": decoded_key,
+                                    "before": before,
+                                    "after": after,
+                                    "changed_fields": changed,
+                                    "source": source,
+                                    "raw": raw,
+                                }
+                            )
+                    positions = [
+                        await consumer.position(topic_partition)
+                        for topic_partition in topic_partitions
+                    ]
+                    exhausted = exhausted or all(
+                        position >= ends[topic_partition]
+                        for topic_partition, position in zip(topic_partitions, positions)
+                    )
+                events.sort(
+                    key=lambda event: (
+                        event["timestamp"],
+                        event["partition"],
+                        event["offset"],
+                    ),
+                    reverse=True,
+                )
+                return {
+                    "events": events[:limit],
+                    "scanned": scanned,
+                    "scan_limit": scan_limit,
+                    "byte_limit": byte_limit,
+                    "bounded": True,
+                    "notice": (
+                        "Filters apply within the most recent bounded window; "
+                        "this is not a full-topic search"
+                    ),
+                }
+        except DomainError:
+            raise
+        except Exception as exc:
+            raise DomainError(
+                "KAFKA_UNAVAILABLE",
+                "Kafka event sample could not be retrieved",
+                503,
+            ) from exc
+        finally:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await consumer.stop()
+
     async def notifications(
         self, cluster: KafkaCluster, topic: str, limit: int = 200
     ) -> list[dict]:

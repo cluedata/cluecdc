@@ -53,6 +53,8 @@ The API keeps these as explicit endpoints so automation can control each stage.
 
 - [x] Register and manage Kafka and Kafka Connect clusters.
 - [x] Inspect Kafka topics, partitions, beginning/end offsets, and consumer groups.
+- [x] Inspect recent CDC records through an explicit, bounded, read-only sample
+      that never commits consumer offsets.
 - [x] Delete a Kafka topic through a separately privileged destructive action.
 - [x] Discover Connect plugins and inspect connectors and task states.
 - [x] Kafka SSL, SASL/PLAIN, and SASL/SCRAM client configuration with encrypted
@@ -60,9 +62,10 @@ The API keeps these as explicit endpoints so automation can control each stage.
 - [x] Resolve encrypted connector credentials at runtime through the private
       machine-authenticated ConfigProvider endpoint.
 
-ClueCDC does not expose CDC record payloads. The legacy `/api/v1/events`
-endpoint returns HTTP 410; inspect records directly with Kafka tooling or in
-the configured destination.
+ClueCDC exposes recent CDC records only for topics registered to an active
+pipeline. Sampling is explicit and bounded by records, bytes, partitions,
+time, and concurrent requests; it never commits consumer offsets. Kafka or the
+configured destination remains the source for full history and data-plane use.
 
 ## Operations and observability
 
@@ -144,7 +147,8 @@ authorization contract.
 
 - [ ] SSO, OAuth/OIDC, LDAP, SAML, groups, and custom roles are not implemented.
 - [ ] ClueCDC does not send invitation email; an Admin shares the generated link.
-- [ ] CDC payload browsing through the ClueCDC API/UI is intentionally unavailable.
+- [ ] Full-history CDC search and unbounded payload export through the
+      ClueCDC API/UI are intentionally unavailable.
 - [ ] Broker-side TLS identity, Kafka user/ACL provisioning, Connect REST
       authentication, and production external-secret integration remain deployment
       responsibilities.

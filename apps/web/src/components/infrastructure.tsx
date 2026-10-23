@@ -12,6 +12,7 @@ import type {
   Connector,
   KafkaCluster,
   Runtime,
+  Topic,
 } from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
 import { api, date } from "@/lib/api";
@@ -36,6 +37,7 @@ type HealthCheckResult = {
 export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Cluster | null>(null);
   const [editing, setEditing] = useState<Cluster | null>(null);
   const [deleting, setDeleting] = useState<Cluster | null>(null);
   const [name, setName] = useState("");
@@ -60,6 +62,17 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
     queryFn: () => api<KafkaCluster[]>("/kafka/clusters"),
     enabled: kind === "connect",
     refetchInterval: 5000,
+  });
+  const detailTopics = useQuery({
+    queryKey: ["topics", selected?.id],
+    queryFn: () =>
+      api<Topic[]>(`/kafka/topics?cluster_id=${selected?.id || ""}`),
+    enabled: kind === "kafka" && !!selected,
+  });
+  const detailConnectors = useQuery({
+    queryKey: ["connectors", selected?.id],
+    queryFn: () => api<Connector[]>("/connect/connectors"),
+    enabled: kind === "connect" && !!selected,
   });
   const connectionBody = () => {
     const kafkaBody: Record<string, string> = {
@@ -166,12 +179,15 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
       accessorKey: "name",
       header: "Cluster",
       cell: ({ row }) => (
-        <span className="entity-link">
+        <button
+          className="text-link entity-link"
+          onClick={() => setSelected(row.original)}
+        >
           <span className="table-icon">
             {kind === "kafka" ? <Radio size={16} /> : <Box size={16} />}
           </span>
           {row.original.name}
-        </span>
+        </button>
       ),
     },
     {
@@ -280,13 +296,157 @@ export function ClustersPage({ kind }: { kind: "kafka" | "connect" }) {
       ) : query.isError ? (
         <ErrorPanel error={query.error} />
       ) : query.data.length ? (
-        <DataTable data={query.data} columns={columns} />
+        <DataTable
+          data={query.data}
+          columns={columns}
+          onRowClick={setSelected}
+        />
       ) : (
         <Empty
           title="Register your infrastructure"
           description="Use the Kafka and Connect services bundled in Docker Compose to get started."
         />
       )}
+      <DetailDrawer
+        open={!!selected}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setSelected(null);
+        }}
+        title={kind === "kafka" ? "Kafka cluster" : "Kafka Connect cluster"}
+        description={selected?.name}
+      >
+        {selected && (
+          <>
+            <section className="panel">
+              <h3>Connection</h3>
+              <dl className="facts">
+                <dt>Status</dt>
+                <dd>
+                  <Status value={selected.status} />
+                </dd>
+                <dt>
+                  {kind === "kafka" ? "Bootstrap servers" : "REST endpoint"}
+                </dt>
+                <dd>
+                  <code>
+                    {"bootstrap_servers" in selected
+                      ? selected.bootstrap_servers
+                      : selected.base_url}
+                  </code>
+                </dd>
+                {"security_protocol" in selected ? (
+                  <>
+                    <dt>Security protocol</dt>
+                    <dd>{selected.security_protocol}</dd>
+                  </>
+                ) : (
+                  <>
+                    <dt>Kafka cluster</dt>
+                    <dd>
+                      {kafka.data?.find(
+                        (item) => item.id === selected.kafka_cluster_id,
+                      )?.name || selected.kafka_cluster_id}
+                    </dd>
+                  </>
+                )}
+                <dt>Last checked</dt>
+                <dd>{date(selected.last_health_check_at)}</dd>
+                <dt>Status reason</dt>
+                <dd>{selected.status_reason || "No issue reported"}</dd>
+              </dl>
+              <div className="toolbar">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelected(null);
+                    edit(selected);
+                  }}
+                >
+                  <Pencil size={15} />
+                  Edit configuration
+                </Button>
+                {kind === "kafka" ? (
+                  <Link
+                    className="text-link"
+                    href={`/kafka/topics?cluster=${selected.id}`}
+                  >
+                    Browse all topics →
+                  </Link>
+                ) : (
+                  <Link className="text-link" href="/connect/connectors">
+                    Open all connectors →
+                  </Link>
+                )}
+              </div>
+            </section>
+            {kind === "kafka" && (
+              <section className="panel">
+                <h3>Topics</h3>
+                {detailTopics.isPending ? (
+                  <Loading />
+                ) : detailTopics.isError ? (
+                  <ErrorPanel
+                    error={detailTopics.error}
+                    retry={() => detailTopics.refetch()}
+                  />
+                ) : detailTopics.data.length ? (
+                  <div className="stack-list">
+                    {detailTopics.data.slice(0, 20).map((topic) => (
+                      <Link
+                        className="text-link"
+                        key={topic.name}
+                        href={`/kafka/topics/${encodeURIComponent(topic.name)}?cluster=${selected.id}`}
+                      >
+                        <code>{topic.name}</code> · {topic.partitions} partition
+                        {topic.partitions === 1 ? "" : "s"}
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No topics found on this cluster.</p>
+                )}
+              </section>
+            )}
+            {kind === "connect" && (
+              <section className="panel">
+                <h3>Managed connectors</h3>
+                {detailConnectors.isPending ? (
+                  <Loading />
+                ) : detailConnectors.isError ? (
+                  <ErrorPanel
+                    error={detailConnectors.error}
+                    retry={() => detailConnectors.refetch()}
+                  />
+                ) : detailConnectors.data.filter(
+                    (connector) => connector.connect_cluster_id === selected.id,
+                  ).length ? (
+                  <div className="stack-list">
+                    {detailConnectors.data
+                      .filter(
+                        (connector) =>
+                          connector.connect_cluster_id === selected.id,
+                      )
+                      .map((connector) => (
+                        <Link
+                          className="text-link"
+                          key={connector.id}
+                          href={`/connect/connectors?connector=${encodeURIComponent(connector.name)}`}
+                        >
+                          {connector.name} · {connector.connector_type} ·{" "}
+                          {connector.actual_state}
+                        </Link>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="muted">
+                    No managed connectors use this worker cluster.
+                  </p>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </DetailDrawer>
       <Dialog
         open={open}
         onOpenChange={setOpen}

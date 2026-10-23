@@ -26,8 +26,9 @@ Kafka Connect.
   encrypted secret references, health endpoints, and application metrics.
 
 See the [current feature matrix](features.md) for the complete implemented
-surface and explicit product boundaries. CDC payloads never pass through the
-ClueCDC API; topic inspection is metadata-only.
+surface and explicit product boundaries. The event explorer provides bounded,
+read-only recent samples for active pipeline topics; CDC transport itself stays
+entirely in Kafka Connect and the configured destinations.
 
 ## Control plane and data plane
 

@@ -16,6 +16,7 @@ from app.models.entities import (
     Connector,
     Destination,
     PipelineDestination,
+    PipelineTable,
     SecretReference,
     SourceTable,
 )
@@ -155,7 +156,7 @@ async def make_target(client, target_payload):
     return response.json()
 
 
-async def test_delivery_preview_distinguishes_missing_primary_key_from_missing_schema(
+async def test_delivery_preview_distinguishes_invalid_effective_key_from_missing_schema(
     client, db_factory, capture, target_payload
 ):
     target = await make_target(client, target_payload)
@@ -167,10 +168,12 @@ async def test_delivery_preview_distinguishes_missing_primary_key_from_missing_s
     response = await client.post(f"/api/v1/destinations/{target['id']}/preview", json=capture)
     assert response.status_code == 422
     error = response.json()["error"]
-    assert error["code"] == "SOURCE_PRIMARY_KEY_REQUIRED"
+    assert error["code"] == "SOURCE_EFFECTIVE_KEY_INVALID"
     assert error["details"] == {
         "topic": "capture.public.customers",
         "table": "public.customers",
+        "key_mode": "PRIMARY_KEY",
+        "key_columns": ["id"],
     }
 
     async with db_factory() as db:
@@ -187,6 +190,41 @@ async def test_delivery_preview_distinguishes_missing_primary_key_from_missing_s
         "topic": "capture.public.customers",
         "table": "public.customers",
     }
+
+
+async def test_delivery_preview_accepts_database_enforced_unique_effective_key(
+    client, db_factory, capture, target_payload
+):
+    target = await make_target(client, target_payload)
+    async with db_factory() as db:
+        source_table = await db.scalar(select(SourceTable))
+        source_table.primary_key_columns = []
+        source_table.indexes_json = [
+            {
+                "name": "customers_id_key",
+                "columns": ["id"],
+                "unique": True,
+                "primary": False,
+                "valid": True,
+                "partial": False,
+                "expression": False,
+            }
+        ]
+        pipeline_table = await db.scalar(select(PipelineTable))
+        pipeline_table.primary_key_columns = []
+        pipeline_table.sync_mode = "CURRENT_STATE"
+        pipeline_table.effective_key_mode = "UNIQUE_INDEX"
+        pipeline_table.effective_key_columns = ["id"]
+        pipeline_table.effective_key_name = "customers_id_key"
+        pipeline_table.effective_key_enforcement = "DATABASE_ENFORCED"
+        await db.commit()
+
+    response = await client.post(f"/api/v1/destinations/{target['id']}/preview", json=capture)
+
+    assert response.status_code == 200
+    metadata = json.loads(response.json()["config"]["transforms.delivery.metadata"])
+    assert metadata["capture.public.customers"]["effective_keys"] == ["id"]
+    assert metadata["capture.public.customers"]["key_mode"] == "UNIQUE_INDEX"
 
 
 async def test_deliveries_are_first_class_views_of_existing_sink_connectors(

@@ -40,7 +40,11 @@ public final class ClueDeliveryTransform<R extends ConnectRecord<R>> implements 
                 String name = entry.getKey().replaceAll("[^a-zA-Z0-9_]", "_");
                 Map<String, Object> description = entry.getValue();
                 List<?> columns = (List<?>) description.get("columns");
-                List<?> keys = (List<?>) description.get("primary_keys");
+                Object configuredKeys = description.get("effective_keys");
+                List<?> keys = configuredKeys instanceof List<?>
+                    ? (List<?>) configuredKeys
+                    : (List<?>) description.get("primary_keys");
+                if (keys == null || keys.isEmpty()) throw new IllegalArgumentException();
                 SchemaBuilder after = SchemaBuilder.struct().name(name + ".Value").optional();
                 SchemaBuilder before = SchemaBuilder.struct().name(name + ".Before").optional();
                 SchemaBuilder key = SchemaBuilder.struct().name(name + ".Key");
@@ -88,7 +92,10 @@ public final class ClueDeliveryTransform<R extends ConnectRecord<R>> implements 
         else if (type.equals("BYTES") || type.equals("BIT")) builder = SchemaBuilder.bytes();
         else if (type.equals("DATE")) builder = SchemaBuilder.int32().name("io.debezium.time.Date");
         else if (type.equals("TIME")) builder = SchemaBuilder.int64().name("io.debezium.time.MicroTime");
-        else if (type.equals("DATETIME") || type.equals("TIMESTAMP")) builder = SchemaBuilder.int64().name("io.debezium.time.MicroTimestamp");
+        else if (type.equals("DATETIME")) builder = SchemaBuilder.int64().name("io.debezium.time.MicroTimestamp");
+        // MySQL TIMESTAMP is always emitted as an ISO-8601 UTC string by Debezium,
+        // independently of time.precision.mode.
+        else if (type.equals("TIMESTAMP")) builder = SchemaBuilder.string().name("io.debezium.time.ZonedTimestamp");
         else if (type.equals("TIMESTAMPTZ")) builder = SchemaBuilder.string().name("io.debezium.time.ZonedTimestamp");
         else if (type.equals("DECIMAL")) builder = Decimal.builder(0);
         else if (List.of("STRING", "TEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT", "JSON", "ENUM", "SET", "UUID", "YEAR").contains(type)) builder = SchemaBuilder.string();
@@ -188,7 +195,7 @@ public final class ClueDeliveryTransform<R extends ConnectRecord<R>> implements 
             // Keep record contents and original exception text out of Connect task traces.
             throw new DataException(
                 "ClueCDC change record does not match discovered metadata ("
-                    + failure.getClass().getSimpleName() + ": " + failure.getMessage() + ")"
+                    + failure.getClass().getSimpleName() + ")"
             );
         }
     }

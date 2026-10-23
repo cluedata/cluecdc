@@ -37,7 +37,68 @@ export interface SourceTable extends Entity {
     nullable: boolean;
     ordinal: number;
   }[];
-  indexes_json: { name: string; definition: string }[];
+  indexes_json: EffectiveKeyIndex[];
+  source_properties_json: Record<string, Json>;
+  sync_assessment?: SyncAssessment;
+}
+export type SyncMode = "CURRENT_STATE" | "APPEND_ONLY" | "CHANGE_EVENT_LOG";
+export type KeyMode = "PRIMARY_KEY" | "UNIQUE_INDEX" | "CUSTOM" | "NONE";
+export type CapabilityStatus =
+  "SUPPORTED" | "REQUIRES_CONFIGURATION" | "UNSUPPORTED" | "UNKNOWN";
+export interface EffectiveKeyIndex {
+  name: string;
+  definition: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+  valid: boolean;
+  partial: boolean;
+  expression: boolean;
+  replica_identity_eligible?: boolean;
+}
+export interface EffectiveKeyCandidate {
+  mode: KeyMode;
+  columns: string[];
+  constraint_name: string | null;
+  enforced: boolean;
+  verified: boolean;
+  eligible: boolean;
+  reason: string;
+  replica_identity_eligible?: boolean;
+}
+export interface SyncAssessment {
+  table: string;
+  effective_key: {
+    mode: KeyMode;
+    columns: string[];
+    constraint_name: string | null;
+    enforced: boolean;
+    verified: boolean;
+    enforcement: "DATABASE_ENFORCED" | "VERIFIED_ONLY" | null;
+  };
+  key_candidates: EffectiveKeyCandidate[];
+  capabilities: {
+    current_state: { status: CapabilityStatus; reason: string };
+    append_only: { status: CapabilityStatus; reason: string };
+    change_event_log: { status: CapabilityStatus; reason: string };
+    insert_capture: CapabilityStatus;
+    update_capture: CapabilityStatus;
+    delete_capture: CapabilityStatus;
+    incremental_snapshot: CapabilityStatus;
+  };
+  recommendation: { sync_mode: SyncMode; reason: string };
+  selected_sync_mode: SyncMode;
+  requirements: { code: string; message: string; suggested_sql?: string }[];
+  warnings: { code: string; message: string }[];
+}
+export interface CustomKeyValidation {
+  status: "DATABASE_ENFORCED" | "VERIFIED_ONLY" | "INVALID";
+  enforced: boolean;
+  verified: boolean;
+  constraint_name?: string | null;
+  errors: string[];
+  warning?: string | null;
+  suggested_sql?: string | null;
 }
 export interface KafkaCluster extends Entity {
   name: string;
@@ -117,6 +178,12 @@ export interface PipelineTable extends Entity {
   snapshot_status: string;
   cdc_status: string;
   primary_key_columns: string[];
+  sync_mode: SyncMode | null;
+  effective_key_mode: KeyMode | null;
+  effective_key_columns: string[] | null;
+  effective_key_name: string | null;
+  effective_key_enforcement: "DATABASE_ENFORCED" | "VERIFIED_ONLY" | null;
+  sync_capabilities_json: Json;
   destination_schema: string | null;
   destination_table: string | null;
   initial_data_strategy: string;
@@ -207,6 +274,27 @@ export interface Topic {
     actual_state: string;
     active: boolean;
   }[];
+}
+export interface CDCEvent {
+  topic: string;
+  partition: number;
+  offset: number;
+  timestamp: number;
+  operation: string;
+  key: Json;
+  before: Json;
+  after: Json;
+  changed_fields: string[];
+  source: Json;
+  raw: Json;
+}
+export interface EventSample {
+  events: CDCEvent[];
+  scanned: number;
+  scan_limit: number;
+  byte_limit: number;
+  bounded: boolean;
+  notice: string;
 }
 export interface ConsumerGroupOffset {
   topic: string;
