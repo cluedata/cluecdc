@@ -90,13 +90,6 @@ extra:
 nav:
   - Home: index.md
   - Feature Matrix: features.md
-  - Test Report:
-      - Summary: testing/user-simulation-report.md
-      - CDC Reliability Hardening: testing/cdc-reliability-hardening.md
-      - Functional Matrix: testing/functional-test-matrix.md
-      - Bugs: testing/bug-report.md
-      - UX Findings: testing/ux-findings.md
-      - Environment: testing/environment-report.md
   - Getting Started:
       - Introduction: getting-started/introduction.md
       - Prerequisites: getting-started/prerequisites.md
