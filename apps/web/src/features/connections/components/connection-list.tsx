@@ -362,13 +362,31 @@ export function ConnectionsPage({
           title="Delete connection?"
           description="This is blocked while pipelines or deliveries use the connection. Stored credentials will also be removed."
         >
+          {deleting?.used_by?.length ? (
+            <div className="error-panel" role="alert">
+              <strong>Cannot delete connection</strong>
+              <p>This connection is currently used by:</p>
+              <ul>
+                {deleting.used_by.map((dependency) => (
+                  <li key={`${dependency.type}-${dependency.id}`}>
+                    {dependency.type === "pipeline" ? "Pipeline" : "Delivery"}:{" "}
+                    {dependency.name}
+                    {dependency.pipeline ? ` (${dependency.pipeline})` : ""}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                Remove the dependent resources before deleting this connection.
+              </p>
+            </div>
+          ) : null}
           <div className="dialog-actions">
             <Button variant="outline" onClick={() => setDeleting(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={remove.isPending}
+              disabled={remove.isPending || !!deleting?.used_by?.length}
               onClick={() => deleting && remove.mutate(deleting)}
             >
               Delete connection

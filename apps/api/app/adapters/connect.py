@@ -1,5 +1,6 @@
 import time
 from builtins import list as List
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
@@ -9,6 +10,115 @@ from app.core.config import get_settings
 from app.core.errors import DomainError, redact
 
 log = structlog.get_logger()
+
+
+@dataclass(frozen=True)
+class TaskFailure:
+    code: str
+    category: str
+    retryable: bool
+    message: str
+
+
+def classify_task_failure(trace: object, connector_type: str = "sink") -> TaskFailure:
+    """Classify a Connect trace once, then discard it before it crosses the adapter boundary."""
+    text = str(trace).lower()
+    if connector_type == "source":
+        hint = failure_hint(trace, connector_type)
+        return TaskFailure("SOURCE_TASK_FAILED", "SOURCE_FAILURE", False, hint)
+
+    permanent: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
+        (
+            ("constraintviolationexception", "violates check constraint", "duplicate key"),
+            "DESTINATION_CONSTRAINT_VIOLATION",
+            "CONSTRAINT_VIOLATION",
+            "Destination constraint violation prevented delivery",
+        ),
+        (
+            (
+                "password authentication failed",
+                "authenticationexception",
+                "access denied for user",
+                "invalid authorization specification",
+                "sqlstate 28",
+            ),
+            "DESTINATION_AUTHENTICATION_FAILED",
+            "AUTHENTICATION",
+            "Destination authentication failed",
+        ),
+        (
+            ("permission denied", "not authorized", "insufficient privilege", "sqlstate 42501"),
+            "DESTINATION_PERMISSION_DENIED",
+            "PERMISSION",
+            "Destination permissions do not allow delivery",
+        ),
+        (
+            ("does not exist", "unknown column", "unknown table"),
+            "DESTINATION_MAPPING_INVALID",
+            "INVALID_MAPPING",
+            "Destination table or column does not exist",
+        ),
+        (
+            ("cluecdc change record does not match", "unsupported database delivery type"),
+            "DESTINATION_SCHEMA_INCOMPATIBLE",
+            "SCHEMA_INCOMPATIBILITY",
+            "Source record does not match delivery types; refresh discovery and mappings",
+        ),
+    )
+    for needles, code, category, message in permanent:
+        if any(needle in text for needle in needles):
+            return TaskFailure(code, category, False, message)
+
+    transient: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
+        (
+            (
+                "sqlstate 57p01",
+                "sqlstate: 57p01",
+                "sqlstate 57p02",
+                "sqlstate: 57p02",
+                "sqlstate 57p03",
+                "sqlstate: 57p03",
+                "admin shutdown",
+                "crash shutdown",
+                "cannot connect now",
+                "terminating connection due to administrator command",
+            ),
+            "DESTINATION_DATABASE_RESTART",
+            "TRANSIENT_DATABASE_UNAVAILABLE",
+            "Destination database restarted or is temporarily unavailable",
+        ),
+        (
+            (
+                "connection refused",
+                "connectexception: connection",
+                "jdbcconnectionexception",
+                "communications link failure",
+                "connection reset",
+                "connection is closed",
+                "server closed the connection",
+                "could not connect",
+                "sqlstate 08",
+            ),
+            "DESTINATION_CONNECTION_UNAVAILABLE",
+            "TRANSIENT_CONNECTIVITY",
+            "Destination database connection failed",
+        ),
+        (
+            ("timeout", "timed out", "sockettimeoutexception"),
+            "DESTINATION_CONNECTION_TIMEOUT",
+            "TRANSIENT_TIMEOUT",
+            "Destination database connection timed out",
+        ),
+    )
+    for needles, code, category, message in transient:
+        if any(needle in text for needle in needles):
+            return TaskFailure(code, category, True, message)
+    return TaskFailure(
+        "CONNECT_TASK_FAILED",
+        "UNKNOWN",
+        False,
+        "Task failed; inspect Kafka Connect worker logs",
+    )
 
 
 def failure_hint(trace: object, connector_type: str = "sink") -> str:
@@ -49,29 +159,7 @@ def failure_hint(trace: object, connector_type: str = "sink") -> str:
             if any(needle in text for needle in needles):
                 return message
         return "Source task failed; inspect Kafka Connect worker logs"
-    hints = [
-        (
-            ("constraintviolationexception", "violates check constraint", "duplicate key"),
-            "Destination constraint violation prevented delivery",
-        ),
-        (
-            ("password authentication failed", "authenticationexception"),
-            "Destination authentication failed",
-        ),
-        (
-            ("connection refused", "connectexception: connection", "jdbcconnectionexception"),
-            "Destination database connection failed",
-        ),
-        (("does not exist",), "Destination table or column does not exist"),
-        (
-            ("cluecdc change record does not match",),
-            "Source record does not match delivery types; refresh discovery and mappings",
-        ),
-    ]
-    for needles, message in hints:
-        if any(needle in text for needle in needles):
-            return message
-    return "Task failed; inspect Kafka Connect worker logs"
+    return classify_task_failure(trace, connector_type).message
 
 
 class KafkaConnectClient:
@@ -252,7 +340,13 @@ class KafkaConnectClient:
         for task in data["tasks"]:
             trace = task.pop("trace", None)
             if trace:
-                task["error"] = failure_hint(trace, str(data.get("type", "sink")))
+                failure = classify_task_failure(trace, str(data.get("type", "sink")))
+                task.update(
+                    error=failure.message,
+                    error_code=failure.code,
+                    error_category=failure.category,
+                    retryable=failure.retryable,
+                )
         if data["connector"].pop("trace", None):
             data["connector"]["error"] = "Connector failed; inspect Kafka Connect worker logs"
         return data

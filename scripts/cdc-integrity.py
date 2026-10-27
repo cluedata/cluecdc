@@ -357,6 +357,7 @@ def main() -> None:
             if key in {"password", "ssl_ca_pem", "ssl_certificate_pem", "ssl_key_pem"}
         ],
     )
+    api.authenticate(environment)
     compose = Compose(args.compose_project, env_files)
     run = uuid.uuid4().hex[:8]
     source_tables = create_source_fixtures(compose, run)

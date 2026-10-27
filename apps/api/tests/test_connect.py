@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.adapters.connect import KafkaConnectClient, failure_hint
+from app.adapters.connect import KafkaConnectClient, classify_task_failure, failure_hint
 from app.core.errors import DomainError
 
 
@@ -69,6 +69,72 @@ async def test_raw_traces_never_return_to_browser():
         result = await KafkaConnectClient("http://connect", http).status("capture")
         assert "private" not in str(result)
         assert result["tasks"][0]["state"] == "FAILED"
+
+
+@pytest.mark.parametrize(
+    "trace,code,retryable",
+    [
+        (
+            "org.postgresql.util.PSQLException: FATAL SQLState: 57P01",
+            "DESTINATION_DATABASE_RESTART",
+            True,
+        ),
+        (
+            "PSQLException: FATAL: terminating connection due to administrator command",
+            "DESTINATION_DATABASE_RESTART",
+            True,
+        ),
+        (
+            "java.sql.SQLTransientConnectionException: Communications link failure",
+            "DESTINATION_CONNECTION_UNAVAILABLE",
+            True,
+        ),
+        (
+            "password authentication failed for user private-user",
+            "DESTINATION_AUTHENTICATION_FAILED",
+            False,
+        ),
+        (
+            "ConstraintViolationException: duplicate key private-row",
+            "DESTINATION_CONSTRAINT_VIOLATION",
+            False,
+        ),
+        ("unrecognized private failure", "CONNECT_TASK_FAILED", False),
+    ],
+)
+def test_sink_task_failures_are_structured_bounded_and_redacted(trace, code, retryable):
+    failure = classify_task_failure(trace)
+    assert failure.code == code
+    assert failure.retryable is retryable
+    assert "private" not in failure.message
+
+
+async def test_status_exposes_only_sanitized_recovery_signals():
+    runtime = {
+        "type": "sink",
+        "connector": {"state": "RUNNING"},
+        "tasks": [
+            {
+                "id": 3,
+                "state": "FAILED",
+                "trace": "password=private SQLState: 57P01",
+            }
+        ],
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=runtime))
+    ) as http:
+        result = await KafkaConnectClient("http://connect", http).status("capture")
+    task = result["tasks"][0]
+    assert task == {
+        "id": 3,
+        "state": "FAILED",
+        "error": "Destination database restarted or is temporarily unavailable",
+        "error_code": "DESTINATION_DATABASE_RESTART",
+        "error_category": "TRANSIENT_DATABASE_UNAVAILABLE",
+        "retryable": True,
+    }
+    assert "private" not in str(result)
 
 
 @pytest.mark.parametrize(

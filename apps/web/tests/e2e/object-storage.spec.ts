@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { signIn } from "./auth";
+
+test.beforeEach(async ({ page, request }) => {
+  await signIn(page, request);
+});
 
 const fileEnv = Object.fromEntries(
   [".env.example", ".env.test.example", ".env"].flatMap((file) =>

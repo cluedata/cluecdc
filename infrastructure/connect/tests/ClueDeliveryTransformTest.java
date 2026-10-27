@@ -65,6 +65,17 @@ public final class ClueDeliveryTransformTest {
         if (deleted == null || deleted.value() == null) {
             throw new AssertionError("delete envelope was not preserved");
         }
+        SourceRecord keyChanged = record("d", Map.of(
+            "car_code", "CAR-1", "model", "Roadster",
+            "updated_at", "2026-10-22T08:26:51.851873Z"
+        ), null);
+        keyChanged.headers().add("__debezium.oldkey", Map.of("car_code", "CAR-1"), null);
+        keyChanged.headers().add("__debezium.newkey", Map.of("car_code", "CAR-2"), null);
+        SourceRecord cleaned = transform.apply(keyChanged);
+        if (cleaned.headers().lastWithName("__debezium.oldkey") != null
+                || cleaned.headers().lastWithName("__debezium.newkey") != null) {
+            throw new AssertionError("schema-less Debezium key-change headers were preserved");
+        }
         SourceRecord tombstone = new SourceRecord(
             Map.of(), Map.of(), TOPIC, 0, null, Map.of("car_code", "CAR-1"), null, null
         );

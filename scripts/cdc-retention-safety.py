@@ -47,6 +47,7 @@ def main() -> None:
             environment.get("MYSQL_DEMO_SOURCE_PASSWORD", ""),
         ],
     )
+    api.authenticate(environment)
     compose = Compose(args.compose_project, env_files)
     postgres_pipeline = api.request(
         f"/pipelines/{artifact['pipeline_ids']['postgresql']}"

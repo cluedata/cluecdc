@@ -8,7 +8,18 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.errors import DomainError
-from app.models.entities import Job, KafkaTopic, SecretReference, SourceTable
+from app.models.entities import (
+    ConnectCluster,
+    Job,
+    KafkaCluster,
+    KafkaTopic,
+    Pipeline,
+    PipelineTable,
+    SecretReference,
+    Source,
+    SourceTable,
+)
+from app.services import pipeline as pipeline_service
 from app.services.secrets import EncryptedDatabaseSecretProvider
 
 
@@ -312,6 +323,60 @@ async def setup_pipeline(client, db_factory, source_payload):
         "topic_prefix": "capture",
         "tables": [{"schema_name": "public", "table_name": "customers"}],
     }
+
+
+async def test_pipeline_detail_repairs_legacy_keyless_current_state_metadata(client, db_factory):
+    async with db_factory() as db:
+        source = Source(
+            name="legacy-source",
+            type="postgresql",
+            environment="DEV",
+            host="source",
+            port=5432,
+            database_name="commerce",
+            username="cdc",
+            ssl_enabled=False,
+        )
+        kafka = KafkaCluster(name="legacy-kafka", bootstrap_servers="kafka:9092")
+        db.add_all([source, kafka])
+        await db.flush()
+        connect = ConnectCluster(
+            name="legacy-connect",
+            base_url="http://connect:8083",
+            kafka_cluster_id=kafka.id,
+        )
+        db.add(connect)
+        await db.flush()
+        pipeline = Pipeline(
+            name="legacy-keyless",
+            source_id=source.id,
+            kafka_cluster_id=kafka.id,
+            connect_cluster_id=connect.id,
+            topic_prefix="legacy",
+            snapshot_mode="initial",
+        )
+        db.add(pipeline)
+        await db.flush()
+        db.add(
+            PipelineTable(
+                pipeline_id=pipeline.id,
+                schema_name="public",
+                table_name="cars",
+                topic_name="legacy.public.cars",
+                primary_key_columns=[],
+                sync_mode="CURRENT_STATE",
+                effective_key_mode="NONE",
+                effective_key_columns=[],
+            )
+        )
+        await db.commit()
+        normalized = await pipeline_service.input_for(db, pipeline)
+        assert normalized.tables[0].sync_mode == "CHANGE_EVENT_LOG"
+        pipeline_id = pipeline.id
+
+    response = await client.get(f"/api/v1/pipelines/{pipeline_id}")
+    assert response.status_code == 200
+    assert response.json()["config"] == {}
 
 
 async def test_invalid_config_does_not_persist(client, db_factory, source_payload, respx_mock):

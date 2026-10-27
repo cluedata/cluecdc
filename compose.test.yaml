@@ -16,9 +16,9 @@ services:
         "-c",
         "wal_level=logical",
         "-c",
-        "max_replication_slots=10",
+        "max_replication_slots=30",
         "-c",
-        "max_wal_senders=10",
+        "max_wal_senders=30",
       ]
     environment:
       POSTGRES_DB: postgres

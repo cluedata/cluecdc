@@ -234,8 +234,30 @@ export interface Runtime {
   actual_state: string;
   desired_state: string;
   connector?: { state: string; worker_id: string };
-  tasks: { id: number; state: string; worker_id: string; error?: string }[];
+  tasks: {
+    id: number;
+    state: string;
+    worker_id: string;
+    error?: string;
+    error_code?: string;
+    error_category?: string;
+    retryable?: boolean;
+  }[];
   error?: { code: string; message: string };
+  auto_recovery?: {
+    status: string;
+    failed_task_ids: number[];
+    failure_reason?: string;
+    failure_code?: string;
+    retryable?: boolean;
+    first_failure_at?: string;
+    last_failure_at?: string;
+    attempt_count?: number;
+    max_attempts?: number;
+    next_retry_at?: string | null;
+    last_successful_recovery_at?: string;
+    exhaustion_reason?: string | null;
+  };
 }
 export interface Job extends Entity {
   kind: string;

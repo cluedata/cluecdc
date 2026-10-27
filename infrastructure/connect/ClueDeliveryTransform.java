@@ -18,6 +18,8 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.DataException;
+import org.apache.kafka.connect.header.ConnectHeaders;
+import org.apache.kafka.connect.header.Headers;
 import org.apache.kafka.connect.transforms.Transformation;
 
 /** Restores explicitly discovered logical types for the JDBC sink only.
@@ -189,8 +191,16 @@ public final class ClueDeliveryTransform<R extends ConnectRecord<R>> implements 
                 .put("after", row(table.after(), value.get("after")))
                 .put("source", source).put("op", operation)
                 .put("ts_ms", convert(Schema.OPTIONAL_INT64_SCHEMA, value.get("ts_ms")));
+            // Debezium marks identity changes with schema-less map headers. Its JDBC
+            // sink already receives the corresponding old-key DELETE and new-key
+            // CREATE records, while attempting to bind these internal headers causes
+            // a DataException. They are routing metadata, not destination columns.
+            Headers headers = new ConnectHeaders(record.headers());
+            headers.remove("__debezium.oldkey");
+            headers.remove("__debezium.newkey");
             return record.newRecord(record.topic(), record.kafkaPartition(), table.key(),
-                row(table.key(), record.key()), table.envelope(), envelope, record.timestamp());
+                row(table.key(), record.key()), table.envelope(), envelope, record.timestamp(),
+                headers);
         } catch (Exception failure) {
             // Keep record contents and original exception text out of Connect task traces.
             throw new DataException(

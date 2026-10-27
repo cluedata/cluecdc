@@ -6,6 +6,7 @@ the release acceptance scripts and unit-tested by the API test suite.
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import os
 import pathlib
@@ -53,6 +54,23 @@ class ApiClient:
     def __init__(self, base_url: str, sensitive_values: Iterable[str] = ()) -> None:
         self.base_url = base_url.rstrip("/")
         self.sensitive_values = tuple(value for value in sensitive_values if value)
+        self.cookie_jar = http.cookiejar.CookieJar()
+
+    def authenticate(self, environment: Mapping[str, str]) -> None:
+        """Create a browser-style session when bearer-token mode is not configured."""
+
+        if os.environ.get("CLUECDC_TOKEN"):
+            return
+        self.request(
+            "/auth/login",
+            "POST",
+            {
+                "email": os.environ.get("DEFAULT_ADMIN_EMAIL")
+                or environment.get("DEFAULT_ADMIN_EMAIL", "admin@cluecdc.local"),
+                "password": os.environ.get("DEFAULT_ADMIN_PASSWORD")
+                or environment.get("DEFAULT_ADMIN_PASSWORD", "cluecdc-admin"),
+            },
+        )
 
     def request(
         self, path: str, method: str = "GET", data: object | None = None
@@ -66,8 +84,10 @@ class ApiClient:
             headers=headers,
             data=json.dumps(data).encode() if data is not None else None,
         )
+        self.cookie_jar.add_cookie_header(request)
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
+                self.cookie_jar.extract_cookies(response, request)
                 raw = response.read().decode()
         except urllib.error.HTTPError as error:
             raw_error = error.read().decode(errors="replace")

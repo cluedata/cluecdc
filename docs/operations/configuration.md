@@ -66,6 +66,11 @@ production validation continues to reject known example values.
 | `JOB_RETRY_MAX_SECONDS`       | No             | Maximum exponential retry delay (default 60 seconds)   |
 | `JOB_RETRY_JITTER_RATIO`      | No             | Positive retry jitter ratio, 0–1 (default 0.2)         |
 | `CONNECTOR_OPERATION_LEASE_SECONDS` | No        | Expiry for a crashed lifecycle operation (default 300) |
+| `AUTO_RECOVERY_ENABLED`       | No             | Restart transiently failed sink tasks automatically (default true) |
+| `AUTO_RECOVERY_MAX_ATTEMPTS`  | No             | Consecutive task restart limit per outage (default 5)  |
+| `AUTO_RECOVERY_BASE_DELAY_SECONDS` | No        | Initial sink-task recovery cooldown (default 10 seconds) |
+| `AUTO_RECOVERY_MAX_DELAY_SECONDS` | No         | Maximum exponential recovery cooldown (default 300 seconds) |
+| `AUTO_RECOVERY_JITTER_RATIO`  | No             | Positive recovery-delay jitter ratio, 0–1 (default 0.2) |
 | `RECONCILE_INTERVAL_SECONDS`  | No             | Runtime observation interval                           |
 | `INFRASTRUCTURE_HEALTH_INTERVAL_SECONDS` | No | Kafka and Kafka Connect health interval (default 30s) |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |

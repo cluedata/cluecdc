@@ -26,6 +26,7 @@ from app.providers import get_provider
 from app.providers.server_ids import assign_mysql_connector_server_id
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import PipelineInput, TableSelection
+from app.services import connections as connection_service
 from app.services.connector_operations import claim as claim_connector_operation
 from app.services.connector_operations import complete as complete_connector_operation
 from app.services.connector_operations import owned as owned_connector_operation
@@ -181,6 +182,9 @@ async def create(session: AsyncSession, data: PipelineInput, actor: str) -> Pipe
         options = dict(config_options.get("provider_options", {}))
         options["server_id"] = await assign_mysql_connector_server_id(session, source, pipeline_id)
         config_options["provider_options"] = options
+    source = await connection_service.lock_for_reference(session, data.source_id)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("SOURCE_CONNECTION_REQUIRED", "Select a source connection", 422)
     pipeline = Pipeline(
         id=pipeline_id,
         name=data.name,
@@ -243,7 +247,14 @@ async def input_for(session: AsyncSession, pipeline: Pipeline) -> PipelineInput:
                 table_name=t.table_name,
                 sync_mode=cast(
                     Literal["CURRENT_STATE", "APPEND_ONLY", "CHANGE_EVENT_LOG"],
-                    t.sync_mode or "CURRENT_STATE",
+                    "CHANGE_EVENT_LOG"
+                    if (t.sync_mode or "CURRENT_STATE") == "CURRENT_STATE"
+                    and not (
+                        list(t.effective_key_columns)
+                        if t.effective_key_columns is not None
+                        else list(t.primary_key_columns)
+                    )
+                    else t.sync_mode or "CURRENT_STATE",
                 ),
                 key_mode=cast(
                     Literal["PRIMARY_KEY", "UNIQUE_INDEX", "CUSTOM", "NONE"],
