@@ -7,12 +7,12 @@ from scripts import ci_image_key
 
 def test_base_images_skip_stage_references_and_build_platform_flags():
     assert ci_image_key.base_images("""
-        FROM quay.io/debezium/connect:3.3.1.Final AS upstream
+        FROM quay.io/debezium/connect:3.3.2.Final AS upstream
         FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS downloads
         FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS builder
         FROM upstream
     """) == [
-        "quay.io/debezium/connect:3.3.1.Final",
+        "quay.io/debezium/connect:3.3.2.Final",
         "debian:bookworm-slim",
         "eclipse-temurin:21-jdk",
     ]

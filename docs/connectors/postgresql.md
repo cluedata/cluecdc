@@ -1,6 +1,6 @@
 # PostgreSQL capture
 
-Tested local source: PostgreSQL 17, Debezium 3.3.1.Final `pgoutput`, Kafka 4.1.2. Generated settings include an isolated slot/publication, filtered auto-publication, exact selected-table regexes, JSON converters without schema envelopes, heartbeat/batch/queue/poll configuration, and initial/no_data/always snapshots.
+Tested local source: PostgreSQL 17, Debezium 3.3.2.Final `pgoutput`, Kafka 4.1.2. Generated settings include an isolated slot/publication, filtered auto-publication, exact selected-table regexes, JSON converters without schema envelopes, heartbeat/batch/queue/poll configuration, and initial/no_data/always snapshots.
 
 ClueCDC reads wal_level, version, replication capability, slot/sender capacity, available slots, and publication privileges. Readiness also inventories logical slots for the selected database, reports active state and `wal_status`, and measures retained WAL bytes from the current WAL position to each slot's `restart_lsn`. It does not convert bytes into a time horizon because that requires workload-specific WAL rates and capacity data. An inactive or lost slot raises a retention-risk observation. If the source account cannot read slot metadata, readiness returns a permission-limited warning rather than treating the source as unavailable.
 
