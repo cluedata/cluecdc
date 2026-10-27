@@ -120,3 +120,12 @@ def test_database_only_profile_keeps_s3_bootstrap_optional_but_waits_for_complet
     assert services["minio-bootstrap"]["profiles"] == ["object-storage"]
     dependency = services["cluecdc-api"]["depends_on"]["minio-bootstrap"]
     assert dependency == {"condition": "service_completed_successfully", "required": "false"}
+
+
+def test_browser_integration_uses_session_auth_before_recreating_services():
+    run = STEPS["Add integration fixtures to the running core stack"]["run"]
+    export = "export AUTH_MODE=session"
+    persisted = 'echo "AUTH_MODE=session" >> "$GITHUB_ENV"'
+    assert export in run
+    assert persisted in run
+    assert run.index(export) < run.index("docker compose up")
