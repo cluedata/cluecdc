@@ -106,6 +106,7 @@ def main() -> None:
             environment.get("POSTGRES_DEMO_DESTINATION_PASSWORD", ""),
         ],
     )
+    api.authenticate(environment)
     compose = Compose(args.compose_project, env_files)
     pipeline = api.request(f"/pipelines/{pipeline_id}")
     deliveries = api.request("/deliveries")

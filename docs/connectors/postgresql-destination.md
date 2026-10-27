@@ -4,7 +4,7 @@ A Destination represents a logical PostgreSQL target with an encrypted secret re
 
 ## Installed plugin and record format
 
-The pinned `quay.io/debezium/connect:3.3.1.Final` image includes `io.debezium.connector.jdbc.JdbcSinkConnector` and its PostgreSQL JDBC driver. The API checks the selected cluster's actual `/connector-plugins` response before deployment and then invokes Connect config validation. Missing plugins produce `SINK_PLUGIN_MISSING`; neither a delivery association nor an assumed healthy connector is created.
+The pinned `quay.io/debezium/connect:3.3.2.Final` image includes `io.debezium.connector.jdbc.JdbcSinkConnector` and its PostgreSQL JDBC driver. The API checks the selected cluster's actual `/connector-plugins` response before deployment and then invokes Connect config validation. Missing plugins produce `SINK_PLUGIN_MISSING`; neither a delivery association nor an assumed healthy connector is created.
 
 The existing capture connectors emit schemaless JSON. JDBC consumes typed Kafka Connect Structs. The Connect image compiles and installs `io.cluecdc.connect.ClueDeliveryTransform`, a sink-only transformation that reconstructs supported types from discovered source metadata and maps source schema/table fields to the chosen target. Existing capture configuration and Kafka records remain intact. Keys become typed record-key Structs. DELETE envelopes perform deletes when enabled; null tombstones are ignored. No row contents are sent to the control-plane database or included in transformation errors.
 

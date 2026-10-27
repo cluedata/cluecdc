@@ -12,7 +12,7 @@ from app.adapters.kafka import KafkaExplorer
 from app.core.auth import PERMISSIONS, Principal, principal, require
 from app.core.config import get_settings
 from app.core.database import session_dependency
-from app.core.errors import DomainError
+from app.core.errors import DomainError, redact
 from app.models.entities import (
     AuditLog,
     ConnectCluster,
@@ -958,9 +958,8 @@ async def pipeline_detail(
     result["source"] = connection_service.database_view(await get(db, Connection, p.source_id))
     result["kafka_cluster"] = serialize(await get(db, KafkaCluster, p.kafka_cluster_id))
     result["connect_cluster"] = serialize(await get(db, ConnectCluster, p.connect_cluster_id))
-    result["connector"] = (
-        serialize(await get(db, Connector, p.connector_id)) if p.connector_id else None
-    )
+    connector = await get(db, Connector, p.connector_id) if p.connector_id else None
+    result["connector"] = serialize(connector) if connector else None
     result["tables"] = [
         serialize(t)
         for t in (
@@ -972,9 +971,9 @@ async def pipeline_detail(
             )
         ).all()
     ]
-    result["config"] = (
-        await pipeline_service.preview(db, await pipeline_service.input_for(db, p))
-    )["config"]
+    # Detail views report the configuration that is actually deployed. Re-running
+    # create-time strategy validation here made legacy keyless pipelines unreadable.
+    result["config"] = redact(connector.config_json) if connector else {}
     result["metrics"] = {
         "throughput": None,
         "cdc_lag": None,

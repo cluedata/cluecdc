@@ -2,7 +2,11 @@ import { test, expect } from "@playwright/test";
 import { readFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { signIn } from "./auth";
 const root = resolve(process.cwd(), "../..");
+test.beforeEach(async ({ page, request }) => {
+  await signIn(page, request);
+});
 test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle", async ({
   page,
   request,

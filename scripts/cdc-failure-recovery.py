@@ -142,6 +142,7 @@ def main() -> None:
             environment.get("POSTGRES_DEMO_DESTINATION_PASSWORD", ""),
         ],
     )
+    api.authenticate(environment)
     compose = Compose(args.compose_project, env_files)
     pipeline_id = artifact["pipeline_ids"]["postgresql"]
     delivery_id = next(

@@ -7,7 +7,7 @@ import pathlib
 import subprocess
 import urllib.request
 
-from cdc_acceptance_support import Compose, load_fixture_environment
+from cdc_acceptance_support import ApiClient, Compose, load_fixture_environment
 
 root = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -47,21 +47,22 @@ secret_values.extend(
 )
 
 
+base = args.api_url.rstrip("/")
+connect_base = args.connect_url.rstrip("/")
+api = ApiClient(base, secret_values)
+api.authenticate(env)
+
+
 def checked(url):
-    headers = {}
-    if url.startswith(base) and os.getenv("CLUECDC_TOKEN"):
-        headers["Authorization"] = "Bearer " + os.environ["CLUECDC_TOKEN"]
-    with urllib.request.urlopen(
-        urllib.request.Request(url, headers=headers), timeout=30
-    ) as response:
+    if url.startswith(base + "/"):
+        return api.request(url.removeprefix(base))
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
         raw = response.read().decode()
     if any(secret in raw for secret in secret_values):
         raise RuntimeError("Credential appeared in an API response; response withheld")
     return json.loads(raw)
 
 
-base = args.api_url.rstrip("/")
-connect_base = args.connect_url.rstrip("/")
 sources = checked(base + "/sources")
 for source in sources:
     checked(base + "/sources/" + source["id"])

@@ -299,6 +299,12 @@ jobs:
           cat .env.test.example >> .env
           export COMPOSE_FILE=compose.yaml:compose.test.yaml:.github/compose.ci.yaml:.github/compose.test.ci.yaml
           echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
+          if [[ "$BROWSER_INTEGRATION_CHECKS" == "true" ]]; then
+            # Browser authorization coverage needs real per-user sessions. The
+            # generic integration fixture defaults to developer-mode auth.
+            export AUTH_MODE=session
+            echo "AUTH_MODE=session" >> "$GITHUB_ENV"
+          fi
           if [[ "$S3_CHECKS" == "true" || "$BROWSER_INTEGRATION_CHECKS" == "true" ]]; then
             export COMPOSE_PROFILES=object-storage
             echo "COMPOSE_PROFILES=$COMPOSE_PROFILES" >> "$GITHUB_ENV"

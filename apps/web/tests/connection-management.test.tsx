@@ -206,4 +206,34 @@ describe("connection list management", () => {
       screen.getByRole("heading", { name: "Delete connection?" }),
     ).toBeInTheDocument();
   });
+
+  it("explains every known dependency and disables destructive confirmation", async () => {
+    renderPage("DESTINATION", [
+      {
+        ...savedConnection,
+        used_by_count: 2,
+        used_by: [
+          { type: "pipeline", id: "pipeline-1", name: "orders-cdc" },
+          {
+            type: "delivery",
+            id: "delivery-1",
+            name: "analytics-postgres",
+            pipeline: "orders-cdc",
+          },
+        ],
+      },
+    ]);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete Saved destination" }),
+    );
+    expect(screen.getByText("Cannot delete connection")).toBeInTheDocument();
+    expect(screen.getByText(/Pipeline: orders-cdc/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Delivery: analytics-postgres/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Delete connection" }),
+    ).toBeDisabled();
+  });
 });

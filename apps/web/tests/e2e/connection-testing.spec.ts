@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ConnectionProvider } from "@cluecdc/contracts";
+import { signIn } from "./auth";
 
 const fileEnv = Object.fromEntries(
   [".env.test.example", ".env"].flatMap((file) =>
@@ -65,17 +66,8 @@ function destinationPayload(provider: ConnectionProvider) {
   };
 }
 
-test.beforeEach(async ({ request }) => {
-  const session = await request.get("/api/v1/session");
-  if (session.status() === 401) {
-    const response = await request.post("/api/v1/auth/login", {
-      data: {
-        email: env("DEFAULT_ADMIN_EMAIL"),
-        password: env("DEFAULT_ADMIN_PASSWORD"),
-      },
-    });
-    expect(response.status()).toBe(200);
-  } else expect(session.status()).toBe(200);
+test.beforeEach(async ({ page, request }) => {
+  await signIn(page, request);
 });
 
 async function fillConnection(page: Page, provider: ConnectionProvider) {
@@ -307,6 +299,126 @@ for (const type of ["postgresql", "mysql"]) {
     ).toBe(original.length);
   });
 }
+
+test("an in-use connection is protected by the API and deletion dialog", async ({
+  page,
+  request,
+}) => {
+  const evidencePath = resolve(
+    process.cwd(),
+    "../..",
+    "artifacts",
+    "cdc-effective-key.json",
+  );
+  test.skip(
+    !existsSync(evidencePath),
+    "Run scripts/cdc-effective-key.py to provision the live CDC fixture",
+  );
+  const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+    pipelines: { postgresql: string };
+  };
+  const pipelineResponse = await request.get(
+    `/api/v1/pipelines/${evidence.pipelines.postgresql}`,
+  );
+  expect(pipelineResponse.status()).toBe(200);
+  const pipeline = (await pipelineResponse.json()) as {
+    id: string;
+    name: string;
+    source: { id: string; name: string };
+    actual_state: string;
+  };
+
+  const blocked = await request.delete(
+    `/api/v1/connections/${pipeline.source.id}`,
+  );
+  expect(blocked.status()).toBe(409);
+  const error = (await blocked.json()).error;
+  expect(error.code).toBe("CONNECTION_IN_USE");
+  expect(error.details.used_by).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "pipeline",
+        id: pipeline.id,
+        name: pipeline.name,
+      }),
+    ]),
+  );
+
+  await page.goto("/connections");
+  await page.getByLabel("Search connections").fill(pipeline.source.name);
+  const row = page.getByRole("row").filter({ hasText: pipeline.source.name });
+  await expect(row).toHaveCount(1);
+  await row
+    .getByRole("button", { name: `Delete ${pipeline.source.name}` })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Delete connection?" });
+  await expect(dialog.getByText("Cannot delete connection")).toBeVisible();
+  await expect(dialog.getByText(`Pipeline: ${pipeline.name}`)).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Delete connection" }),
+  ).toBeDisabled();
+
+  const after = await request.get(`/api/v1/pipelines/${pipeline.id}`);
+  expect(after.status()).toBe(200);
+  expect((await after.json()).actual_state).toBe(pipeline.actual_state);
+});
+
+test("effective unique keys agree between the API and pipeline wizard", async ({
+  page,
+  request,
+}) => {
+  const evidencePath = resolve(
+    process.cwd(),
+    "../..",
+    "artifacts",
+    "cdc-effective-key.json",
+  );
+  test.skip(
+    !existsSync(evidencePath),
+    "Run scripts/cdc-effective-key.py to provision the live CDC fixture",
+  );
+  const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+    pipelines: { postgresql: string };
+  };
+  const response = await request.get(
+    `/api/v1/pipelines/${evidence.pipelines.postgresql}`,
+  );
+  expect(response.status()).toBe(200);
+  const pipeline = (await response.json()) as {
+    source: { id: string };
+    kafka_cluster: { id: string };
+    connect_cluster: { id: string };
+    tables: Array<{
+      schema_name: string;
+      table_name: string;
+      effective_key_mode: string;
+      effective_key_columns: string[];
+    }>;
+  };
+
+  await page.goto(`/pipelines/new?source=${pipeline.source.id}`);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page
+    .getByLabel("Kafka cluster", { exact: true })
+    .selectOption(pipeline.kafka_cluster.id);
+  await page
+    .getByLabel("Kafka Connect cluster", { exact: true })
+    .selectOption(pipeline.connect_cluster.id);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  for (const table of pipeline.tables) {
+    expect(table.effective_key_mode).toBe("UNIQUE_INDEX");
+    const row = page
+      .getByRole("row")
+      .filter({ hasText: `${table.schema_name}.${table.table_name}` });
+    await expect(row).toHaveCount(1);
+    await expect(
+      row.getByText(table.effective_key_columns.join(", "), { exact: true }),
+    ).toBeVisible();
+    await expect(row.getByText("UNIQUE INDEX", { exact: true })).toBeVisible();
+    await expect(row.getByText("CURRENT STATE", { exact: true })).toBeVisible();
+  }
+});
 
 for (const provider of ["POSTGRESQL", "MYSQL"] as const) {
   test(`${provider} legacy destination edit dialog tests draft values with its saved password`, async ({

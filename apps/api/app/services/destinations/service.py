@@ -31,6 +31,7 @@ from app.services.connector_operations import claim as claim_connector_operation
 from app.services.connector_operations import complete as complete_connector_operation
 from app.services.connector_operations import owned as owned_connector_operation
 from app.services.connector_operations import release as release_connector_operation
+from app.services.connector_recovery import reconcile_failed_tasks
 from app.services.debezium import derive_actual_state
 from app.services.destinations.adapter import DestinationAdapter
 from app.services.destinations.providers import delivery_provider
@@ -713,6 +714,11 @@ async def deploy(
     cluster_id = cluster.id
     created_external = await client.create_idempotent(name, config)
     try:
+        destination = await connection_service.lock_for_reference(session, destination.id)
+        if "DESTINATION" not in destination.capabilities_json:
+            raise DomainError(
+                "DATABASE_DESTINATION_REQUIRED", "A destination connection is required", 422
+            )
         connector = Connector(
             name=name,
             connector_type="sink",
@@ -780,7 +786,14 @@ async def reconcile(session: AsyncSession, delivery: PipelineDestination) -> dic
         state = "UNKNOWN"
         cluster.status = "UNAVAILABLE"
     delivery.actual_state = connector.actual_state = state
-    connector.runtime_json = status
+    connector.runtime_json = await reconcile_failed_tasks(
+        session,
+        delivery=delivery,
+        connector=connector,
+        cluster=cluster,
+        status=status,
+    )
+    status = connector.runtime_json
     if state != previous:
         audit(session, "reconciler", "destination.state_observed", delivery)
         if state in {"FAILED", "DEGRADED", "UNKNOWN"}:

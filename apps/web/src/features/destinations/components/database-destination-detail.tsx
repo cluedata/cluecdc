@@ -512,6 +512,38 @@ export function DestinationDetailPage({ id }: { id: string }) {
                     {state.error.message}
                   </div>
                 )}
+                {state?.auto_recovery &&
+                  state.auto_recovery.status !== "IDLE" && (
+                    <div
+                      className="diagnostic-list"
+                      aria-label="Automatic recovery status"
+                    >
+                      <div>
+                        <strong>Automatic recovery</strong>
+                        <Status value={state.auto_recovery.status} />
+                        <span>
+                          {state.auto_recovery.failure_reason ||
+                            "No active task failure"}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>Attempts</strong>
+                        <span>
+                          {state.auto_recovery.attempt_count || 0} /{" "}
+                          {state.auto_recovery.max_attempts || 0}
+                        </span>
+                        <span>
+                          Next retry: {date(state.auto_recovery.next_retry_at)}
+                        </span>
+                      </div>
+                      {state.auto_recovery.exhaustion_reason && (
+                        <div role="alert">
+                          <strong>Operator action required</strong>
+                          <span>{state.auto_recovery.exhaustion_reason}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 <p className="muted">
                   Worker: {state?.connector?.worker_id || "Unavailable"}
                 </p>

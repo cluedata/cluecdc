@@ -1,6 +1,7 @@
 """Reproducible live PostgreSQL -> Debezium -> Kafka -> ClueCDC smoke test."""
 
 import argparse
+import http.cookiejar
 import json
 import os
 import pathlib
@@ -23,6 +24,15 @@ source_password = os.environ.get("POSTGRES_DEMO_SOURCE_PASSWORD") or secrets.get
 )
 if not source_password:
     raise RuntimeError("POSTGRES_DEMO_SOURCE_PASSWORD is required for the demo fixture")
+admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL") or secrets.get(
+    "DEFAULT_ADMIN_EMAIL", "admin@cluecdc.local"
+)
+admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD") or secrets.get(
+    "DEFAULT_ADMIN_PASSWORD", "cluecdc-admin"
+)
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+)
 
 
 def request(path, method="GET", data=None):
@@ -36,7 +46,7 @@ def request(path, method="GET", data=None):
         data=json.dumps(data).encode() if data is not None else None,
     )
     try:
-        with urllib.request.urlopen(req, timeout=50) as response:
+        with opener.open(req, timeout=50) as response:
             raw = response.read().decode()
             assert source_password not in raw, (
                 "Source credential leaked in API response"
@@ -54,6 +64,14 @@ def find_or_create(path, name, data):
         (entity for entity in request(path) if entity["name"] == name), None
     )
     return existing or request(path, "POST", {"name": name, **data})
+
+
+if not os.environ.get("CLUECDC_TOKEN"):
+    request(
+        "/auth/login",
+        "POST",
+        {"email": admin_email, "password": admin_password},
+    )
 
 
 def wait_for(fn, predicate, label, seconds=120):

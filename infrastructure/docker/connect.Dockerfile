@@ -1,7 +1,7 @@
 ARG VERSION=development
 ARG VCS_REF=unknown
 
-FROM quay.io/debezium/connect:3.3.1.Final AS upstream
+FROM quay.io/debezium/connect:3.3.2.Final AS upstream
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS connector-download
 ARG AIVEN_S3_VERSION=3.4.2
 ARG AIVEN_S3_SHA256=c95fb5b82f8f5f66a9acad3e0c6fa57c1c5ac5c5cea5d07e18f4d6ff738cc8d2

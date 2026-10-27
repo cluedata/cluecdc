@@ -1,6 +1,7 @@
 """Real capture -> Kafka -> PostgreSQL delivery acceptance, including fan-out."""
 
 import argparse
+import http.cookiejar
 import json
 import os
 import pathlib
@@ -26,6 +27,15 @@ if not destination_password:
     raise RuntimeError(
         "POSTGRES_DEMO_DESTINATION_PASSWORD is required for the delivery fixture"
     )
+admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL") or env.get(
+    "DEFAULT_ADMIN_EMAIL", "admin@cluecdc.local"
+)
+admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD") or env.get(
+    "DEFAULT_ADMIN_PASSWORD", "cluecdc-admin"
+)
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+)
 if not args.skip_capture_demo:
     subprocess.run(
         [sys.executable, "-u", "scripts/demo.py", "--api-url", args.api_url],
@@ -45,7 +55,7 @@ def api(path, method="GET", data=None):
         data=json.dumps(data).encode() if data is not None else None,
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with opener.open(request, timeout=60) as response:
             raw = response.read().decode()
             assert destination_password not in raw, (
                 "Destination credential exposed; response withheld"
@@ -90,6 +100,14 @@ def sql(service, database, statement):
             f"SQL acceptance operation failed on {service}; output withheld"
         )
     return result.stdout.strip()
+
+
+if not os.getenv("CLUECDC_TOKEN"):
+    api(
+        "/auth/login",
+        "POST",
+        {"email": admin_email, "password": admin_password},
+    )
 
 
 def wait(fn, predicate, label, timeout=120):

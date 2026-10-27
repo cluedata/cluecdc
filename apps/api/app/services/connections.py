@@ -243,7 +243,18 @@ async def dependencies(session: AsyncSession, connection: Connection) -> list[di
     return (await dependencies_for_connections(session, [connection.id])).get(connection.id, [])
 
 
+async def lock_for_reference(session: AsyncSession, identifier: uuid.UUID) -> Connection:
+    """Serialize dependent creation with deletion for one connection row."""
+    connection = await session.scalar(
+        select(Connection).where(Connection.id == identifier).with_for_update()
+    )
+    if connection is None:
+        raise DomainError("NOT_FOUND", "Connection was not found", 404)
+    return connection
+
+
 async def delete(session: AsyncSession, connection: Connection, actor: str) -> dict:
+    connection = await lock_for_reference(session, connection.id)
     used_by = await dependencies(session, connection)
     if used_by:
         raise DomainError(
