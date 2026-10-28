@@ -262,6 +262,12 @@ async def adapter(session: AsyncSession, destination: Destination) -> Destinatio
         raise DomainError(
             "CONNECTION_CREDENTIALS_REQUIRED", "Destination credentials are missing", 422
         )
+    if destination.provider == "AZURE_SYNAPSE":
+        raise DomainError(
+            "AZURE_SYNAPSE_DELIVERY_NOT_VALIDATED",
+            "Azure Synapse delivery remains disabled until the staged runtime passes cloud tests",
+            422,
+        )
     secret = await secret_provider(session).get_secret(destination.secret_ref)
     return get_provider(destination.type).destination_adapter(destination, secret["password"])
 

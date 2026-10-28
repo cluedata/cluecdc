@@ -209,7 +209,7 @@ class Connection(Entity, Base):
             name="ck_connections_category",
         ),
         CheckConstraint(
-            "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO')",
+            "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO','AZURE_SYNAPSE')",
             name="ck_connections_provider",
         ),
     )
@@ -310,6 +310,30 @@ class PipelineDestination(Entity, Base):
     configuration_json: Mapped[dict] = mapped_column(JSON, default=dict)
     desired_state: Mapped[str] = mapped_column(String, default="RUNNING")
     actual_state: Mapped[str] = mapped_column(String, default="UNKNOWN", index=True)
+
+
+class AzureSynapseBatchLedger(Entity, Base):
+    """Durable staged-batch state; checkpoints advance only after APPLIED."""
+
+    __tablename__ = "azure_synapse_batch_ledger"
+    __table_args__ = (
+        UniqueConstraint("delivery_id", "batch_id"),
+        CheckConstraint(
+            "status IN ('PLANNED','STAGED','COPIED','APPLYING','APPLIED','FAILED')",
+            name="ck_synapse_batch_status",
+        ),
+        Index("ix_synapse_batch_recovery", "delivery_id", "status", "updated_at"),
+    )
+    delivery_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("pipeline_destinations.id", ondelete="CASCADE"), index=True
+    )
+    batch_id: Mapped[str] = mapped_column(String(120))
+    source_offsets_json: Mapped[dict] = mapped_column(JSON)
+    staging_manifest_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="PLANNED", index=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SchemaVersion(Entity, Base):

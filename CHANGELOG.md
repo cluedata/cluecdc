@@ -6,6 +6,28 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Added Azure Synapse Analytics Dedicated SQL Pool as the fourth planned v0.3.2
+  warehouse destination, including destination-only Connection CRUD/UI,
+  encrypted SQL and Azure Storage credentials, Dedicated-Pool and prefix-scoped
+  storage tests, Synapse type/DDL/COPY primitives, and a durable batch ledger.
+- Added Azure Synapse setup, permission, security, recovery, testing, and
+  troubleshooting documentation plus an evidence-based v0.3.2 capability matrix.
+
+### Security
+
+- Enforced TLS with certificate validation for Synapse SQL, rejected Serverless
+  SQL endpoints, kept storage operations beneath the configured prefix, and
+  separated SQL failures from storage permission failures without logging secrets.
+
+### Known limitations
+
+- Azure Synapse staged delivery and cloud E2E execution are not yet complete;
+  stateful CDC and preview MERGE behavior remain disabled until verified on a
+  real Dedicated SQL Pool. BigQuery, Redshift, and ClickHouse v0.3.2 work is not
+  present in this checkout and is not reported as complete.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

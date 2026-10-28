@@ -27,6 +27,7 @@ const providerName = {
   MYSQL: "MySQL",
   AWS_S3: "AWS S3",
   MINIO: "MinIO",
+  AZURE_SYNAPSE: "Azure Synapse Analytics",
 };
 
 function destinationPayload(provider: ConnectionProvider) {

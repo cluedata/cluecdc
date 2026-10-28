@@ -11,6 +11,12 @@ Open Font License 1.1. Full license texts are stored beside the font files:
 Third-party containers and packages retain their own copyright and license
 notices. They are dependencies and are not relicensed by the ClueCDC license.
 
+Azure Synapse connection testing uses Microsoft's `mssql-python` package and
+its bundled SQL Server ODBC binaries; their license notices are retained in the
+installed package. Azure Identity and Azure Storage Blob SDK packages are MIT
+licensed. Confluent's commercial Azure Synapse connector is not distributed by
+or required by ClueCDC.
+
 The Connect image includes Aiven Open S3 Connector 3.4.2 (Apache License 2.0),
 with upstream license and notices retained from its release archive:
 https://github.com/Aiven-Open/s3-connector

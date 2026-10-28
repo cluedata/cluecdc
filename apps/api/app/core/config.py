@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     integration_timeout_seconds: float = 10
     log_level: Literal["debug", "info", "warn", "warning", "error"] = "info"
     allow_insecure_kafka: bool = False
+    azure_managed_identity_enabled: bool = False
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":

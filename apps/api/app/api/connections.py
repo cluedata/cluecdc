@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Principal, require
+from app.core.config import get_settings
 from app.core.database import session_dependency
 from app.core.errors import DomainError
 from app.models.entities import Connection
@@ -22,7 +23,7 @@ Admin = Annotated[Principal, Depends(require("destinations.admin"))]
 
 @router.get("/connection-providers")
 async def connection_providers(user: Read):
-    return [
+    providers = [
         {
             "provider": "POSTGRESQL",
             "category": "DATABASE",
@@ -51,7 +52,17 @@ async def connection_providers(user: Read):
             "capabilities": ["DESTINATION"],
             "delivery_type": "OBJECT_STORAGE",
         },
+        {
+            "provider": "AZURE_SYNAPSE",
+            "category": "DATABASE",
+            "name": "Azure Synapse Analytics",
+            "description": "Dedicated SQL Pool destination with Azure Storage staging",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "STAGED_WAREHOUSE",
+            "managed_identity_available": get_settings().azure_managed_identity_enabled,
+        },
     ]
+    return providers
 
 
 @router.get("/connections")

@@ -586,7 +586,8 @@ export interface ConnectorPlugin {
 }
 
 export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
-export type ConnectionProvider = "POSTGRESQL" | "MYSQL" | "AWS_S3" | "MINIO";
+export type ConnectionProvider =
+  "POSTGRESQL" | "MYSQL" | "AWS_S3" | "MINIO" | "AZURE_SYNAPSE";
 export interface Connection extends Entity {
   name: string;
   type: ConnectionProvider;
@@ -609,6 +610,9 @@ export interface ConnectionProviderMetadata {
   category: ConnectionCategory;
   name: string;
   description: string;
+  capabilities?: ("SOURCE" | "DESTINATION")[];
+  delivery_type?: "DATABASE" | "OBJECT_STORAGE" | "STAGED_WAREHOUSE";
+  managed_identity_available?: boolean;
 }
 export interface ConnectionCheck {
   name: string;

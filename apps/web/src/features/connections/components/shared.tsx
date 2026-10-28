@@ -30,6 +30,7 @@ export const providerName = (provider: string) =>
     MYSQL: "MySQL",
     AWS_S3: "AWS S3",
     MINIO: "MinIO",
+    AZURE_SYNAPSE: "Azure Synapse Analytics",
   })[provider] || provider;
 
 export type FormState = {
@@ -40,6 +41,43 @@ export type FormState = {
 };
 
 export const initialState = (provider: ConnectionProvider): FormState => {
+  if (provider === "AZURE_SYNAPSE") {
+    return {
+      name: "",
+      description: "",
+      config: {
+        workspace_name: "",
+        sql_endpoint: "",
+        port: 1433,
+        database_name: "",
+        target_schema: "dbo",
+        authentication: "SQL_PASSWORD",
+        username: "",
+        tenant_id: "",
+        client_id: "",
+        ssl_enabled: true,
+        storage_account: "",
+        storage_type: "ADLS_GEN2",
+        container: "",
+        staging_prefix: "cluecdc",
+        storage_authentication: "ACCOUNT_KEY",
+        staging_retention_days: 7,
+        batch_size: 10000,
+        batch_flush_interval_ms: 30000,
+        maximum_concurrency: 2,
+        max_retries: 5,
+        retry_backoff_ms: 1000,
+        statement_timeout_seconds: 900,
+        distribution_strategy: "ROUND_ROBIN",
+      },
+      credentials: {
+        password: "",
+        client_secret: "",
+        storage_account_key: "",
+        storage_sas_token: "",
+      },
+    };
+  }
   if (["POSTGRESQL", "MYSQL"].includes(provider)) {
     const ports: Record<string, number> = {
       POSTGRESQL: 5432,
@@ -86,12 +124,222 @@ export function ProviderFields({
   form,
   config,
   secret,
+  managedIdentityAvailable = false,
 }: {
   provider: ConnectionProvider;
   form: FormState;
   config: (key: string, value: string | number | boolean) => void;
   secret: (key: string, value: string) => void;
+  managedIdentityAvailable?: boolean;
 }) {
+  if (provider === "AZURE_SYNAPSE") {
+    const authentication = String(form.config.authentication);
+    const storageAuthentication = String(form.config.storage_authentication);
+    return (
+      <>
+        <h3 className="full-width">Dedicated SQL Pool</h3>
+        <Field label="Workspace name">
+          <Input
+            value={String(form.config.workspace_name)}
+            onChange={(e) => config("workspace_name", e.target.value)}
+          />
+        </Field>
+        <Field label="Dedicated SQL endpoint">
+          <Input
+            value={String(form.config.sql_endpoint)}
+            placeholder="workspace.sql.azuresynapse.net"
+            onChange={(e) => config("sql_endpoint", e.target.value)}
+          />
+        </Field>
+        <Field label="Port">
+          <Input
+            type="number"
+            value={Number(form.config.port)}
+            onChange={(e) => config("port", Number(e.target.value))}
+          />
+        </Field>
+        <Field label="SQL pool database">
+          <Input
+            value={String(form.config.database_name)}
+            onChange={(e) => config("database_name", e.target.value)}
+          />
+        </Field>
+        <Field label="Target schema">
+          <Input
+            value={String(form.config.target_schema)}
+            onChange={(e) => config("target_schema", e.target.value)}
+          />
+        </Field>
+        <Field label="Authentication">
+          <select
+            value={authentication}
+            onChange={(e) => config("authentication", e.target.value)}
+          >
+            <option value="SQL_PASSWORD">SQL username and password</option>
+            <option value="SERVICE_PRINCIPAL">
+              Microsoft Entra service principal
+            </option>
+            {managedIdentityAvailable && (
+              <option value="MANAGED_IDENTITY">Managed identity</option>
+            )}
+          </select>
+        </Field>
+        {authentication === "SQL_PASSWORD" ? (
+          <>
+            <Field label="SQL username">
+              <Input
+                value={String(form.config.username)}
+                onChange={(e) => config("username", e.target.value)}
+              />
+            </Field>
+            <Field label="SQL password">
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={form.credentials.password || ""}
+                onChange={(e) => secret("password", e.target.value)}
+              />
+            </Field>
+          </>
+        ) : authentication === "SERVICE_PRINCIPAL" ? (
+          <>
+            <Field label="Tenant ID">
+              <Input
+                value={String(form.config.tenant_id)}
+                onChange={(e) => config("tenant_id", e.target.value)}
+              />
+            </Field>
+            <Field label="Client ID">
+              <Input
+                value={String(form.config.client_id)}
+                onChange={(e) => config("client_id", e.target.value)}
+              />
+            </Field>
+            <Field label="Client secret">
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={form.credentials.client_secret || ""}
+                onChange={(e) => secret("client_secret", e.target.value)}
+              />
+            </Field>
+          </>
+        ) : (
+          <Field label="User-assigned identity client ID (optional)">
+            <Input
+              value={String(form.config.managed_identity_client_id || "")}
+              onChange={(e) =>
+                config("managed_identity_client_id", e.target.value)
+              }
+            />
+          </Field>
+        )}
+        <p className="muted full-width">
+          TLS certificate validation is always enabled. Serverless SQL Pool is
+          not supported as a mutable CDC destination.
+        </p>
+        <h3 className="full-width">Azure Storage staging</h3>
+        <Field label="Storage account">
+          <Input
+            value={String(form.config.storage_account)}
+            onChange={(e) => config("storage_account", e.target.value)}
+          />
+        </Field>
+        <Field label="Storage type">
+          <select
+            value={String(form.config.storage_type)}
+            onChange={(e) => config("storage_type", e.target.value)}
+          >
+            <option value="ADLS_GEN2">ADLS Gen2</option>
+            <option value="BLOB">Blob Storage</option>
+          </select>
+        </Field>
+        <Field label="Container">
+          <Input
+            value={String(form.config.container)}
+            onChange={(e) => config("container", e.target.value)}
+          />
+        </Field>
+        <Field label="Staging prefix">
+          <Input
+            value={String(form.config.staging_prefix)}
+            onChange={(e) => config("staging_prefix", e.target.value)}
+          />
+        </Field>
+        <Field label="Storage authentication">
+          <select
+            value={storageAuthentication}
+            onChange={(e) => config("storage_authentication", e.target.value)}
+          >
+            <option value="ACCOUNT_KEY">Storage account key</option>
+            <option value="SAS_TOKEN">SAS token</option>
+            {authentication === "SERVICE_PRINCIPAL" && (
+              <option value="SERVICE_PRINCIPAL">Service principal</option>
+            )}
+            {authentication === "MANAGED_IDENTITY" && (
+              <option value="MANAGED_IDENTITY">Managed identity</option>
+            )}
+          </select>
+        </Field>
+        {storageAuthentication === "ACCOUNT_KEY" && (
+          <Field label="Storage account key">
+            <Input
+              type="password"
+              autoComplete="off"
+              value={form.credentials.storage_account_key || ""}
+              onChange={(e) => secret("storage_account_key", e.target.value)}
+            />
+          </Field>
+        )}
+        {storageAuthentication === "SAS_TOKEN" && (
+          <Field label="Storage SAS token">
+            <Input
+              type="password"
+              autoComplete="off"
+              value={form.credentials.storage_sas_token || ""}
+              onChange={(e) => secret("storage_sas_token", e.target.value)}
+            />
+          </Field>
+        )}
+        <h3 className="full-width">Batch settings</h3>
+        <Field label="Batch size">
+          <Input
+            type="number"
+            value={Number(form.config.batch_size)}
+            onChange={(e) => config("batch_size", Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Flush interval (ms)">
+          <Input
+            type="number"
+            value={Number(form.config.batch_flush_interval_ms)}
+            onChange={(e) =>
+              config("batch_flush_interval_ms", Number(e.target.value))
+            }
+          />
+        </Field>
+        <Field label="Maximum concurrency">
+          <Input
+            type="number"
+            value={Number(form.config.maximum_concurrency)}
+            onChange={(e) =>
+              config("maximum_concurrency", Number(e.target.value))
+            }
+          />
+        </Field>
+        <Field label="Distribution strategy">
+          <select
+            value={String(form.config.distribution_strategy)}
+            onChange={(e) => config("distribution_strategy", e.target.value)}
+          >
+            <option value="ROUND_ROBIN">ROUND_ROBIN</option>
+            <option value="HASH">HASH</option>
+            <option value="REPLICATE">REPLICATE</option>
+          </select>
+        </Field>
+      </>
+    );
+  }
   if (["POSTGRESQL", "MYSQL"].includes(provider))
     return (
       <>

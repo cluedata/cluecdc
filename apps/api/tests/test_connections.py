@@ -96,7 +96,13 @@ async def test_database_connection_is_the_only_persisted_endpoint(client, db_fac
 
 async def test_provider_catalog_exposes_database_and_object_storage_providers(client):
     providers = (await client.get("/api/v1/connection-providers")).json()
-    assert {item["provider"] for item in providers} == {"POSTGRESQL", "MYSQL", "AWS_S3", "MINIO"}
+    assert {item["provider"] for item in providers} == {
+        "POSTGRESQL",
+        "MYSQL",
+        "AWS_S3",
+        "MINIO",
+        "AZURE_SYNAPSE",
+    }
     assert {item["category"] for item in providers} == {"DATABASE", "OBJECT_STORAGE"}
 
 

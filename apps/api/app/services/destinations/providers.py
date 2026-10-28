@@ -124,6 +124,12 @@ _OBJECT_STORAGE = ObjectStorageDeliveryProvider()
 
 
 def delivery_provider(connection: Connection) -> DeliveryProvider:
+    if connection.provider == "AZURE_SYNAPSE":
+        raise DomainError(
+            "AZURE_SYNAPSE_DELIVERY_NOT_VALIDATED",
+            "Azure Synapse delivery remains disabled until the staged runtime passes cloud tests",
+            422,
+        )
     if connection.category == "DATABASE" and connection.provider in {"POSTGRESQL", "MYSQL"}:
         return _JDBC
     if connection.category == "OBJECT_STORAGE" and connection.provider in {"AWS_S3", "MINIO"}:
