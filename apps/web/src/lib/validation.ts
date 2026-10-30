@@ -1,7 +1,14 @@
 import { z } from "zod";
 export const sourceSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
-  type: z.enum(["postgresql", "mysql", "mariadb", "sqlserver", "mongodb", "oracle"]),
+  type: z.enum([
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "sqlserver",
+    "mongodb",
+    "oracle",
+  ]),
   environment: z.string().min(1),
   host: z
     .string()

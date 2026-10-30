@@ -1,0 +1,70 @@
+name: Experimental source CDC acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [mariadb, sqlserver, mongodb]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install runner dependencies
+        run: python -m pip install -e 'apps/api[dev]'
+      - name: Start disposable development infrastructure
+        run: |
+          cat .env.example .env.test.example > .env
+          docker compose -p cluecdc -f compose.yaml -f compose.test.yaml up -d --build --wait kafka-connect minio-bootstrap postgres-demo mysql-demo
+      - name: Start optional source fixture
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: |
+          docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile "sources-$SOURCE" up -d "$SOURCE-source"
+          docker network connect cluecdc_default "cluecdc-source-fixtures-$SOURCE-source-1"
+          python - <<'PY'
+          import os, socket, time
+          port = {"mariadb": 13306, "sqlserver": 11433, "mongodb": 17017}[os.environ["SOURCE"]]
+          for attempt in range(180):
+              try:
+                  with socket.create_connection(("127.0.0.1", port), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit("Source listener did not become available")
+          time.sleep(10)
+          PY
+      - name: Verify source and destination data
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: |
+          extra=()
+          if [ "$SOURCE" = mariadb ]; then extra+=(--stateful-postgres); fi
+          python scripts/source_e2e.py --source "$SOURCE" --outage-container "cluecdc-source-fixtures-$SOURCE-source-1" --report "artifacts/source-e2e/$SOURCE.json" "${extra[@]}"
+      - name: Existing-source regressions
+        run: |
+          python -m pytest apps/api/tests/test_postgres.py apps/api/tests/test_mysql_providers.py apps/api/tests/test_extended_sources.py apps/api/tests/test_source_diagnostics.py -q
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: source-evidence-${{ matrix.source }}
+          path: artifacts/source-e2e/*.json
+      - name: Stop only this runner's disposable fixtures
+        if: always()
+        run: |
+          docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile "sources-${{ matrix.source }}" down
+          docker compose -p cluecdc -f compose.yaml -f compose.test.yaml down
+# Oracle intentionally requires operator-provided infrastructure and licensing;
+# absence of a live Oracle job must never be reported as a passing Oracle E2E.

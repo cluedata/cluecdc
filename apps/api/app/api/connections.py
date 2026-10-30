@@ -95,10 +95,16 @@ async def connection_providers(user: Read):
 
     for item in provider_metadata():
         if item["type"] in {"mariadb", "sqlserver", "mongodb", "oracle"}:
-            providers.append({"provider": item["type"].upper(), "category": "DATABASE",
-                              "name": item["display_name"], "capabilities": ["SOURCE"],
-                              "description": "Experimental CDC source; see verification status",
-                              "source_capabilities": item["source_capabilities"]})
+            providers.append(
+                {
+                    "provider": item["type"].upper(),
+                    "category": "DATABASE",
+                    "name": item["display_name"],
+                    "capabilities": ["SOURCE"],
+                    "description": "Experimental CDC source; see verification status",
+                    "source_capabilities": item["source_capabilities"],
+                }
+            )
     return providers
 
 

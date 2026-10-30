@@ -80,6 +80,7 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
         ).all()
     }
     for table in data.tables:
+        source_topic(source, data.topic_prefix, table.schema_name, table.table_name)
         found = discovered.get((table.schema_name, table.table_name))
         if not found:
             raise DomainError(
@@ -107,11 +108,17 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
     config = get_provider(source.type).build_source_config(
         source,
         data,
-        f"${{cluecdc:{source.secret_ref}:" + ("connection_uri" if source.type == "mongodb" else "password") + "}",
+        f"${{cluecdc:{source.secret_ref}:"
+        + ("connection_uri" if source.type == "mongodb" else "password")
+        + "}",
         f"cluecdc-preview-{data.topic_prefix}",
         kafka.bootstrap_servers,
     )
-    config.update(source_connector_security(kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}))
+    config.update(
+        source_connector_security(
+            kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}
+        )
+    )
     return config, cluster
 
 
@@ -120,7 +127,10 @@ async def preview(session: AsyncSession, data: PipelineInput) -> dict:
     source = await get(session, Source, data.source_id)
     return {
         "config": redact(config),
-        "topics": [source_topic(source, data.topic_prefix, t.schema_name, t.table_name) for t in data.tables],
+        "topics": [
+            source_topic(source, data.topic_prefix, t.schema_name, t.table_name)
+            for t in data.tables
+        ],
     }
 
 
@@ -133,8 +143,9 @@ async def validate_tables_live(
     if source.type in NEW_SOURCES:
         readiness = await database.readiness()
         if readiness.get("success") is not True:
-            raise DomainError("SOURCE_CDC_NOT_READY", "Source CDC prerequisites are not satisfied",
-                              422, readiness)
+            raise DomainError(
+                "SOURCE_CDC_NOT_READY", "Source CDC prerequisites are not satisfied", 422, readiness
+            )
     results = {}
     for table in data.tables:
         readiness = await database.inspect_table(table.schema_name, table.table_name)
@@ -320,11 +331,17 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
     config = get_provider(source.type).build_source_config(
         source,
         data,
-        f"${{cluecdc:{source.secret_ref}:" + ("connection_uri" if source.type == "mongodb" else "password") + "}",
+        f"${{cluecdc:{source.secret_ref}:"
+        + ("connection_uri" if source.type == "mongodb" else "password")
+        + "}",
         name,
         kafka.bootstrap_servers,
     )
-    config.update(source_connector_security(kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}))
+    config.update(
+        source_connector_security(
+            kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}
+        )
+    )
     client = KafkaConnectClient(cluster.base_url)
     cluster_id = cluster.id
     # Close the metadata transaction before any Kafka/Connect network calls.

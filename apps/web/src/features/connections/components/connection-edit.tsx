@@ -9,7 +9,12 @@ import { Button, Input } from "@cluecdc/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FormState, initialState, ProviderFields, updateConfig } from "./shared";
+import {
+  FormState,
+  initialState,
+  ProviderFields,
+  updateConfig,
+} from "./shared";
 
 export function ConnectionEditPage({ id }: { id: string }) {
   const connection = useQuery({

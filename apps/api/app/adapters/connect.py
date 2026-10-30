@@ -24,6 +24,29 @@ def classify_task_failure(trace: object, connector_type: str = "sink") -> TaskFa
     """Classify a Connect trace once, then discard it before it crosses the adapter boundary."""
     text = str(trace).lower()
     if connector_type == "source":
+        if any(
+            marker in text
+            for marker in (
+                "change stream history lost",
+                "changestreamhistorylost",
+                "resume token is no longer",
+                "resume token was not found",
+                "invalid resume token",
+                "resume of change stream was not possible",
+                "ora-01291",
+                "ora-01292",
+                "ora-01327",
+                "ora-00308",
+                "scn is no longer available",
+                "lsn is no longer available",
+            )
+        ):
+            return TaskFailure(
+                "SOURCE_RECOVERY_REQUIRED",
+                "RECOVERY_REQUIRED",
+                False,
+                failure_hint(trace, connector_type),
+            )
         hint = failure_hint(trace, connector_type)
         return TaskFailure("SOURCE_TASK_FAILED", "SOURCE_FAILURE", False, hint)
 
@@ -125,6 +148,31 @@ def failure_hint(trace: object, connector_type: str = "sink") -> str:
     text = str(trace).lower()
     if connector_type == "source":
         source_hints = [
+            (
+                (
+                    "change stream history lost",
+                    "changestreamhistorylost",
+                    "resume token is no longer",
+                    "resume token was not found",
+                    "invalid resume token",
+                    "resume of change stream was not possible",
+                ),
+                "MongoDB resume token is unavailable or expired; restore retained oplog history or "
+                "plan an explicitly approved resnapshot and destination "
+                "reconciliation. Offsets are preserved",
+            ),
+            (
+                ("ora-01291", "ora-01292", "ora-01327", "ora-00308", "scn is no longer available"),
+                "Oracle redo/archive history for the stored SCN is unavailable; "
+                "restore the required logs "
+                "or plan an explicitly approved reconciliation. SCN offsets will not be reset",
+            ),
+            (
+                ("lsn is no longer available",),
+                "SQL Server CDC history for the stored LSN has expired; restore "
+                "retained capture history "
+                "or plan an explicitly approved reconciliation. LSN offsets are preserved",
+            ),
             (
                 (
                     "requested wal segment has already been removed",
@@ -282,6 +330,25 @@ class KafkaConnectClient:
         return redact(await self.raw_config(name))
 
     async def validate(self, config: dict, secrets: List[str] | None = None):
+        from app.providers.source_capabilities import CONNECTOR_CLASSES, NEW_SOURCES
+
+        experimental = config.get("connector.class") in {CONNECTOR_CLASSES[k] for k in NEW_SOURCES}
+        if experimental:
+            plugins = await self.plugins()
+            installed = next((p for p in plugins if p["class"] == config["connector.class"]), None)
+            if not installed:
+                raise DomainError(
+                    "SOURCE_PLUGIN_MISSING", "Required Debezium source plugin is not installed", 422
+                )
+            if installed.get("version") != "3.3.2.Final":
+                raise DomainError(
+                    "SOURCE_PLUGIN_VERSION_UNVERIFIED",
+                    (
+                        "Experimental sources require Debezium 3.3.2.Final; validate "
+                        "runtime compatibility before upgrading"
+                    ),
+                    422,
+                )
         password = config.get("database.password") or config.get("connection.password", "")
         data = await self.request(
             "PUT",
@@ -294,6 +361,21 @@ class KafkaConnectClient:
                 "CONNECT_INVALID_RESPONSE", "Connect validation response was malformed", 502
             )
         if data["error_count"]:
+            if experimental:
+                fields = [
+                    c.get("value", {}).get("name")
+                    for c in data.get("configs", [])
+                    if c.get("value", {}).get("errors")
+                ]
+                raise DomainError(
+                    "CONNECTOR_CONFIG_INVALID",
+                    (
+                        "Source connector validation failed; verify prerequisites, TLS "
+                        "and driver availability"
+                    ),
+                    422,
+                    {"fields": fields},
+                )
             errors = [
                 {
                     "name": c.get("value", {}).get("name"),

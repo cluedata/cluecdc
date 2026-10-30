@@ -22,8 +22,8 @@ from app.models.entities import (
     now,
 )
 from app.providers import get_provider
-from app.providers.types import analyze_columns
 from app.providers.source_capabilities import validate_delivery
+from app.providers.types import analyze_columns
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.connections import ConnectionInput
 from app.schemas.requests import DeliveryInput, DestinationInput

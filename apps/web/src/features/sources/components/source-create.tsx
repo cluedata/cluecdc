@@ -16,7 +16,7 @@ export function SourceCreatePage() {
       </Link>
       <PageHeader
         title="Add source"
-        description="Choose PostgreSQL or MySQL, validate CDC readiness, then discover tables."
+        description="Choose a database source, validate CDC readiness, then discover tables or collections."
         eyebrow="DATA MOVEMENT / SOURCE"
       />
       <SourceEditor

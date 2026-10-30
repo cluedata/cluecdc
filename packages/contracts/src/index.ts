@@ -557,7 +557,17 @@ export interface Destination extends Entity {
   metrics_notice: string;
   deliveries: Delivery[];
 }
+export interface SourceCapabilities {
+  status: "SUPPORTED" | "EXPERIMENTAL";
+  verification: string;
+  collection_kind: "DOCUMENT" | "RELATIONAL";
+  snapshot_modes: string[];
+  incremental_snapshot: boolean;
+  destination_modes: Record<string, string[]>;
+  limitations?: string[];
+}
 export interface DatabaseProviderMetadata {
+  source_capabilities?: SourceCapabilities;
   type: "postgresql" | "mysql";
   display_name: string;
   icon: string;
@@ -617,6 +627,7 @@ export interface Connection extends Entity {
   used_by_count?: number;
 }
 export interface ConnectionProviderMetadata {
+  source_capabilities?: SourceCapabilities;
   provider: ConnectionProvider;
   category: ConnectionCategory;
   name: string;

@@ -9,7 +9,7 @@ services:
       MARIADB_DATABASE: inventory
       MARIADB_USER: cdc
       MARIADB_PASSWORD: local-cdc-fixture-password
-    command: ["--server-id=445566", "--log-bin=mariadb-bin", "--binlog-format=ROW", "--binlog-row-image=FULL", "--expire-logs-days=7", "--character-set-server=utf8mb4"]
+    command: ["--server-id=445566", "--log-bin=mariadb-bin", "--binlog-format=ROW", "--binlog-row-image=FULL", "--binlog-legacy-event-pos=ON", "--log-bin-compress=OFF", "--expire-logs-days=7", "--character-set-server=utf8mb4"]
     ports: ["127.0.0.1:13306:3306"]
     healthcheck:
       test: [CMD, healthcheck.sh, --connect, --innodb_initialized]

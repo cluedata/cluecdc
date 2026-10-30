@@ -42,7 +42,9 @@ def key_candidates(table: SourceTable, provider: str) -> list[dict[str, Any]]:
                 "enforced": True,
                 "verified": True,
                 "eligible": True,
-                "reason": "Database primary key",
+                "reason": "MongoDB document _id"
+                if provider == "mongodb"
+                else "Database primary key",
             }
         )
     for index in table.indexes_json:
@@ -179,8 +181,13 @@ def assess(
                     "message": "Set binlog_row_image=FULL and rediscover metadata",
                 }
             )
-        elif provider in {"sqlserver", "oracle"} and not properties.get("non_pk_before_images_verified"):
-            current_state, current_reason = UNSUPPORTED, "Non-primary CDC key before images have not been verified"
+        elif provider in {"sqlserver", "oracle"} and not properties.get(
+            "non_pk_before_images_verified"
+        ):
+            current_state, current_reason = (
+                UNSUPPORTED,
+                "Non-primary CDC key before images have not been verified",
+            )
         else:
             current_state, current_reason = SUPPORTED, "Stable enforced unique identity"
 
@@ -219,7 +226,10 @@ def assess(
     if provider in {"sqlserver", "oracle", "mongodb"}:
         incremental = UNSUPPORTED
     if provider == "mongodb":
-        current_state, current_reason = UNSUPPORTED, "BSON documents and patches require raw event-log delivery"
+        current_state, current_reason = (
+            UNSUPPORTED,
+            "BSON documents and patches require raw event-log delivery",
+        )
 
     recommendation = (
         "CURRENT_STATE"

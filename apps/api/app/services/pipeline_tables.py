@@ -694,7 +694,11 @@ async def _update_source_connector(
         kafka.bootstrap_servers,
         enable_signals=True,
     )
-    config.update(source_connector_security(kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}))
+    config.update(
+        source_connector_security(
+            kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}
+        )
+    )
     if any(
         config.get(key) != connector.config_json.get(key)
         for key in provider.immutable_connector_keys()

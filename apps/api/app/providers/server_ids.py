@@ -16,7 +16,9 @@ async def assign_mysql_server_id(
     used = {
         int(source.provider_options["server_id"])
         for source in (
-            await session.scalars(select(Connection).where(Connection.provider.in_(["MYSQL", "MARIADB"])))
+            await session.scalars(
+                select(Connection).where(Connection.provider.in_(["MYSQL", "MARIADB"]))
+            )
         ).all()
         if source.id != exclude_source_id and source.provider_options.get("server_id")
     }
@@ -38,7 +40,9 @@ async def assign_mysql_connector_server_id(
     session: AsyncSession, source: Source, pipeline_id: uuid.UUID
 ) -> int:
     sources = (
-        await session.scalars(select(Connection).where(Connection.provider.in_(["MYSQL", "MARIADB"])))
+        await session.scalars(
+            select(Connection).where(Connection.provider.in_(["MYSQL", "MARIADB"]))
+        )
     ).all()
     pipelines = (await session.scalars(select(Pipeline))).all()
     used = {

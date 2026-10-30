@@ -76,7 +76,13 @@ class ConnectionInput(BaseModel):
         for key in ("host", "database_name", "username"):
             if not str(self.config.get(key, "")).strip():
                 raise ValueError(f"{key} is required")
-        defaults = {"POSTGRESQL": 5432, "MYSQL": 3306, "MARIADB": 3306, "SQLSERVER": 1433, "ORACLE": 1521}
+        defaults = {
+            "POSTGRESQL": 5432,
+            "MYSQL": 3306,
+            "MARIADB": 3306,
+            "SQLSERVER": 1433,
+            "ORACLE": 1521,
+        }
         port = self.config.get("port", defaults[self.provider])
         if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
             raise ValueError("port must be between 1 and 65535")
@@ -87,6 +93,10 @@ class ConnectionInput(BaseModel):
         from app.schemas.requests import SourceInput
 
         SourceInput(name=self.name, type=self.provider.lower(), **self.config)
+        if self.provider in {"MARIADB", "SQLSERVER", "ORACLE"} and not isinstance(
+            self.config["ssl_enabled"], bool
+        ):
+            raise ValueError("ssl_enabled must be boolean")
         options = self.config["provider_options"]
         if not isinstance(options, dict) or any(
             not isinstance(key, str)
@@ -110,7 +120,9 @@ class ConnectionInput(BaseModel):
         # URI lives exclusively in the encrypted credential store, including URI query secrets.
         allowed = {"database_name", "ssl_enabled", "environment", "provider_options"}
         if set(self.config) - allowed:
-            raise ValueError("MongoDB URI must be supplied as an encrypted connection_uri credential")
+            raise ValueError(
+                "MongoDB URI must be supplied as an encrypted connection_uri credential"
+            )
         database = self.config.get("database_name", "")
         if not isinstance(database, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,63}", database):
             raise ValueError("A valid MongoDB database_name is required")

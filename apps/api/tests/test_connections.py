@@ -101,6 +101,8 @@ async def test_provider_catalog_exposes_database_and_object_storage_providers(cl
         "MYSQL",
         "MARIADB",
         "SQLSERVER",
+        "MONGODB",
+        "ORACLE",
         "AWS_S3",
         "MINIO",
         "AZURE_SYNAPSE",

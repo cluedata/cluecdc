@@ -86,13 +86,15 @@ export function ConnectionWizard({
       category: providerCategory(provider),
       capabilities: capability
         ? [capability]
-        : ["MARIADB", "SQLSERVER", "MONGODB", "ORACLE"].includes(provider) ? ["SOURCE"] : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
-              provider,
-            )
-          ? ["DESTINATION"]
-          : providerCategory(provider) === "OBJECT_STORAGE"
+        : ["MARIADB", "SQLSERVER", "MONGODB", "ORACLE"].includes(provider)
+          ? ["SOURCE"]
+          : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+                provider,
+              )
             ? ["DESTINATION"]
-            : undefined,
+            : providerCategory(provider) === "OBJECT_STORAGE"
+              ? ["DESTINATION"]
+              : undefined,
     };
   };
   const create = useMutation({

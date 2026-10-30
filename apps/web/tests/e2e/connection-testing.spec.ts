@@ -24,10 +24,10 @@ const providers: ConnectionProvider[] = [
 ];
 const providerName = {
   POSTGRESQL: "PostgreSQL",
-    MARIADB: "MariaDB",
-    SQLSERVER: "SQL Server",
-    MONGODB: "MongoDB",
-    ORACLE: "Oracle",
+  MARIADB: "MariaDB",
+  SQLSERVER: "SQL Server",
+  MONGODB: "MongoDB",
+  ORACLE: "Oracle",
   MYSQL: "MySQL",
   AWS_S3: "AWS S3",
   MINIO: "MinIO",

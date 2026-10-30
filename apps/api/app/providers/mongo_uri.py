@@ -5,6 +5,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 def validate_uri(uri: str, tls: bool = True) -> str:
     try:
+        if not 1 <= len(uri) <= 65536:
+            raise ValueError
         parsed = urlsplit(uri)
         if parsed.scheme not in {"mongodb", "mongodb+srv"} or not parsed.netloc or parsed.fragment:
             raise ValueError
@@ -19,5 +21,7 @@ def validate_uri(uri: str, tls: bool = True) -> str:
         if any(ord(char) < 32 for char in uri):
             raise ValueError
     except (ValueError, TypeError):
-        raise ValueError("Invalid MongoDB URI, TLS verification, or read preference settings") from None
+        raise ValueError(
+            "Invalid MongoDB URI, TLS verification, or read preference settings"
+        ) from None
     return uri

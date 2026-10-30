@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type {
   ConnectCluster,
+  DatabaseProviderMetadata,
   CustomKeyValidation,
   Destination,
   KafkaCluster,
@@ -138,6 +139,10 @@ export function PipelineWizard() {
     queryKey: ["sources"],
     queryFn: () => api<Source[]>("/sources"),
   });
+  const providers = useQuery({
+    queryKey: ["database-providers"],
+    queryFn: () => api<DatabaseProviderMetadata[]>("/database-providers"),
+  });
   const tables = useQuery({
     queryKey: ["source-tables", sourceId],
     queryFn: () => api<SourceTable[]>(`/sources/${sourceId}/tables`),
@@ -187,6 +192,14 @@ export function PipelineWizard() {
       additional_debezium_properties: {},
     },
   });
+  const source = sources.data?.find((item) => item.id === sourceId);
+  const sourceContract = Array.isArray(providers.data)
+    ? providers.data.find((item) => item.type === source?.type)
+        ?.source_capabilities
+    : undefined;
+  const statefulSource = sourceContract
+    ? !!sourceContract.destination_modes.POSTGRESQL?.includes("CURRENT_STATE")
+    : ["postgresql", "mysql"].includes(source?.type || "postgresql");
   const eligible = (tables.data || []).filter((table) => table.cdc_ready);
   const chosen = eligible.filter((table) =>
     selected.includes(`${table.schema_name}.${table.table_name}`),
@@ -194,26 +207,30 @@ export function PipelineWizard() {
   const choiceFor = (table: SourceTable) =>
     tableChoices[`${table.schema_name}.${table.table_name}`] ||
     tableStrategy(table);
-  const databaseDeliveryReady = chosen.every((table) => {
-    const choice = choiceFor(table);
-    return choice.syncMode === "CURRENT_STATE" && choice.currentStateReady;
-  });
+  const databaseDeliveryReady =
+    statefulSource &&
+    chosen.every((table) => {
+      const choice = choiceFor(table);
+      return choice.syncMode === "CURRENT_STATE" && choice.currentStateReady;
+    });
   const configuringTable = (tables.data || []).find(
     (table) => table.id === configuringTableId,
   );
   const configuringChoice = configuringTable
     ? choiceFor(configuringTable)
     : null;
-  const source = sources.data?.find((item) => item.id === sourceId);
   const stream = kafka.data?.find((item) => item.id === clusterId);
   const connectCluster = connect.data?.find((item) => item.id === connectId);
   const destination = destinations.data?.find(
     (item) => item.id === destinationId,
   );
-  const destinationOptions = destinations.data || [];
+  const destinationOptions = (destinations.data || []).filter(
+    () => statefulSource,
+  );
+  const documentSource = sourceContract?.collection_kind === "DOCUMENT";
   const topics = chosen.map(
     (table) =>
-      `${form.getValues("topic_prefix")}.${table.schema_name}.${table.table_name}`,
+      `${form.getValues("topic_prefix")}.${source?.type === "sqlserver" ? source.database_name + "." : ""}${table.schema_name}.${table.table_name}`,
   );
   const mappings: TopicMapping[] = chosen.map((table, index) => ({
     topic: topics[index],
@@ -373,7 +390,7 @@ export function PipelineWizard() {
             aria-current={index === step ? "step" : undefined}
           >
             <span>{index < step ? <Check size={15} /> : index + 1}</span>
-            {label}
+            {documentSource && label === "Tables" ? "Collections" : label}
           </div>
         ))}
       </div>
@@ -385,7 +402,9 @@ export function PipelineWizard() {
               [
                 "Where does your data come from?",
                 "Where should captured events run?",
-                "Which tables should be captured?",
+                documentSource
+                  ? "Which collections should be captured?"
+                  : "Which tables should be captured?",
                 "How should capture behave?",
                 "Where should the data go?",
                 "Review your pipeline",
@@ -406,8 +425,8 @@ export function PipelineWizard() {
                 title="No sources registered"
                 description={
                   can("sources.write")
-                    ? "Register a PostgreSQL or MySQL source before creating a pipeline."
-                    : "Ask an Admin to register a PostgreSQL or MySQL source."
+                    ? "Register a database source before creating a pipeline."
+                    : "Ask an Admin to register a database source."
                 }
                 href={can("sources.write") ? "/sources/new" : undefined}
                 action={can("sources.write") ? "Create Source" : undefined}
@@ -682,7 +701,16 @@ export function PipelineWizard() {
                   <select {...form.register("snapshot_mode")}>
                     <option value="initial">Initial + streaming</option>
                     <option value="no_data">Streaming only</option>
-                    <option value="never">Schema only</option>
+                    <option
+                      disabled={
+                        sourceContract
+                          ? !sourceContract.snapshot_modes.includes("never")
+                          : false
+                      }
+                      value="never"
+                    >
+                      Schema only
+                    </option>
                   </select>
                 </Field>
                 <details className="advanced full-width">
@@ -894,6 +922,19 @@ export function PipelineWizard() {
 
           {step === 5 && (
             <>
+              {source &&
+                ["mariadb", "sqlserver", "mongodb", "oracle"].includes(
+                  source.type,
+                ) && (
+                  <p className="muted">
+                    Experimental source.{" "}
+                    {documentSource
+                      ? "Select collections; _id is the document identity. Patches and BSON remain raw extended JSON."
+                      : "Verify source CDC prerequisites before deployment."}
+                    {!statefulSource &&
+                      " Use capture only here, then add an S3/MinIO event-log delivery. Relational delivery is blocked until verified."}
+                  </p>
+                )}
               <DataFlowRail
                 label="Pipeline review"
                 stages={[

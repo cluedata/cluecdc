@@ -26,6 +26,19 @@ def view(connection: Connection) -> dict:
 def database_view(connection: Connection) -> dict:
     """Shape used by the deprecated /sources and /destinations APIs."""
     config = connection.config_json
+    if connection.provider == "MONGODB":
+        return {
+            **serialize(connection),
+            "type": "mongodb",
+            "environment": connection.environment,
+            "host": "",
+            "port": 27017,
+            "database_name": connection.database_name,
+            "username": "",
+            "ssl_enabled": connection.ssl_enabled,
+            "provider_options": connection.provider_options,
+            "last_health_check_at": connection.last_tested_at,
+        }
     if connection.provider == "AZURE_SYNAPSE":
         return {
             **serialize(connection),
@@ -174,7 +187,12 @@ async def _run_test(connection: Connection, values: dict[str, str]) -> dict:
     if "SOURCE" in connection.capabilities_json:
         return (
             await get_provider(connection.type)
-            .source_adapter(connection, values.get("connection_uri") if connection.type == "mongodb" else values["password"])
+            .source_adapter(
+                connection,
+                values.get("connection_uri")
+                if connection.type == "mongodb"
+                else values["password"],
+            )
             .test()
         )
     raise DomainError(
@@ -220,7 +238,8 @@ async def create(session: AsyncSession, data: ConnectionInput, actor: str) -> Co
 
         options = dict(connection.provider_options)
         options["server_id"] = await assign_mysql_server_id(
-            session, connection.id, options.get("server_id"), exclude_source_id=connection.id)
+            session, connection.id, options.get("server_id"), exclude_source_id=connection.id
+        )
         connection.config_json = {**connection.config_json, "provider_options": options}
     audit(session, actor, "connection.created", connection)
     return connection
@@ -235,6 +254,17 @@ async def update(
             "Duplicate the connection to change its category or provider",
             422,
         )
+    if data.provider == "MARIADB":
+        from app.providers.server_ids import assign_mysql_server_id
+
+        options = dict(data.config.get("provider_options", {}))
+        requested_server_id = options.get("server_id") or connection.provider_options.get(
+            "server_id"
+        )
+        options["server_id"] = await assign_mysql_server_id(
+            session, connection.id, requested_server_id, exclude_source_id=connection.id
+        )
+        data.config = {**data.config, "provider_options": options}
     requested = set(_capabilities(data))
     current = set(connection.capabilities_json)
     if connection.config_json != data.config and await dependencies(session, connection):
