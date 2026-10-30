@@ -121,6 +121,69 @@ def destination_type(logical: LogicalType, provider: str) -> TypeMapping:
             "INCOMPATIBLE",
             "No safe portable mapping is available",
         )
+    target: str | None
+    if provider == "azure_synapse":
+        if logical.kind == "DECIMAL":
+            precision = logical.precision or 38
+            scale = logical.scale or 0
+            if precision > 38 or scale > precision:
+                return TypeMapping(
+                    logical.source_type,
+                    logical_name,
+                    None,
+                    "INCOMPATIBLE",
+                    "Azure Synapse DECIMAL precision is limited to 38",
+                )
+            target = f"decimal({precision},{scale})"
+        elif logical.kind == "STRING":
+            target = (
+                f"nvarchar({logical.length})"
+                if logical.length and logical.length <= 4000
+                else "nvarchar(max)"
+            )
+        else:
+            target = {
+                "BOOLEAN": "bit",
+                "INT8": "smallint",
+                "INT16": "smallint",
+                "INT24": "int",
+                "INT32": "bigint" if logical.unsigned else "int",
+                "INT64": "decimal(20,0)" if logical.unsigned else "bigint",
+                "FLOAT32": "real",
+                "FLOAT64": "float",
+                "TEXT": "nvarchar(max)",
+                "TINYTEXT": "nvarchar(max)",
+                "MEDIUMTEXT": "nvarchar(max)",
+                "LONGTEXT": "nvarchar(max)",
+                "BYTES": "varbinary(max)",
+                "DATE": "date",
+                "TIME": "time(6)",
+                "DATETIME": "datetime2(6)",
+                "TIMESTAMP": "datetime2(6)",
+                "TIMESTAMPTZ": "datetimeoffset(6)",
+                "YEAR": "smallint",
+                "JSON": "nvarchar(max)",
+                "ENUM": "nvarchar(max)",
+                "SET": "nvarchar(max)",
+                "BIT": "varbinary(8)",
+                "UUID": "nvarchar(36)",
+            }.get(logical.kind)
+        if target is None:
+            return TypeMapping(
+                logical.source_type,
+                logical_name,
+                None,
+                "INCOMPATIBLE",
+                "No safe Azure Synapse mapping is available",
+            )
+        lossy_risk = logical.kind in {"TEXT", "JSON", "ENUM", "SET", "BIT"}
+        return TypeMapping(
+            logical.source_type,
+            logical_name,
+            target,
+            "WARNING" if lossy_risk else "COMPATIBLE",
+            "Mapped to an explicit Synapse-compatible representation" if lossy_risk else None,
+        )
     if provider == "postgresql":
         mapping = {
             "BOOLEAN": "boolean",

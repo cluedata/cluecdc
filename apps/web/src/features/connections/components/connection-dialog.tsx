@@ -53,7 +53,10 @@ export function ConnectionDialog({
   const availableProviders = useMemo(
     () =>
       (providers.data || []).filter(
-        (item) => capability !== "SOURCE" || item.category === "DATABASE",
+        (item) =>
+          capability !== "SOURCE" ||
+          !item.capabilities ||
+          item.capabilities.includes("SOURCE"),
       ),
     [capability, providers.data],
   );
@@ -68,21 +71,55 @@ export function ConnectionDialog({
     ? value.capabilities
     : capability
       ? [capability]
-      : providerCategory(provider) === "OBJECT_STORAGE"
+      : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+            provider,
+          )
         ? ["DESTINATION"]
-        : ["SOURCE", "DESTINATION"];
-  const payload = () => ({
-    ...form,
-    config: Object.fromEntries(
+        : providerCategory(provider) === "OBJECT_STORAGE"
+          ? ["DESTINATION"]
+          : ["SOURCE", "DESTINATION"];
+  const payload = () => {
+    const config = Object.fromEntries(
       Object.entries(form.config).filter(([, entry]) => entry !== ""),
-    ),
-    credentials: Object.fromEntries(
+    );
+    const credentials = Object.fromEntries(
       Object.entries(form.credentials).filter(([, entry]) => entry !== ""),
-    ),
-    provider,
-    category: providerCategory(provider),
-    capabilities,
-  });
+    );
+    if (provider === "AZURE_SYNAPSE") {
+      if (config.authentication === "SQL_PASSWORD") {
+        delete config.tenant_id;
+        delete config.client_id;
+        delete config.managed_identity_client_id;
+        delete credentials.client_secret;
+      } else {
+        delete config.username;
+        delete credentials.password;
+        if (config.authentication === "SERVICE_PRINCIPAL")
+          delete config.managed_identity_client_id;
+        else {
+          delete config.tenant_id;
+          delete config.client_id;
+          delete credentials.client_secret;
+        }
+      }
+      if (config.storage_authentication !== "ACCOUNT_KEY")
+        delete credentials.storage_account_key;
+      if (config.storage_authentication !== "SAS_TOKEN")
+        delete credentials.storage_sas_token;
+    }
+    if (provider === "BIGQUERY" && config.authentication === "ADC")
+      delete credentials.service_account_json;
+    if (provider === "REDSHIFT" && config.authentication === "IAM")
+      delete credentials.password;
+    return {
+      ...form,
+      config,
+      credentials,
+      provider,
+      category: providerCategory(provider),
+      capabilities,
+    };
+  };
   const save = useMutation({
     mutationFn: () =>
       value
@@ -178,6 +215,10 @@ export function ConnectionDialog({
             form={form}
             config={config}
             secret={secret}
+            managedIdentityAvailable={
+              providers.data?.find((item) => item.provider === provider)
+                ?.managed_identity_available
+            }
           />
           {value && (
             <p className="muted full-width">

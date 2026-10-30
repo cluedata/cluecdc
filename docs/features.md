@@ -48,6 +48,12 @@ The API keeps these as explicit endpoints so automation can control each stage.
       Kafka Connect configuration before deployment.
 - [x] Delivery pause, resume, connector restart, task restart, mapping update,
       status observation, and removal without deleting destination data.
+- [x] ClickHouse, BigQuery, Redshift, and Azure Synapse destination-only
+      connections with provider-specific encrypted credentials and test logic.
+- [x] Append-only history runtimes: official ClickHouse sink, Apache-2.0 Aiven
+      BigQuery sink, and managed staged COPY runtimes for Redshift and Synapse.
+- [ ] Real warehouse E2E and all four current-state CDC modes remain unverified
+      or unsupported. See the [warehouse matrix](connectors/warehouse-destinations.md).
 
 ## Kafka and Kafka Connect
 

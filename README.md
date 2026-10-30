@@ -81,12 +81,19 @@ capabilities, role access, and known boundaries.
 
 ## Supported connectors
 
-| System         | Source   | Destination   | Delivery format            |
-| -------------- | -------- | ------------- | -------------------------- |
-| PostgreSQL 13+ | Debezium | JDBC sink     | Typed rows/upserts/deletes |
-| MySQL 8        | Debezium | JDBC sink     | Typed rows/upserts/deletes |
-| AWS S3         | No       | Aiven S3 sink | Gzip JSONL CDC envelopes   |
-| MinIO          | No       | Aiven S3 sink | Gzip JSONL CDC envelopes   |
+| System | Source | Destination | Delivery format |
+| --- | --- | --- | --- |
+| PostgreSQL 13+ | Debezium | JDBC sink | Typed rows/upserts/deletes |
+| MySQL 8 | Debezium | JDBC sink | Typed rows/upserts/deletes |
+| AWS S3 / MinIO | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
+| ClickHouse | No | Official ClickHouse sink | Append-only CDC history |
+| Google BigQuery | No | Aiven BigQuery sink | Append-only CDC history |
+| Amazon Redshift | No | ClueCDC staged COPY | Append-only CDC history |
+| Azure Synapse Dedicated SQL Pool | No | ClueCDC staged COPY | Append-only CDC history |
+
+The four v0.3.2 warehouse runtimes are not production-ready until their
+real-destination E2E matrices pass. Current-state CDC is disabled; see the
+[warehouse capability matrix](docs/connectors/warehouse-destinations.md).
 
 ## Quick start
 

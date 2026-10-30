@@ -7,6 +7,8 @@ from app.schemas.requests import DeliveryInput
 from app.services.destinations.config import JDBC_CLASS, DestinationConfigBuilder
 
 S3_CLASS = "io.aiven.kafka.connect.s3.AivenKafkaConnectS3SinkConnector"
+CLICKHOUSE_CLASS = "com.clickhouse.kafka.connect.ClickHouseSinkConnector"
+BIGQUERY_CLASS = "com.wepay.kafka.connect.bigquery.BigQuerySinkConnector"
 
 
 class DeliveryProvider(Protocol):
@@ -119,11 +121,154 @@ class ObjectStorageDeliveryProvider:
         return result
 
 
+@dataclass(frozen=True)
+class ClickHouseDeliveryProvider:
+    connector_class: str = CLICKHOUSE_CLASS
+    delivery_type: str = "DATABASE"
+    needs_relational_metadata: bool = True
+
+    def build_config(
+        self,
+        connection: Connection,
+        data: DeliveryInput,
+        metadata: dict,
+        connector_name: str,
+        *,
+        has_session_token: bool = False,
+    ) -> dict[str, str]:
+        if data.write_mode != "insert":
+            raise DomainError(
+                "CLICKHOUSE_CURRENT_STATE_NOT_VERIFIED",
+                "ClickHouse currently supports append-only event history; current-state mode "
+                "is disabled",
+                422,
+            )
+        config = connection.config_json
+        if connection.secret_ref is None:
+            raise DomainError("CONNECTION_CREDENTIALS_REQUIRED", "Credentials are required", 422)
+        return {
+            "name": connector_name,
+            "connector.class": self.connector_class,
+            "tasks.max": str(data.tasks_max),
+            "topics": ",".join(mapping.topic for mapping in data.mappings),
+            "topic2TableMap": ",".join(
+                f"{mapping.topic}={mapping.table_name}" for mapping in data.mappings
+            ),
+            "hostname": str(config["host"]),
+            "port": str(config["port"]),
+            "database": str(config["database_name"]),
+            "username": str(config["username"]),
+            "password": f"${{cluecdc:{connection.secret_ref}:password}}",
+            "ssl": str(bool(config.get("ssl_enabled", True))).lower(),
+            # Keeper-backed exactly-once mode fails on ordinary single-node/Cloud
+            # deployments unless KeeperMap is explicitly provisioned. v0.3.2 uses
+            # connector-managed at-least-once delivery and exposes Kafka coordinates
+            # so operators can identify replayed history rows.
+            "exactlyOnce": "false",
+            "bufferCount": "0",
+            "bufferFlushTime": "0",
+            "errors.retry.timeout": "-1",
+            "errors.tolerance": "none",
+            "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "key.converter.schemas.enable": "false",
+            "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "value.converter.schemas.enable": "false",
+            "transforms": "history",
+            "transforms.history.type": "io.cluecdc.connect.ClueWarehouseHistoryTransform",
+            "consumer.override.auto.offset.reset": "earliest",
+            "consumer.override.group.id": connector_name,
+        }
+
+
+@dataclass(frozen=True)
+class BigQueryDeliveryProvider:
+    connector_class: str = BIGQUERY_CLASS
+    delivery_type: str = "DATABASE"
+    needs_relational_metadata: bool = True
+
+    def build_config(
+        self,
+        connection: Connection,
+        data: DeliveryInput,
+        metadata: dict,
+        connector_name: str,
+        *,
+        has_session_token: bool = False,
+    ) -> dict[str, str]:
+        if data.write_mode != "insert":
+            raise DomainError(
+                "BIGQUERY_CURRENT_STATE_NOT_VERIFIED",
+                "BigQuery supports append-only event history; current-state mode is disabled",
+                422,
+            )
+        config = connection.config_json
+        result = {
+            "name": connector_name,
+            "connector.class": self.connector_class,
+            "tasks.max": str(data.tasks_max),
+            "topics": ",".join(mapping.topic for mapping in data.mappings),
+            "topic2TableMap": ",".join(
+                f"{mapping.topic}:{mapping.table_name}" for mapping in data.mappings
+            ),
+            "project": str(config["project_id"]),
+            "defaultDataset": str(config["dataset_id"]),
+            "autoCreateTables": str(data.auto_create).lower(),
+            "allowNewBigQueryFields": "false",
+            "allowBigQueryRequiredFieldRelaxation": "false",
+            "allBQFieldsNullable": "true",
+            "useStorageWriteApi": "true",
+            "preserveKafkaTopicPartitionOffset": "true",
+            "bigQueryRetry": str(data.max_retries),
+            "bigQueryRetryWait": str(data.retry_backoff_ms),
+            "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "key.converter.schemas.enable": "false",
+            "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "value.converter.schemas.enable": "false",
+            "transforms": "history",
+            "transforms.history.type": "io.cluecdc.connect.ClueWarehouseHistoryTransform",
+            "errors.tolerance": "none",
+            "consumer.override.auto.offset.reset": "earliest",
+            "consumer.override.group.id": connector_name,
+        }
+        if config["authentication"] == "SERVICE_ACCOUNT":
+            if connection.secret_ref is None:
+                raise DomainError(
+                    "CONNECTION_CREDENTIALS_REQUIRED", "BigQuery credentials are required", 422
+                )
+            result.update(
+                {
+                    "keySource": "JSON",
+                    "keyfile": f"${{cluecdc:{connection.secret_ref}:service_account_json}}",
+                }
+            )
+        else:
+            result["keySource"] = "APPLICATION_DEFAULT"
+        return result
+
+
 _JDBC = JdbcDeliveryProvider()
 _OBJECT_STORAGE = ObjectStorageDeliveryProvider()
+_CLICKHOUSE = ClickHouseDeliveryProvider()
+_BIGQUERY = BigQueryDeliveryProvider()
 
 
 def delivery_provider(connection: Connection) -> DeliveryProvider:
+    if connection.provider == "AZURE_SYNAPSE":
+        raise DomainError(
+            "AZURE_SYNAPSE_DELIVERY_NOT_VALIDATED",
+            "Azure Synapse delivery remains disabled until the staged runtime passes cloud tests",
+            422,
+        )
+    if connection.provider == "CLICKHOUSE":
+        return _CLICKHOUSE
+    if connection.provider == "BIGQUERY":
+        return _BIGQUERY
+    if connection.provider == "REDSHIFT":
+        raise DomainError(
+            "REDSHIFT_DELIVERY_NOT_VALIDATED",
+            "Redshift delivery remains disabled until staged COPY recovery tests pass",
+            422,
+        )
     if connection.category == "DATABASE" and connection.provider in {"POSTGRESQL", "MYSQL"}:
         return _JDBC
     if connection.category == "OBJECT_STORAGE" and connection.provider in {"AWS_S3", "MINIO"}:

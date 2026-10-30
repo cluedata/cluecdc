@@ -6,6 +6,41 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-30
+
+### Added
+
+- Added Azure Synapse Analytics Dedicated SQL Pool as the fourth planned v0.3.2
+  warehouse destination, including destination-only Connection CRUD/UI,
+  encrypted SQL and Azure Storage credentials, Dedicated-Pool and prefix-scoped
+  storage tests, Synapse type/DDL/COPY primitives, and a durable batch ledger.
+- Added Azure Synapse setup, permission, security, recovery, testing, and
+  troubleshooting documentation plus an evidence-based v0.3.2 capability matrix.
+- Added ClickHouse 1.7.0 and Aiven BigQuery 2.15.0 sink plugins with checksum
+  pinning, plugin discovery, secret references, and a fixed append-only CDC
+  history transform.
+- Added ClickHouse, BigQuery, and Redshift connection CRUD/UI/test support plus
+  an optional ClickHouse 26.8 LTS Compose test profile.
+- Added executable Redshift and Synapse staged runtimes with durable manifests,
+  destination batch markers, replay deduplication, and Kafka checkpoint gating.
+- Generalized the Synapse batch ledger for staged warehouse recovery while
+  preserving existing batches through migrations 0012 and 0013.
+
+### Security
+
+- Enforced TLS with certificate validation for Synapse SQL, rejected Serverless
+  SQL endpoints, kept storage operations beneath the configured prefix, and
+  separated SQL failures from storage permission failures without logging secrets.
+
+### Known limitations
+
+- BigQuery, Redshift, and Azure Synapse real-cloud E2E are NOT RUN. The complete
+  PostgreSQL/MySQL-to-warehouse scenario matrix has not passed, so the four new
+  warehouse runtimes are not production-ready.
+- Current-state/upsert/delete application and automatic source-schema evolution
+  remain disabled for all four warehouses; append-only CDC history is the only
+  advertised v0.3.2 mode.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added
@@ -191,7 +226,8 @@ All notable changes to ClueCDC are documented here. The format follows
 - Required token authentication and non-example secrets in production, bound
   local ports to loopback, and added repository, dependency, and secret scans.
 
-[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/cluedata/cluecdc/compare/v0.3.1...v0.3.2
 [0.3.0]: https://github.com/cluedata/cluecdc/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/cluedata/cluecdc/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cluedata/cluecdc/compare/v0.1.0...v0.2.0

@@ -51,6 +51,32 @@ export function ConnectionWizard({
     const credentials = Object.fromEntries(
       Object.entries(form.credentials).filter(([, value]) => value !== ""),
     );
+    if (provider === "AZURE_SYNAPSE") {
+      if (config.authentication === "SQL_PASSWORD") {
+        delete config.tenant_id;
+        delete config.client_id;
+        delete config.managed_identity_client_id;
+        delete credentials.client_secret;
+      } else {
+        delete config.username;
+        delete credentials.password;
+        if (config.authentication === "SERVICE_PRINCIPAL")
+          delete config.managed_identity_client_id;
+        else {
+          delete config.tenant_id;
+          delete config.client_id;
+          delete credentials.client_secret;
+        }
+      }
+      if (config.storage_authentication !== "ACCOUNT_KEY")
+        delete credentials.storage_account_key;
+      if (config.storage_authentication !== "SAS_TOKEN")
+        delete credentials.storage_sas_token;
+    }
+    if (provider === "BIGQUERY" && config.authentication === "ADC")
+      delete credentials.service_account_json;
+    if (provider === "REDSHIFT" && config.authentication === "IAM")
+      delete credentials.password;
     return {
       ...form,
       config,
@@ -59,9 +85,13 @@ export function ConnectionWizard({
       category: providerCategory(provider),
       capabilities: capability
         ? [capability]
-        : providerCategory(provider) === "OBJECT_STORAGE"
+        : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+              provider,
+            )
           ? ["DESTINATION"]
-          : undefined,
+          : providerCategory(provider) === "OBJECT_STORAGE"
+            ? ["DESTINATION"]
+            : undefined,
     };
   };
   const create = useMutation({
@@ -136,7 +166,8 @@ export function ConnectionWizard({
                         (item) =>
                           item.category === category &&
                           (capability !== "SOURCE" ||
-                            item.category === "DATABASE"),
+                            !item.capabilities ||
+                            item.capabilities.includes("SOURCE")),
                       )
                       .map((item) => (
                         <button
@@ -178,6 +209,10 @@ export function ConnectionWizard({
                   form={form}
                   config={config}
                   secret={secret}
+                  managedIdentityAvailable={
+                    providers.data?.find((item) => item.provider === provider)
+                      ?.managed_identity_available
+                  }
                 />
               </div>
               <ConnectionTestControl

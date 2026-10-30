@@ -42,4 +42,13 @@ and write raw Debezium envelopes as gzip or plain JSONL objects. They preserve
 capture semantics rather than converting events into relational rows. See
 [AWS S3 and MinIO destinations](../connectors/object-storage.md).
 
+The v0.3.2 warehouses use two bounded extensions of the same delivery model.
+ClickHouse and BigQuery remain Kafka Connect deliveries and apply a fixed-schema
+history SMT. Redshift and Synapse are managed staged deliveries reconciled by
+the existing worker: they consume with auto-commit disabled, stage CSV plus a
+manifest, COPY into a staging table, atomically insert target rows and a
+destination marker, then checkpoint Kafka. They use the same
+`PipelineDestination` lifecycle and do not create another pipeline system. See
+the [warehouse architecture and capability matrix](../connectors/warehouse-destinations.md).
+
 Upstream references: [Debezium PostgreSQL connector](https://debezium.io/documentation/reference/3.3/connectors/postgresql.html), [Kafka configuration providers](https://kafka.apache.org/42/configuration/configuration-providers/), and [Kafka Docker](https://kafka.apache.org/41/getting-started/docker/).

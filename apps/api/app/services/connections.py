@@ -26,6 +26,39 @@ def view(connection: Connection) -> dict:
 def database_view(connection: Connection) -> dict:
     """Shape used by the deprecated /sources and /destinations APIs."""
     config = connection.config_json
+    if connection.provider == "AZURE_SYNAPSE":
+        return {
+            **serialize(connection),
+            "type": "azure_synapse",
+            "environment": "PROD",
+            "host": str(config["sql_endpoint"]),
+            "port": int(config.get("port", 1433)),
+            "database_name": str(config["database_name"]),
+            "username": str(config.get("username", config.get("client_id", "managed identity"))),
+            "ssl_enabled": True,
+            "provider_options": {
+                "workspace_name": config["workspace_name"],
+                "target_schema": config["target_schema"],
+                "storage_type": config["storage_type"],
+                "distribution_strategy": config["distribution_strategy"],
+                "stateful_cdc": "NOT_SUPPORTED_UNTIL_VERIFIED",
+            },
+            "last_health_check_at": connection.last_tested_at,
+        }
+    if connection.provider in {"CLICKHOUSE", "BIGQUERY", "REDSHIFT"}:
+        config = connection.config_json
+        return {
+            **serialize(connection),
+            "type": connection.provider.lower(),
+            "environment": "PROD",
+            "host": str(config.get("host", config.get("project_id", ""))),
+            "port": int(config.get("port", 0)),
+            "database_name": str(config.get("database_name", config.get("dataset_id", ""))),
+            "username": str(config.get("username", "managed identity")),
+            "ssl_enabled": bool(config.get("ssl_enabled", True)),
+            "provider_options": {},
+            "last_health_check_at": connection.last_tested_at,
+        }
     return {
         **serialize(connection),
         "type": connection.provider.lower(),
@@ -55,6 +88,27 @@ def _credential_values(data: ConnectionInput) -> dict[str, str]:
 
 
 def _required_credentials(data: ConnectionInput) -> set[str]:
+    if data.provider == "AZURE_SYNAPSE":
+        required = set()
+        if data.config["authentication"] == "SQL_PASSWORD":
+            required.add("password")
+        elif data.config["authentication"] == "SERVICE_PRINCIPAL":
+            required.add("client_secret")
+        if data.config["storage_authentication"] == "ACCOUNT_KEY":
+            required.add("storage_account_key")
+        elif data.config["storage_authentication"] == "SAS_TOKEN":
+            required.add("storage_sas_token")
+        return required
+    if data.provider == "CLICKHOUSE":
+        return {"password"}
+    if data.provider == "BIGQUERY":
+        return (
+            {"service_account_json"}
+            if data.config["authentication"] == "SERVICE_ACCOUNT"
+            else set()
+        )
+    if data.provider == "REDSHIFT":
+        return {"password"} if data.config["authentication"] == "PASSWORD" else set()
     return {"password"} if data.category == "DATABASE" else {"access_key", "secret_key"}
 
 
@@ -87,6 +141,22 @@ def transient(data: ConnectionInput) -> Connection:
 
 
 async def _run_test(connection: Connection, values: dict[str, str]) -> dict:
+    if connection.provider == "AZURE_SYNAPSE":
+        from app.services.azure_synapse.connection import test_connection
+
+        return await test_connection(connection, values)
+    if connection.provider == "CLICKHOUSE":
+        from app.services.clickhouse import test_connection
+
+        return await test_connection(connection, values)
+    if connection.provider == "BIGQUERY":
+        from app.services.bigquery import test_connection
+
+        return await test_connection(connection, values)
+    if connection.provider == "REDSHIFT":
+        from app.services.redshift import test_connection
+
+        return await test_connection(connection, values)
     if connection.category == "OBJECT_STORAGE":
         from app.services.object_storage import test_connection
 
@@ -278,14 +348,22 @@ async def test(session: AsyncSession, connection: Connection, actor: str) -> dic
     values = await credentials(session, connection)
     await session.commit()
     try:
-        required = (
-            {"password"}
-            if connection.category == "DATABASE"
-            else {
-                "access_key",
-                "secret_key",
-            }
-        )
+        if connection.provider in {"AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"}:
+            required = _required_credentials(
+                ConnectionInput(
+                    name=connection.name,
+                    description=connection.description,
+                    category="DATABASE",
+                    provider=connection.provider,
+                    config=dict(connection.config_json),
+                    credentials={},
+                    capabilities=["DESTINATION"],
+                )
+            )
+        else:
+            required = (
+                {"password"} if connection.category == "DATABASE" else {"access_key", "secret_key"}
+            )
         if required - set(values):
             raise DomainError(
                 "CONNECTION_CREDENTIALS_REQUIRED",

@@ -79,6 +79,16 @@ export function ConnectionDetailPage({ id }: { id: string }) {
             </Link>
           </Button>
         )}
+        {["CLICKHOUSE", "BIGQUERY", "REDSHIFT", "AZURE_SYNAPSE"].includes(
+          value.provider,
+        ) &&
+          can("deliveries.write") && (
+            <Button asChild>
+              <Link href={`/deliveries/new?destination_id=${id}`}>
+                Create append-only delivery
+              </Link>
+            </Button>
+          )}
       </PageHeader>
       {test.isError && <ErrorPanel error={test.error} />}
       <section className="resource-summary">

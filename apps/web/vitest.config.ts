@@ -9,5 +9,8 @@ export default defineConfig({
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.{ts,tsx}"],
     restoreMocks: true,
+    // Rendering-heavy suites regularly exceed Vitest's 5 s default on shared
+    // Windows/CI runners even though their assertions complete successfully.
+    testTimeout: 15_000,
   },
 });

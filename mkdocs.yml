@@ -115,6 +115,11 @@ nav:
       - PostgreSQL Destination: connectors/postgresql-destination.md
       - MySQL: connectors/mysql.md
       - AWS S3 and MinIO: connectors/object-storage.md
+      - Warehouse Destinations: connectors/warehouse-destinations.md
+      - ClickHouse: connectors/clickhouse.md
+      - Google BigQuery: connectors/bigquery.md
+      - Amazon Redshift: connectors/redshift.md
+      - Azure Synapse Analytics: connectors/azure-synapse.md
       - Kafka: connections/kafka.md
       - Kafka Connect: connections/kafka-connect.md
   - Pipelines:
@@ -162,6 +167,8 @@ nav:
       - v0.3.0 UX Redesign: development/v0.3.0-ux-redesign.md
       - v0.3.0 Visual Revision: development/v0.3.0-visual-revision.md
       - v0.3.0 Release Notes: releases/v0.3.0.md
+      - v0.3.2 Destination Status: development/v0.3.2-destinations.md
+      - v0.3.2 Release Notes: releases/v0.3.2.md
       - v0.2.1 Release Notes: releases/v0.2.1.md
       - v0.2.1 Hardening Progress: development/v0.2.1-hardening-progress.md
       - v0.2.0 Release Notes: releases/v0.2.0.md

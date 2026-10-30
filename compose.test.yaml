@@ -136,10 +136,33 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
 
+  clickhouse:
+    profiles: ["clickhouse"]
+    image: clickhouse/clickhouse-server:26.8.20.9-alpine
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: cluecdc
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_TEST_PASSWORD:-clickhouse123}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:${CLICKHOUSE_TEST_PORT:-8123}:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --user cluecdc --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
 volumes:
   postgres-demo:
   mysql-demo:
   minio-data:
+  clickhouse-data:
 
 # Database init runs on empty data volumes; MinIO bootstrap is safe to rerun.
 configs:

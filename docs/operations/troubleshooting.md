@@ -21,6 +21,10 @@ curl http://localhost:8000/ready
 | Pipeline `DEGRADED`        | Inspect connector tasks and the correlation/request ID in API logs.                                        |
 | No recent changes          | Confirm topic offsets, create a source change, and inspect payloads directly with Kafka or at the destination. |
 | API fails at startup       | Validate required settings and JSON formatting in `.env`.                                                  |
+| Warehouse current-state rejected | v0.3.2 enables append-only history only; do not silently substitute it for upsert.                  |
+| Warehouse plugin missing   | Rebuild every Connect worker and inspect `/connector-plugins` for the pinned ClickHouse/BigQuery classes.   |
+| Staged batch retrying      | Check the ledger error, object-storage prefix, warehouse availability, and destination batch marker.       |
+| Staged batch terminal      | Correct credentials/schema/permissions, then use an explicit operator recovery path; offsets stay blocked. |
 
 If a paused demo sink still receives rows, inspect
 `http://localhost:8083/connectors` for an unmanaged/orphan sink left after an

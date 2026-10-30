@@ -96,8 +96,83 @@ async def test_database_connection_is_the_only_persisted_endpoint(client, db_fac
 
 async def test_provider_catalog_exposes_database_and_object_storage_providers(client):
     providers = (await client.get("/api/v1/connection-providers")).json()
-    assert {item["provider"] for item in providers} == {"POSTGRESQL", "MYSQL", "AWS_S3", "MINIO"}
+    assert {item["provider"] for item in providers} == {
+        "POSTGRESQL",
+        "MYSQL",
+        "AWS_S3",
+        "MINIO",
+        "AZURE_SYNAPSE",
+        "CLICKHOUSE",
+        "BIGQUERY",
+        "REDSHIFT",
+    }
     assert {item["category"] for item in providers} == {"DATABASE", "OBJECT_STORAGE"}
+    warehouses = {
+        item["provider"]: item["warehouse_capabilities"]
+        for item in providers
+        if "warehouse_capabilities" in item
+    }
+    assert warehouses["CLICKHOUSE"]["append_only"] is True
+    assert warehouses["CLICKHOUSE"]["current_state_cdc"] is False
+    assert warehouses["BIGQUERY"]["runtime"] == "IMPLEMENTED"
+    assert warehouses["REDSHIFT"]["append_only"] is True
+    assert warehouses["REDSHIFT"]["production_ready"] is False
+
+
+async def test_warehouse_connections_are_destination_only_and_secrets_are_masked(client):
+    payloads = [
+        {
+            "name": "ClickHouse analytics",
+            "category": "DATABASE",
+            "provider": "CLICKHOUSE",
+            "config": {
+                "host": "clickhouse",
+                "port": 8123,
+                "database_name": "analytics",
+                "username": "cluecdc",
+                "ssl_enabled": False,
+                "cloud": False,
+            },
+            "credentials": {"password": "clickhouse-private"},
+        },
+        {
+            "name": "BigQuery analytics",
+            "category": "DATABASE",
+            "provider": "BIGQUERY",
+            "config": {
+                "project_id": "cluecdc-analytics-123",
+                "dataset_id": "cdc",
+                "dataset_location": "US",
+                "authentication": "SERVICE_ACCOUNT",
+                "staging_prefix": "cluecdc",
+            },
+            "credentials": {"service_account_json": '{"private_key":"private"}'},
+        },
+        {
+            "name": "Redshift analytics",
+            "category": "DATABASE",
+            "provider": "REDSHIFT",
+            "config": {
+                "host": "warehouse.example.us-east-1.redshift.amazonaws.com",
+                "port": 5439,
+                "database_name": "analytics",
+                "schema_name": "public",
+                "username": "cluecdc",
+                "authentication": "PASSWORD",
+                "region": "us-east-1",
+                "s3_bucket": "cluecdc-staging-example",
+                "staging_prefix": "cluecdc",
+                "ssl_enabled": True,
+                "serverless": False,
+            },
+            "credentials": {"password": "redshift-private"},
+        },
+    ]
+    for payload in payloads:
+        response = await client.post("/api/v1/connections", json=payload)
+        assert response.status_code == 201, response.text
+        assert response.json()["capabilities"] == ["DESTINATION"]
+        assert "private" not in response.text
 
 
 async def test_in_use_connection_reports_every_dependency_until_last_reference_is_removed(

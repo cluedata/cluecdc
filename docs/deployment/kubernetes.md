@@ -30,6 +30,13 @@ CONNECT_CONFIG_PROVIDERS_CLUECDC_PARAM_URL=http://cluecdc-api.cluecdc.svc.cluste
 CLUECDC_SECRETS_TOKEN=<same externally managed connect-secret-token>
 ```
 
+The same image also contains the v0.3.2 ClickHouse and BigQuery sink plugins and
+the warehouse history SMT. Use the identical immutable image digest on every
+Connect worker. Redshift and Synapse staged deliveries run in the ClueCDC worker,
+so worker egress must additionally allow Kafka, the warehouse SQL endpoint, and
+the configured S3/Azure Storage endpoints. Grant only the configured staging
+prefix; do not expose cloud credentials through ConfigMaps.
+
 Use an equivalent private HTTPS URL when Connect runs outside the cluster. Never
 publish `/internal/secrets` to the public Ingress. Label an in-cluster Connect
 pod `cluecdc.io/connect-client=true`; when it is in another namespace, label
@@ -39,9 +46,8 @@ the policy with reviewed private CIDRs when the caller is outside Kubernetes.
 ## Prepare configuration and secrets
 
 Create an environment overlay that replaces the example public hostname,
-Ingress class/TLS secret, resource sizing, and the exact `0.2.1` image tags with
-registry-enforced immutable tags or digests. The base never contains Secret
-values.
+Ingress class/TLS secret, resource sizing, and the pinned versioned image tags
+with registry-enforced immutable digests. The base never contains Secret values.
 
 Create the namespace, then provision `cluecdc-secrets` through the approved
 external-secret controller or, for a one-time operator workflow, stdin:

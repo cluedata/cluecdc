@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cluecdc-api"
-version = "0.3.0"
+version = "0.3.2"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.135.1", "uvicorn==0.42.0", "pydantic-settings==2.15.0",
@@ -14,6 +14,8 @@ dependencies = [
   "argon2-cffi==25.1.0",
   "confluent-kafka==2.15.1",
   "boto3==1.43.108",
+  "mssql-python==1.13.0", "azure-storage-blob==12.27.1", "azure-identity==1.25.1",
+  "google-cloud-bigquery==3.38.0", "redshift-connector==2.1.14", "lxml==6.1.0",
   "structlog==25.5.0", "prometheus-client==0.24.1",
 ]
 
