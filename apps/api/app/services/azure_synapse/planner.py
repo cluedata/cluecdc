@@ -35,7 +35,7 @@ def plan_batch(delivery_id: str, events: list[dict], staging_prefix: str) -> Bat
         batch_id=batch_id,
         source_offsets=offsets,
         record_count=len(events),
-        staging_key=f"{prefix}/deliveries/{delivery_id}/batches/{batch_id}/records.jsonl",
+        staging_key=f"{prefix}/deliveries/{delivery_id}/batches/{batch_id}/records.csv",
     )
 
 

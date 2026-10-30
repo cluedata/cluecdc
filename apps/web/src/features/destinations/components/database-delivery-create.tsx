@@ -61,6 +61,14 @@ export const steps = [
 ];
 
 type DeliveryType = "DATABASE" | "OBJECT_STORAGE";
+type DeliveryDestination = Omit<Destination, "type"> & {
+  type:
+    | Destination["type"]
+    | "clickhouse"
+    | "bigquery"
+    | "redshift"
+    | "azure_synapse";
+};
 
 const defaultObjectKeyTemplate =
   "{{topic}}/year={{timestamp:unit=yyyy}}/month={{timestamp:unit=MM}}/day={{timestamp:unit=dd}}/{{topic}}-{{partition:padding=true}}-{{start_offset:padding=true}}.jsonl.gz";
@@ -169,14 +177,20 @@ export function DestinationWizard({
   const tested = testedFingerprint === connectionFingerprint;
   const existing = useQuery({
     queryKey: ["destination", destinationId],
-    queryFn: () => api<Destination>(`/destinations/${destinationId}`),
+    queryFn: () => api<DeliveryDestination>(`/destinations/${destinationId}`),
     enabled: !!destinationId && deliveryType === "DATABASE",
   });
   const registeredDestinations = useQuery({
     queryKey: ["destinations"],
     queryFn: async () =>
-      (await api<Destination[]>("/destinations")).filter(
-        (item) => item.type === "postgresql" || item.type === "mysql",
+      (await api<DeliveryDestination[]>("/destinations")).filter(
+        (item) =>
+          item.type === "postgresql" ||
+          item.type === "mysql" ||
+          item.type === "clickhouse" ||
+          item.type === "bigquery" ||
+          item.type === "redshift" ||
+          item.type === "azure_synapse",
       ),
     enabled: step === 0,
   });
@@ -339,10 +353,20 @@ export function DestinationWizard({
         ) || existing.data
       : undefined;
   const targetNamespace =
-    (chosenDestination?.type || connection.getValues("type")) === "mysql"
-      ? chosenDestination?.database_name ||
-        connection.getValues("database_name")
-      : "public";
+    chosenDestination?.type === "azure_synapse"
+      ? String(chosenDestination.provider_options.target_schema || "dbo")
+      : ["mysql", "clickhouse", "bigquery", "redshift"].includes(
+            chosenDestination?.type || connection.getValues("type"),
+          )
+        ? chosenDestination?.database_name ||
+          connection.getValues("database_name")
+        : "public";
+  const appendOnlyHistory = [
+    "clickhouse",
+    "bigquery",
+    "redshift",
+    "azure_synapse",
+  ].includes(chosenDestination?.type || "");
   const selectedTopicCount =
     deliveryType === "OBJECT_STORAGE" ? topics.length : mappings.length;
   return (
@@ -395,6 +419,9 @@ export function DestinationWizard({
                   value={selectedDestinationId}
                   onChange={(event) => {
                     const selected = event.target.selectedOptions[0];
+                    const destination = registeredDestinations.data?.find(
+                      (target) => target.id === event.target.value,
+                    );
                     setSelectedDestinationId(event.target.value);
                     setDeliveryType(
                       selected?.dataset.deliveryType === "OBJECT_STORAGE"
@@ -405,6 +432,19 @@ export function DestinationWizard({
                     setMappings([]);
                     setTopics([]);
                     setPreview(null);
+                    if (
+                      destination?.type === "clickhouse" ||
+                      destination?.type === "bigquery" ||
+                      destination?.type === "redshift" ||
+                      destination?.type === "azure_synapse"
+                    ) {
+                      setOptions((value) => ({
+                        ...value,
+                        write_mode: "insert",
+                        auto_evolve: false,
+                        delete_enabled: false,
+                      }));
+                    }
                   }}
                 >
                   <option value="">
@@ -593,11 +633,13 @@ export function DestinationWizard({
                     {pipeline.data.tables.map((table) => {
                       const readiness = databaseDeliveryReadiness(table);
                       const storage = deliveryType === "OBJECT_STORAGE";
+                      const selectable =
+                        storage || appendOnlyHistory || readiness.ready;
                       return (
                         <label key={table.topic_name}>
                           <input
                             type="checkbox"
-                            disabled={!storage && !readiness.ready}
+                            disabled={!selectable}
                             checked={
                               storage
                                 ? topics.includes(table.topic_name)
@@ -641,7 +683,9 @@ export function DestinationWizard({
                               {table.schema_name}.{table.table_name} ·{" "}
                               {storage
                                 ? "CDC event stream · source key optional"
-                                : readiness.message}
+                                : appendOnlyHistory
+                                  ? "Append-only CDC history; source key optional"
+                                  : readiness.message}
                             </small>
                           </span>
                         </label>
@@ -876,6 +920,7 @@ export function DestinationWizard({
                   >
                     <select
                       value={options.write_mode}
+                      disabled={appendOnlyHistory}
                       onChange={(event) =>
                         setOptions((value) => ({
                           ...value,
@@ -887,6 +932,13 @@ export function DestinationWizard({
                       <option value="insert">Insert</option>
                     </select>
                   </Field>
+                  {appendOnlyHistory && (
+                    <p className="muted full-width">
+                      This destination stores Debezium event history, including
+                      update and delete envelopes. It does not represent only
+                      the latest source row state.
+                    </p>
+                  )}
                   <Field label="Primary key mode">
                     <select value="record_key" disabled>
                       <option value="record_key">Record key</option>

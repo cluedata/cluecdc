@@ -13,6 +13,7 @@ from app.models.entities import Connection
 from app.repositories.metadata import get
 from app.schemas.connections import ConnectionInput
 from app.services import connections as connection_service
+from app.services.warehouses.capabilities import capabilities as warehouse_capabilities
 
 router = APIRouter(prefix="/api/v1", tags=["Connections"])
 DB = Annotated[AsyncSession, Depends(session_dependency)]
@@ -60,6 +61,34 @@ async def connection_providers(user: Read):
             "capabilities": ["DESTINATION"],
             "delivery_type": "STAGED_WAREHOUSE",
             "managed_identity_available": get_settings().azure_managed_identity_enabled,
+            "warehouse_capabilities": warehouse_capabilities("AZURE_SYNAPSE"),
+        },
+        {
+            "provider": "CLICKHOUSE",
+            "category": "DATABASE",
+            "name": "ClickHouse",
+            "description": "ClickHouse Cloud or self-hosted append-only CDC history",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "DATABASE",
+            "warehouse_capabilities": warehouse_capabilities("CLICKHOUSE"),
+        },
+        {
+            "provider": "BIGQUERY",
+            "category": "DATABASE",
+            "name": "Google BigQuery",
+            "description": "BigQuery append-only CDC history through Kafka Connect",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "STAGED_WAREHOUSE",
+            "warehouse_capabilities": warehouse_capabilities("BIGQUERY"),
+        },
+        {
+            "provider": "REDSHIFT",
+            "category": "DATABASE",
+            "name": "Amazon Redshift",
+            "description": "Redshift append-only CDC history with S3 staging",
+            "capabilities": ["DESTINATION"],
+            "delivery_type": "STAGED_WAREHOUSE",
+            "warehouse_capabilities": warehouse_capabilities("REDSHIFT"),
         },
     ]
     return providers

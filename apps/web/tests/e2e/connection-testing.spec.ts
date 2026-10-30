@@ -28,6 +28,9 @@ const providerName = {
   AWS_S3: "AWS S3",
   MINIO: "MinIO",
   AZURE_SYNAPSE: "Azure Synapse Analytics",
+  CLICKHOUSE: "ClickHouse",
+  BIGQUERY: "Google BigQuery",
+  REDSHIFT: "Amazon Redshift",
 };
 
 function destinationPayload(provider: ConnectionProvider) {

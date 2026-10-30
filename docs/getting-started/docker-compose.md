@@ -96,6 +96,19 @@ docker compose -f compose.yaml -f compose.test.yaml --profile tools up -d
 These fixture credentials are test-only and live in `.env.test.example`.
 They are not required to open or operate ClueCDC.
 
+An additional ClickHouse 26.8 LTS fixture is opt-in and does not start with the
+default test stack:
+
+```bash
+docker compose --env-file .env.test.example \
+  -f compose.yaml -f compose.test.yaml --profile clickhouse up -d clickhouse
+```
+
+Its host port is `CLICKHOUSE_TEST_PORT` (default 8123). BigQuery, Redshift, and
+Synapse are external/billable services and are never provisioned by Compose.
+The supplied Kafka Connect image does include checksum-pinned ClickHouse and
+BigQuery sink plugins; rebuild Connect after upgrading this checkout.
+
 ### Fixture connections and credentials
 
 Each engine has one demo service shared by source and destination connections.

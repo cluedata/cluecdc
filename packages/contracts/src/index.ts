@@ -587,7 +587,14 @@ export interface ConnectorPlugin {
 
 export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
 export type ConnectionProvider =
-  "POSTGRESQL" | "MYSQL" | "AWS_S3" | "MINIO" | "AZURE_SYNAPSE";
+  | "POSTGRESQL"
+  | "MYSQL"
+  | "AWS_S3"
+  | "MINIO"
+  | "AZURE_SYNAPSE"
+  | "CLICKHOUSE"
+  | "BIGQUERY"
+  | "REDSHIFT";
 export interface Connection extends Entity {
   name: string;
   type: ConnectionProvider;
@@ -613,6 +620,22 @@ export interface ConnectionProviderMetadata {
   capabilities?: ("SOURCE" | "DESTINATION")[];
   delivery_type?: "DATABASE" | "OBJECT_STORAGE" | "STAGED_WAREHOUSE";
   managed_identity_available?: boolean;
+  warehouse_capabilities?: {
+    append_only: boolean;
+    current_state_cdc: boolean;
+    initial_snapshot: boolean;
+    upsert: boolean;
+    delete: boolean;
+    composite_key: boolean;
+    schema_evolution: string;
+    direct_streaming: boolean;
+    staged_batch: boolean;
+    runtime: "IMPLEMENTED" | "BLOCKED";
+    mock_verification: "PASS" | "NOT_RUN";
+    destination_verification: "PASS" | "NOT_RUN";
+    production_ready: boolean;
+    limitations: string[];
+  };
 }
 export interface ConnectionCheck {
   name: string;

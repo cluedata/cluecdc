@@ -31,6 +31,9 @@ export const providerName = (provider: string) =>
     AWS_S3: "AWS S3",
     MINIO: "MinIO",
     AZURE_SYNAPSE: "Azure Synapse Analytics",
+    CLICKHOUSE: "ClickHouse",
+    BIGQUERY: "Google BigQuery",
+    REDSHIFT: "Amazon Redshift",
   })[provider] || provider;
 
 export type FormState = {
@@ -41,6 +44,61 @@ export type FormState = {
 };
 
 export const initialState = (provider: ConnectionProvider): FormState => {
+  if (provider === "CLICKHOUSE") {
+    return {
+      name: "",
+      description: "",
+      config: {
+        host: "localhost",
+        port: 8123,
+        database_name: "default",
+        username: "default",
+        ssl_enabled: false,
+        cloud: false,
+      },
+      credentials: { password: "" },
+    };
+  }
+  if (provider === "BIGQUERY") {
+    return {
+      name: "",
+      description: "",
+      config: {
+        project_id: "",
+        dataset_id: "",
+        dataset_location: "US",
+        authentication: "SERVICE_ACCOUNT",
+        staging_prefix: "cluecdc",
+      },
+      credentials: { service_account_json: "" },
+    };
+  }
+  if (provider === "REDSHIFT") {
+    return {
+      name: "",
+      description: "",
+      config: {
+        host: "",
+        port: 5439,
+        database_name: "",
+        schema_name: "public",
+        username: "",
+        authentication: "PASSWORD",
+        region: "us-east-1",
+        s3_bucket: "",
+        staging_prefix: "cluecdc",
+        iam_role_arn: "",
+        ssl_enabled: true,
+        serverless: false,
+      },
+      credentials: {
+        password: "",
+        aws_access_key_id: "",
+        aws_secret_access_key: "",
+        aws_session_token: "",
+      },
+    };
+  }
   if (provider === "AZURE_SYNAPSE") {
     return {
       name: "",
@@ -132,6 +190,257 @@ export function ProviderFields({
   secret: (key: string, value: string) => void;
   managedIdentityAvailable?: boolean;
 }) {
+  if (provider === "CLICKHOUSE") {
+    return (
+      <>
+        <Field label="Host">
+          <Input
+            value={String(form.config.host)}
+            onChange={(e) => config("host", e.target.value)}
+          />
+        </Field>
+        <Field label="HTTP(S) port">
+          <Input
+            type="number"
+            value={Number(form.config.port)}
+            onChange={(e) => config("port", Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Database">
+          <Input
+            value={String(form.config.database_name)}
+            onChange={(e) => config("database_name", e.target.value)}
+          />
+        </Field>
+        <Field label="Username">
+          <Input
+            value={String(form.config.username)}
+            onChange={(e) => config("username", e.target.value)}
+          />
+        </Field>
+        <Field label="Password">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={form.credentials.password || ""}
+            onChange={(e) => secret("password", e.target.value)}
+          />
+        </Field>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(form.config.ssl_enabled)}
+            onChange={(e) => config("ssl_enabled", e.target.checked)}
+          />{" "}
+          TLS enabled
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(form.config.cloud)}
+            onChange={(e) => config("cloud", e.target.checked)}
+          />{" "}
+          ClickHouse Cloud
+        </label>
+        <p className="muted full-width">
+          Delivery uses the official ClickHouse Kafka Connect sink. Only
+          append-only CDC event history is currently enabled.
+        </p>
+      </>
+    );
+  }
+  if (provider === "BIGQUERY") {
+    const authentication = String(form.config.authentication);
+    return (
+      <>
+        <Field label="Google Cloud project ID">
+          <Input
+            value={String(form.config.project_id)}
+            onChange={(e) => config("project_id", e.target.value)}
+          />
+        </Field>
+        <Field label="Dataset ID">
+          <Input
+            value={String(form.config.dataset_id)}
+            onChange={(e) => config("dataset_id", e.target.value)}
+          />
+        </Field>
+        <Field label="Dataset location">
+          <Input
+            value={String(form.config.dataset_location)}
+            onChange={(e) => config("dataset_location", e.target.value)}
+          />
+        </Field>
+        <Field label="Authentication">
+          <select
+            value={authentication}
+            onChange={(e) => config("authentication", e.target.value)}
+          >
+            <option value="SERVICE_ACCOUNT">Service account JSON</option>
+            <option value="ADC">Workload identity / ADC</option>
+          </select>
+        </Field>
+        {authentication === "SERVICE_ACCOUNT" && (
+          <Field label="Service account JSON">
+            <textarea
+              rows={5}
+              autoComplete="off"
+              value={form.credentials.service_account_json || ""}
+              onChange={(e) => secret("service_account_json", e.target.value)}
+            />
+          </Field>
+        )}
+        <p className="muted full-width">
+          Append-only history uses the self-hosted Aiven BigQuery connector.
+          Current-state CDC remains disabled pending cloud E2E validation.
+        </p>
+      </>
+    );
+  }
+  if (provider === "REDSHIFT") {
+    const authentication = String(form.config.authentication);
+    return (
+      <>
+        <Field label="Redshift host">
+          <Input
+            value={String(form.config.host)}
+            onChange={(e) => config("host", e.target.value)}
+          />
+        </Field>
+        <Field label="Port">
+          <Input
+            type="number"
+            value={Number(form.config.port)}
+            onChange={(e) => config("port", Number(e.target.value))}
+          />
+        </Field>
+        <Field label="Database">
+          <Input
+            value={String(form.config.database_name)}
+            onChange={(e) => config("database_name", e.target.value)}
+          />
+        </Field>
+        <Field label="Target schema">
+          <Input
+            value={String(form.config.schema_name)}
+            onChange={(e) => config("schema_name", e.target.value)}
+          />
+        </Field>
+        <Field label="Username">
+          <Input
+            value={String(form.config.username)}
+            onChange={(e) => config("username", e.target.value)}
+          />
+        </Field>
+        <Field label="Authentication">
+          <select
+            value={authentication}
+            onChange={(e) => config("authentication", e.target.value)}
+          >
+            <option value="PASSWORD">Username and password</option>
+            <option value="IAM">AWS IAM database authentication</option>
+          </select>
+        </Field>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(form.config.serverless)}
+            onChange={(e) => config("serverless", e.target.checked)}
+          />{" "}
+          Redshift Serverless
+        </label>
+        {authentication === "PASSWORD" && (
+          <Field label="Password">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={form.credentials.password || ""}
+              onChange={(e) => secret("password", e.target.value)}
+            />
+          </Field>
+        )}
+        {authentication === "IAM" && (
+          <>
+            <Field
+              label={
+                form.config.serverless
+                  ? "Serverless workgroup"
+                  : "Cluster identifier"
+              }
+            >
+              <Input
+                value={String(
+                  form.config.serverless
+                    ? form.config.workgroup_name || ""
+                    : form.config.cluster_identifier || "",
+                )}
+                onChange={(e) =>
+                  config(
+                    form.config.serverless
+                      ? "workgroup_name"
+                      : "cluster_identifier",
+                    e.target.value,
+                  )
+                }
+              />
+            </Field>
+          </>
+        )}
+        <Field label="AWS access key ID (optional)">
+          <Input
+            type="password"
+            autoComplete="off"
+            value={form.credentials.aws_access_key_id || ""}
+            onChange={(e) => secret("aws_access_key_id", e.target.value)}
+          />
+        </Field>
+        <Field label="AWS secret access key (optional)">
+          <Input
+            type="password"
+            autoComplete="off"
+            value={form.credentials.aws_secret_access_key || ""}
+            onChange={(e) => secret("aws_secret_access_key", e.target.value)}
+          />
+        </Field>
+        <Field label="AWS session token (optional)">
+          <Input
+            type="password"
+            autoComplete="off"
+            value={form.credentials.aws_session_token || ""}
+            onChange={(e) => secret("aws_session_token", e.target.value)}
+          />
+        </Field>
+        <Field label="AWS region">
+          <Input
+            value={String(form.config.region)}
+            onChange={(e) => config("region", e.target.value)}
+          />
+        </Field>
+        <Field label="S3 staging bucket">
+          <Input
+            value={String(form.config.s3_bucket)}
+            onChange={(e) => config("s3_bucket", e.target.value)}
+          />
+        </Field>
+        <Field label="Staging prefix">
+          <Input
+            value={String(form.config.staging_prefix)}
+            onChange={(e) => config("staging_prefix", e.target.value)}
+          />
+        </Field>
+        <Field label="COPY IAM role ARN (optional)">
+          <Input
+            value={String(form.config.iam_role_arn || "")}
+            onChange={(e) => config("iam_role_arn", e.target.value)}
+          />
+        </Field>
+        <p className="muted full-width">
+          Append-only history uses S3 manifests and Redshift COPY. Current-state
+          MERGE remains disabled until cloud recovery tests pass.
+        </p>
+      </>
+    );
+  }
   if (provider === "AZURE_SYNAPSE") {
     const authentication = String(form.config.authentication);
     const storageAuthentication = String(form.config.storage_authentication);

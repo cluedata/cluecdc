@@ -209,7 +209,8 @@ class Connection(Entity, Base):
             name="ck_connections_category",
         ),
         CheckConstraint(
-            "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO','AZURE_SYNAPSE')",
+            "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO','AZURE_SYNAPSE',"
+            "'CLICKHOUSE','BIGQUERY','REDSHIFT')",
             name="ck_connections_provider",
         ),
     )
@@ -312,14 +313,15 @@ class PipelineDestination(Entity, Base):
     actual_state: Mapped[str] = mapped_column(String, default="UNKNOWN", index=True)
 
 
-class AzureSynapseBatchLedger(Entity, Base):
+class WarehouseBatchLedger(Entity, Base):
     """Durable staged-batch state; checkpoints advance only after APPLIED."""
 
-    __tablename__ = "azure_synapse_batch_ledger"
+    __tablename__ = "warehouse_batch_ledger"
     __table_args__ = (
         UniqueConstraint("delivery_id", "batch_id"),
         CheckConstraint(
-            "status IN ('PLANNED','STAGED','COPIED','APPLYING','APPLIED','FAILED')",
+            "status IN ('CREATED','STAGING','STAGED','APPLYING','APPLIED','CHECKPOINTED',"
+            "'RETRYABLE_FAILED','TERMINAL_FAILED')",
             name="ck_synapse_batch_status",
         ),
         Index("ix_synapse_batch_recovery", "delivery_id", "status", "updated_at"),
@@ -330,10 +332,15 @@ class AzureSynapseBatchLedger(Entity, Base):
     batch_id: Mapped[str] = mapped_column(String(120))
     source_offsets_json: Mapped[dict] = mapped_column(JSON)
     staging_manifest_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(20), default="PLANNED", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="CREATED", index=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error_code: Mapped[str | None] = mapped_column(String(80))
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checkpointed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# Compatibility alias; this is the same mapped model, not a second ledger table.
+AzureSynapseBatchLedger = WarehouseBatchLedger
 
 
 class SchemaVersion(Entity, Base):

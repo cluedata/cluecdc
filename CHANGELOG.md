@@ -14,6 +14,15 @@ All notable changes to ClueCDC are documented here. The format follows
   storage tests, Synapse type/DDL/COPY primitives, and a durable batch ledger.
 - Added Azure Synapse setup, permission, security, recovery, testing, and
   troubleshooting documentation plus an evidence-based v0.3.2 capability matrix.
+- Added ClickHouse 1.7.0 and Aiven BigQuery 2.15.0 sink plugins with checksum
+  pinning, plugin discovery, secret references, and a fixed append-only CDC
+  history transform.
+- Added ClickHouse, BigQuery, and Redshift connection CRUD/UI/test support plus
+  an optional ClickHouse 26.8 LTS Compose test profile.
+- Added executable Redshift and Synapse staged runtimes with durable manifests,
+  destination batch markers, replay deduplication, and Kafka checkpoint gating.
+- Generalized the Synapse batch ledger for staged warehouse recovery while
+  preserving existing batches through migrations 0012 and 0013.
 
 ### Security
 
@@ -23,10 +32,12 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ### Known limitations
 
-- Azure Synapse staged delivery and cloud E2E execution are not yet complete;
-  stateful CDC and preview MERGE behavior remain disabled until verified on a
-  real Dedicated SQL Pool. BigQuery, Redshift, and ClickHouse v0.3.2 work is not
-  present in this checkout and is not reported as complete.
+- BigQuery, Redshift, and Azure Synapse real-cloud E2E are NOT RUN. The complete
+  PostgreSQL/MySQL-to-warehouse scenario matrix has not passed, so the four new
+  warehouse runtimes are not production-ready.
+- Current-state/upsert/delete application and automatic source-schema evolution
+  remain disabled for all four warehouses; append-only CDC history is the only
+  advertised v0.3.2 mode.
 
 ## [0.3.0] - 2026-10-20
 

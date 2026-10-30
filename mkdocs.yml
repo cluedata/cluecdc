@@ -115,6 +115,10 @@ nav:
       - PostgreSQL Destination: connectors/postgresql-destination.md
       - MySQL: connectors/mysql.md
       - AWS S3 and MinIO: connectors/object-storage.md
+      - Warehouse Destinations: connectors/warehouse-destinations.md
+      - ClickHouse: connectors/clickhouse.md
+      - Google BigQuery: connectors/bigquery.md
+      - Amazon Redshift: connectors/redshift.md
       - Azure Synapse Analytics: connectors/azure-synapse.md
       - Kafka: connections/kafka.md
       - Kafka Connect: connections/kafka-connect.md

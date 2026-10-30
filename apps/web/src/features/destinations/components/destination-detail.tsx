@@ -15,7 +15,9 @@ export function DestinationConnectionDetail({ id }: { id: string }) {
   if (connection.isPending) return <Loading />;
   if (connection.isError) return <ErrorPanel error={connection.error} />;
   return connection.data.category === "OBJECT_STORAGE" ||
-    connection.data.provider === "AZURE_SYNAPSE" ? (
+    ["AZURE_SYNAPSE", "BIGQUERY", "REDSHIFT"].includes(
+      connection.data.provider,
+    ) ? (
     <ConnectionDetailPage id={id} />
   ) : (
     <DestinationDetailPage id={id} />

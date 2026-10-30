@@ -41,6 +41,189 @@ from app.services.sync_strategy import key_candidates, pipeline_effective_key
 log = structlog.get_logger()
 
 
+def _managed_synapse(delivery: PipelineDestination) -> bool:
+    return delivery.configuration_json.get("runtime_kind") == "AZURE_SYNAPSE_STAGED"
+
+
+def _managed_redshift(delivery: PipelineDestination) -> bool:
+    return delivery.configuration_json.get("runtime_kind") == "REDSHIFT_STAGED"
+
+
+def _managed_staged(delivery: PipelineDestination) -> bool:
+    return _managed_synapse(delivery) or _managed_redshift(delivery)
+
+
+async def _validate_synapse_delivery(
+    session: AsyncSession, destination: Destination, data: DeliveryInput
+) -> tuple[Pipeline, KafkaCluster, dict[str, str], dict[str, str]]:
+    if data.delivery_type != "DATABASE" or data.write_mode != "insert":
+        raise DomainError(
+            "AZURE_SYNAPSE_APPEND_ONLY_REQUIRED",
+            "Azure Synapse currently supports append-only event history only",
+            422,
+        )
+    pipeline = await get(session, Pipeline, data.pipeline_id)
+    if not pipeline.connector_id:
+        raise DomainError(
+            "PIPELINE_NOT_DEPLOYED", "Deploy the capture pipeline before adding a destination", 422
+        )
+    tables = {
+        table.topic_name: table
+        for table in (
+            await session.scalars(
+                select(PipelineTable).where(PipelineTable.pipeline_id == pipeline.id)
+            )
+        ).all()
+    }
+    requested = {mapping.topic for mapping in data.mappings}
+    missing = requested - set(tables)
+    if missing:
+        raise DomainError(
+            "TOPIC_NOT_IN_PIPELINE",
+            "Selected topic does not belong to the capture pipeline",
+            422,
+            {"topics": sorted(missing)},
+        )
+    target_schema = str(destination.config_json["target_schema"])
+    mismatched = [
+        mapping.schema_name for mapping in data.mappings if mapping.schema_name != target_schema
+    ]
+    if mismatched:
+        raise DomainError(
+            "AZURE_SYNAPSE_SCHEMA_MISMATCH",
+            "Synapse mappings must use the configured target schema",
+            422,
+            {"target_schema": target_schema},
+        )
+    kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    kafka_secret_values = await kafka_credentials(session, kafka)
+    secret_values = await connection_service.credentials(session, destination)
+    await session.commit()
+    known_topics = {
+        topic["name"] for topic in await KafkaExplorer(kafka_secret_values).topics(kafka)
+    }
+    runtime_missing = requested - known_topics
+    if runtime_missing:
+        raise DomainError(
+            "TOPIC_NOT_FOUND",
+            "One or more capture topics are missing",
+            422,
+            {"topics": sorted(runtime_missing)},
+        )
+    from app.services.azure_synapse.connection import test_connection
+
+    await test_connection(destination, secret_values)
+    return pipeline, kafka, kafka_secret_values, secret_values
+
+
+async def _preview_synapse(
+    session: AsyncSession, destination: Destination, data: DeliveryInput
+) -> dict:
+    pipeline, _, _, _ = await _validate_synapse_delivery(session, destination, data)
+    return {
+        "config": {
+            "runtime.kind": "AZURE_SYNAPSE_STAGED",
+            "delivery.mode": "APPEND_ONLY_HISTORY",
+            "staging": "Azure Storage",
+            "apply": "Synapse COPY INTO with destination batch marker",
+            "checkpoint": "Kafka offsets after durable destination apply",
+        },
+        "mappings": [mapping.model_dump() for mapping in data.mappings],
+        "connect_cluster_id": None,
+        "connector_class": None,
+        "pipeline_id": pipeline.id,
+        "compatibility": {
+            mapping.topic: {
+                "mode": "APPEND_ONLY_HISTORY",
+                "effective_key_required": False,
+            }
+            for mapping in data.mappings
+        },
+    }
+
+
+async def _validate_redshift_delivery(
+    session: AsyncSession, destination: Destination, data: DeliveryInput
+) -> tuple[Pipeline, KafkaCluster, dict[str, str], dict[str, str]]:
+    if data.delivery_type != "DATABASE" or data.write_mode != "insert":
+        raise DomainError(
+            "REDSHIFT_APPEND_ONLY_REQUIRED",
+            "Amazon Redshift currently supports append-only event history only",
+            422,
+        )
+    pipeline = await get(session, Pipeline, data.pipeline_id)
+    if not pipeline.connector_id:
+        raise DomainError(
+            "PIPELINE_NOT_DEPLOYED", "Deploy the capture pipeline before adding a destination", 422
+        )
+    topics = {
+        table.topic_name
+        for table in (
+            await session.scalars(
+                select(PipelineTable).where(PipelineTable.pipeline_id == pipeline.id)
+            )
+        ).all()
+    }
+    requested = {mapping.topic for mapping in data.mappings}
+    if missing := requested - topics:
+        raise DomainError(
+            "TOPIC_NOT_IN_PIPELINE",
+            "Selected topic does not belong to the capture pipeline",
+            422,
+            {"topics": sorted(missing)},
+        )
+    schema = str(destination.config_json["schema_name"])
+    if any(mapping.schema_name != schema for mapping in data.mappings):
+        raise DomainError(
+            "REDSHIFT_SCHEMA_MISMATCH",
+            "Redshift mappings must use the configured target schema",
+            422,
+            {"schema_name": schema},
+        )
+    kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+    kafka_secret_values = await kafka_credentials(session, kafka)
+    secret_values = await connection_service.credentials(session, destination)
+    await session.commit()
+    known = {item["name"] for item in await KafkaExplorer(kafka_secret_values).topics(kafka)}
+    if missing := requested - known:
+        raise DomainError(
+            "TOPIC_NOT_FOUND",
+            "One or more capture topics are missing",
+            422,
+            {"topics": sorted(missing)},
+        )
+    from app.services.redshift import test_connection
+
+    await test_connection(destination, secret_values)
+    return pipeline, kafka, kafka_secret_values, secret_values
+
+
+async def _preview_redshift(
+    session: AsyncSession, destination: Destination, data: DeliveryInput
+) -> dict:
+    pipeline, _, _, _ = await _validate_redshift_delivery(session, destination, data)
+    return {
+        "config": {
+            "runtime.kind": "REDSHIFT_STAGED",
+            "delivery.mode": "APPEND_ONLY_HISTORY",
+            "staging": "Amazon S3 manifest",
+            "apply": "Redshift COPY with destination batch marker",
+            "checkpoint": "Kafka offsets after durable destination apply",
+        },
+        "mappings": [mapping.model_dump() for mapping in data.mappings],
+        "connect_cluster_id": None,
+        "connector_class": None,
+        "pipeline_id": pipeline.id,
+        "compatibility": {
+            mapping.topic: {
+                "mode": "APPEND_ONLY_HISTORY",
+                "effective_key_required": False,
+            }
+            for mapping in data.mappings
+        },
+    }
+
+
 async def locked(session: AsyncSession, identifier: uuid.UUID) -> Destination:
     destination = await session.scalar(
         select(Connection).where(Connection.id == identifier).with_for_update()
@@ -269,11 +452,23 @@ async def adapter(session: AsyncSession, destination: Destination) -> Destinatio
             422,
         )
     secret = await secret_provider(session).get_secret(destination.secret_ref)
+    if destination.provider == "CLICKHOUSE":
+        from app.services.clickhouse import ClickHouseDestinationAdapter
+
+        return ClickHouseDestinationAdapter(destination, secret["password"])
+    if destination.provider == "BIGQUERY":
+        from app.services.bigquery import BigQueryDestinationAdapter
+
+        return BigQueryDestinationAdapter(destination, secret)
     return get_provider(destination.type).destination_adapter(destination, secret["password"])
 
 
 async def test(session: AsyncSession, destination: Destination, actor: str) -> dict:
-    if destination.category == "OBJECT_STORAGE":
+    if destination.category == "OBJECT_STORAGE" or destination.provider in {
+        "AZURE_SYNAPSE",
+        "BIGQUERY",
+        "REDSHIFT",
+    }:
         return await connection_service.test(session, destination, actor)
     target = await adapter(session, destination)
     await session.commit()
@@ -578,6 +773,22 @@ async def build(
                 {"topic": mapping.topic},
             )
         source = discovered.get((table.schema_name, table.table_name))
+        if destination.provider in {"CLICKHOUSE", "BIGQUERY"}:
+            if data.write_mode != "insert":
+                raise DomainError(
+                    f"{destination.provider}_CURRENT_STATE_NOT_VERIFIED",
+                    f"{destination.provider.title()} current-state replication is disabled until "
+                    "replay and delete semantics pass destination E2E tests",
+                    422,
+                )
+            metadata[mapping.topic] = {
+                "mode": "APPEND_ONLY_HISTORY",
+                "source_schema": table.schema_name,
+                "source_table": table.table_name,
+                "schema_name": mapping.schema_name,
+                "table_name": mapping.table_name,
+            }
+            continue
         if source is None or not source.columns_json:
             raise DomainError(
                 "SOURCE_SCHEMA_REQUIRED",
@@ -664,6 +875,10 @@ async def build(
 
 
 async def preview(session: AsyncSession, destination: Destination, data: DeliveryInput) -> dict:
+    if destination.provider == "AZURE_SYNAPSE":
+        return await _preview_synapse(session, destination, data)
+    if destination.provider == "REDSHIFT":
+        return await _preview_redshift(session, destination, data)
     config, cluster, metadata, _ = await build(
         session, destination, data, "cluecdc-delivery-preview"
     )
@@ -711,6 +926,90 @@ async def deploy(
         raise DomainError(
             "DELIVERY_EXISTS", "A delivery with this name already exists on the destination", 409
         )
+    if destination.provider == "AZURE_SYNAPSE":
+        _, _, _, secret_values = await _validate_synapse_delivery(session, destination, data)
+        configuration = stored_configuration(data)
+        configuration.update(
+            {
+                "runtime_kind": "AZURE_SYNAPSE_STAGED",
+                "batch_size": int(destination.config_json.get("batch_size", 10000)),
+                "batch_flush_interval_ms": int(
+                    destination.config_json.get("batch_flush_interval_ms", 30000)
+                ),
+                "runtime_status": {"status": "INITIALIZING"},
+            }
+        )
+        delivery = PipelineDestination(
+            id=identifier,
+            pipeline_id=data.pipeline_id,
+            destination_id=destination.id,
+            connector_id=None,
+            name=data.name,
+            delivery_type="DATABASE",
+            delivery_mode="insert",
+            topic_mapping_json=[mapping.model_dump() for mapping in data.mappings],
+            configuration_json=configuration,
+            desired_state="RUNNING",
+            actual_state="UNKNOWN",
+        )
+        from app.services.azure_synapse.runtime import prepare_destination
+
+        await prepare_destination(
+            destination,
+            secret_values,
+            delivery,
+            auto_create=data.auto_create,
+        )
+        destination = await connection_service.lock_for_reference(session, destination.id)
+        session.add(delivery)
+        destination.status = "HEALTHY"
+        destination.last_tested_at = now()
+        audit(session, actor, "destination.deployed", destination)
+        audit(session, actor, "delivery.created", delivery)
+        await session.commit()
+        return await delivery_view(session, delivery)
+    if destination.provider == "REDSHIFT":
+        _, _, _, secret_values = await _validate_redshift_delivery(session, destination, data)
+        configuration = stored_configuration(data)
+        configuration.update(
+            {
+                "runtime_kind": "REDSHIFT_STAGED",
+                "batch_size": int(destination.config_json.get("batch_size", data.batch_size)),
+                "batch_flush_interval_ms": int(
+                    destination.config_json.get("batch_flush_interval_ms", 30000)
+                ),
+                "runtime_status": {"status": "INITIALIZING"},
+            }
+        )
+        delivery = PipelineDestination(
+            id=identifier,
+            pipeline_id=data.pipeline_id,
+            destination_id=destination.id,
+            connector_id=None,
+            name=data.name,
+            delivery_type="DATABASE",
+            delivery_mode="insert",
+            topic_mapping_json=[mapping.model_dump() for mapping in data.mappings],
+            configuration_json=configuration,
+            desired_state="RUNNING",
+            actual_state="UNKNOWN",
+        )
+        from app.services.redshift_runtime import prepare_destination
+
+        await prepare_destination(
+            destination,
+            secret_values,
+            delivery,
+            auto_create=data.auto_create,
+        )
+        destination = await connection_service.lock_for_reference(session, destination.id)
+        session.add(delivery)
+        destination.status = "HEALTHY"
+        destination.last_tested_at = now()
+        audit(session, actor, "destination.deployed", destination)
+        audit(session, actor, "delivery.created", delivery)
+        await session.commit()
+        return await delivery_view(session, delivery)
     config, cluster, metadata, target = await build(session, destination, data, name)
     # Close metadata reads before destination or Kafka Connect network calls.
     await session.commit()
@@ -777,6 +1076,85 @@ async def deploy(
 
 
 async def reconcile(session: AsyncSession, delivery: PipelineDestination) -> dict:
+    if _managed_staged(delivery):
+        previous = delivery.actual_state
+        if delivery.desired_state == "PAUSED":
+            delivery.actual_state = "PAUSED"
+            if previous != "PAUSED":
+                audit(session, "reconciler", "destination.state_observed", delivery)
+            return {
+                "delivery_id": delivery.id,
+                "pipeline_id": delivery.pipeline_id,
+                "name": delivery.name,
+                "desired_state": delivery.desired_state,
+                "actual_state": "PAUSED",
+                "connector_id": None,
+                "tasks": [],
+            }
+        destination = await get(session, Connection, delivery.destination_id)
+        pipeline = await get(session, Pipeline, delivery.pipeline_id)
+        kafka = await get(session, KafkaCluster, pipeline.kafka_cluster_id)
+        secret_values = await connection_service.credentials(session, destination)
+        kafka_secret_values = await kafka_credentials(session, kafka)
+        await session.commit()
+        try:
+            if _managed_synapse(delivery):
+                from app.services.azure_synapse.runtime import process_once
+            else:
+                from app.services.redshift_runtime import process_once
+
+            runtime = await process_once(
+                session,
+                delivery,
+                destination,
+                secret_values,
+                kafka,
+                kafka_secret_values,
+            )
+            state = "RUNNING"
+        except Exception as exc:
+            if _managed_synapse(delivery):
+                from app.services.azure_synapse.planner import classify_error
+            else:
+                from app.services.redshift_runtime import classify_error
+
+            classification = classify_error(exc)
+            state = "DEGRADED" if classification["retryable"] else "FAILED"
+            runtime = {
+                "status": state,
+                "error": {
+                    "code": classification["code"],
+                    "message": (
+                        exc.message
+                        if isinstance(exc, DomainError)
+                        else "Staged warehouse delivery failed; inspect worker logs"
+                    ),
+                },
+            }
+            await record_error(
+                session,
+                destination.id,
+                DomainError(classification["code"], runtime["error"]["message"]),
+                delivery.pipeline_id,
+                category="WAREHOUSE_RUNTIME",
+            )
+        delivery.actual_state = state
+        delivery.configuration_json = {
+            **delivery.configuration_json,
+            "runtime_status": runtime,
+        }
+        if state != previous:
+            audit(session, "reconciler", "destination.state_observed", delivery)
+        return {
+            "delivery_id": delivery.id,
+            "pipeline_id": delivery.pipeline_id,
+            "name": delivery.name,
+            "desired_state": delivery.desired_state,
+            "actual_state": state,
+            "connector_id": None,
+            "runtime": runtime,
+            "tasks": [],
+        }
     if not delivery.connector_id:
         return {"actual_state": "UNKNOWN", "tasks": []}
     connector = await get(session, Connector, delivery.connector_id)
@@ -866,6 +1244,34 @@ async def operate(
     actor: str,
     task: int | None = None,
 ) -> dict:
+    if _managed_staged(delivery):
+        if task is not None or operation == "restart-task":
+            raise DomainError(
+                "WAREHOUSE_TASK_OPERATION_UNSUPPORTED",
+                "Managed staged deliveries do not expose Kafka Connect tasks",
+                422,
+            )
+        if operation == "delete":
+            audit(session, actor, "delivery.deleted", delivery)
+            await session.delete(delivery)
+            await session.commit()
+            return {"deleted": True}
+        if operation not in {"pause", "resume", "restart"}:
+            raise DomainError("DELIVERY_OPERATION_UNSUPPORTED", "Operation is not supported", 422)
+        if operation == "pause":
+            delivery.desired_state = "PAUSED"
+            delivery.actual_state = "PAUSED"
+        else:
+            delivery.desired_state = "RUNNING"
+            delivery.actual_state = "UNKNOWN"
+        audit(session, actor, f"destination.{operation}d", destination)
+        audit(session, actor, f"delivery.{operation}d", delivery)
+        await session.commit()
+        return {
+            "delivery_id": delivery.id,
+            "desired_state": delivery.desired_state,
+            "actual_state": delivery.actual_state,
+        }
     if not delivery.connector_id:
         raise DomainError("NOT_DEPLOYED", "Delivery has no connector", 409)
     connector = await get(session, Connector, delivery.connector_id)
@@ -931,6 +1337,38 @@ async def update_mapping(
         raise DomainError(
             "PIPELINE_IMMUTABLE", "A delivery's source pipeline cannot be changed", 422
         )
+    if _managed_staged(delivery):
+        if _managed_synapse(delivery):
+            _, _, _, secret_values = await _validate_synapse_delivery(session, destination, data)
+        else:
+            _, _, _, secret_values = await _validate_redshift_delivery(session, destination, data)
+        before = serialize(delivery)
+        previous_mappings = delivery.topic_mapping_json
+        delivery.topic_mapping_json = [mapping.model_dump() for mapping in data.mappings]
+        try:
+            if _managed_synapse(delivery):
+                from app.services.azure_synapse.runtime import prepare_destination
+            else:
+                from app.services.redshift_runtime import prepare_destination
+
+            await prepare_destination(
+                destination,
+                secret_values,
+                delivery,
+                auto_create=data.auto_create,
+            )
+        except Exception:
+            delivery.topic_mapping_json = previous_mappings
+            raise
+        delivery.configuration_json = {
+            **delivery.configuration_json,
+            **stored_configuration(data),
+        }
+        delivery.name = data.name
+        audit(session, actor, "destination.mapping_updated", destination)
+        audit(session, actor, "delivery.mapping_updated", delivery, before)
+        await session.commit()
+        return await delivery_view(session, delivery)
     if not delivery.connector_id:
         raise DomainError("NOT_DEPLOYED", "Delivery has no connector", 409)
     connector = await get(session, Connector, delivery.connector_id)

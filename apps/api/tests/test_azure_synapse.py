@@ -13,6 +13,7 @@ from app.services.azure_synapse.planner import (
     plan_batch,
     reduce_stateful,
 )
+from app.services.azure_synapse.runtime import _credential_sql
 from app.services.azure_synapse.sql import (
     Column,
     append_apply_sql,
@@ -128,15 +129,40 @@ def test_synapse_batch_ledger_never_checkpoints_before_final_apply():
         batch_id="batch-1",
         source_offsets_json={"topic:0": {"first": 10, "last": 20}},
         staging_manifest_json={},
-        status="PLANNED",
+        status="CREATED",
     )
-    for status in ("STAGED", "COPIED", "APPLYING"):
+    for status in ("STAGING", "STAGED", "APPLYING"):
         transition(batch, status)
         assert not checkpoint_ready(batch)
     transition(batch, "APPLIED")
     assert checkpoint_ready(batch)
     with pytest.raises(DomainError):
         fail(batch, "COPY_FAILED")
+    transition(batch, "CHECKPOINTED")
+    assert batch.checkpointed_at is not None
+
+
+def test_synapse_batch_ledger_distinguishes_retryable_and_terminal_failures():
+    retryable = AzureSynapseBatchLedger(
+        batch_id="batch-retry",
+        source_offsets_json={},
+        staging_manifest_json={},
+        status="STAGING",
+    )
+    fail(retryable, "AZURE_SYNAPSE_TRANSIENT", retryable=True)
+    assert retryable.status == "RETRYABLE_FAILED"
+    transition(retryable, "STAGING")
+
+    terminal = AzureSynapseBatchLedger(
+        batch_id="batch-terminal",
+        source_offsets_json={},
+        staging_manifest_json={},
+        status="APPLYING",
+    )
+    fail(terminal, "AZURE_SYNAPSE_PERMISSION_DENIED", retryable=False)
+    assert terminal.status == "TERMINAL_FAILED"
+    with pytest.raises(DomainError):
+        transition(terminal, "APPLYING")
 
 
 async def test_connection_test_reports_storage_failure_separately(monkeypatch):
@@ -233,3 +259,21 @@ def test_stateful_reduction_handles_composite_key_change_and_latest_delete():
 )
 def test_error_classification(message, code, retryable):
     assert classify_error(RuntimeError(message)) == {"code": code, "retryable": retryable}
+
+
+def test_copy_service_principal_uses_v1_oauth_endpoint():
+    connection = Connection(
+        name="Synapse",
+        category="DATABASE",
+        provider="AZURE_SYNAPSE",
+        capabilities_json=["DESTINATION"],
+        config_json={
+            "storage_authentication": "SERVICE_PRINCIPAL",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "client_id": "22222222-2222-2222-2222-222222222222",
+        },
+    )
+    sql = _credential_sql(connection, {"client_secret": "secret'quoted"})
+    assert "22222222-2222-2222-2222-222222222222@https://login.microsoftonline.com/" in sql
+    assert "/11111111-1111-1111-1111-111111111111/oauth2/token" in sql
+    assert "secret''quoted" in sql

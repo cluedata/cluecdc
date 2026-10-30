@@ -12,10 +12,10 @@ not a stateful CDC target.
 
 !!! warning "Delivery status"
     Connection CRUD, secret handling, the UI form, Dedicated SQL Pool checks,
-    storage checks, type mapping, COPY SQL generation, and durable batch-state
-    primitives are implemented. The Kafka-to-Synapse staged delivery worker has
-    not passed real Azure cloud tests and is therefore disabled. Stateful CDC is
-    not enabled. See the [v0.3.2 status](../development/v0.3.2-destinations.md).
+    storage checks, and the managed Kafka-to-Synapse staged append-only runtime
+    are implemented. Real Azure cloud tests remain **NOT RUN**, so this is not
+    production-ready. Stateful CDC is not enabled. See the
+    [v0.3.2 status](../development/v0.3.2-destinations.md).
 
 ## Architecture and supported modes
 
@@ -33,7 +33,7 @@ cannot provide ClueCDC stateful CDC.
 
 | Mode | Status | Notes |
 | --- | --- | --- |
-| Append-only | BLOCKED | SQL/COPY primitives are unit-tested; runtime and Azure cloud execution are not complete. |
+| Append-only | PASS (implementation/mocks) | Executable staged runtime and recovery tests pass; Azure cloud execution is NOT RUN. |
 | Stateful CDC | NOT SUPPORTED | Disabled until UPDATE/DELETE/INSERT or MERGE behavior is verified on Dedicated SQL Pool. |
 
 `MERGE` is preview functionality in Dedicated SQL Pool and has distribution and
@@ -110,15 +110,19 @@ automatically.
 
 ## Recovery model
 
-The metadata model records `PLANNED`, `STAGED`, `COPIED`, `APPLYING`, `APPLIED`,
-and `FAILED` independently, along with delivery/batch IDs, Kafka offset ranges,
-the staging manifest, retries, and completion time. A checkpoint is eligible to
-advance only after `APPLIED`; an upload or COPY alone is insufficient. Staging
-cleanup is safe only after durable apply success.
+The managed runtime consumes existing pipeline topics with auto-commit disabled,
+serializes deterministic CSV batches below the configured prefix, uploads a
+manifest, runs `COPY INTO`, and inserts history rows plus a destination batch
+marker. The metadata state machine is `CREATED -> STAGING -> STAGED -> APPLYING
+-> APPLIED -> CHECKPOINTED`, with explicit retryable and terminal failure
+states.
 
-This design targets replay-safe batches, not an unverified exactly-once claim.
-Bounded exponential retries should cover transient SQL throttling, token expiry,
-network failures, and storage outages while isolating unrelated deliveries.
+Kafka offsets advance only after the marker is visible. A crash after warehouse
+commit but before Kafka checkpoint is reconciled from that marker without
+reapplying target rows. Replays are deduplicated by topic, partition, and offset.
+This is a replay-safe protocol, not an unverified exactly-once claim. Staged
+objects are retained in v0.3.2; use an Azure Storage lifecycle rule scoped to
+the configured prefix.
 
 ## Cloud testing
 
@@ -137,7 +141,8 @@ mock tests as proof.
 - `AZURE_SYNAPSE_PERMISSION_DENIED`: grant the documented SQL permissions.
 - `AZURE_STORAGE_PERMISSION_DENIED`: verify the container role/SAS scope and prefix.
 - `AZURE_STORAGE_TEST_CLEANUP_FAILED`: delete the probe and correct delete permission.
-- `AZURE_SYNAPSE_DELIVERY_NOT_VALIDATED`: connection management is available, but delivery remains gated.
+- `AZURE_SYNAPSE_DESTINATION_MARKER_MISSING`: checkpointing is blocked because
+  the application database ledger and warehouse marker disagree.
 
 Microsoft references: [Synapse T-SQL feature matrix](https://learn.microsoft.com/en-us/azure/synapse-analytics/sql/overview-features),
 [Dedicated SQL Pool authentication](https://learn.microsoft.com/en-us/azure/synapse-analytics/sql-data-warehouse/sql-data-warehouse-authentication),

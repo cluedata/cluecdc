@@ -82,6 +82,13 @@ Compose port variables and demo database credentials are documented inline in
 model. Kafka and Kafka Connect endpoints are registered resources because one
 installation can manage user-selected infrastructure.
 
+`CLICKHOUSE_TEST_PORT` and `CLICKHOUSE_TEST_PASSWORD` in `.env.test.example`
+belong only to the optional ClickHouse integration fixture. BigQuery service
+account JSON, Redshift/AWS credentials, and Synapse SQL/storage credentials are
+Connection secrets entered through ClueCDC and encrypted in metadata; they are
+not application environment variables. ADC, AWS default credentials, and Azure
+managed identity are available only when the deployment platform supplies them.
+
 Never put raw bearer tokens in `AUTH_TOKENS_JSON`; store SHA-256 hashes. Never
 commit `.env`. Back up `SESSION_SECRET` and `SECRET_ENCRYPTION_KEY` with
 metadata: changing the session secret signs out every user, while losing the

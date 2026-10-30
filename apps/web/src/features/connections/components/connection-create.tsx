@@ -73,6 +73,10 @@ export function ConnectionWizard({
       if (config.storage_authentication !== "SAS_TOKEN")
         delete credentials.storage_sas_token;
     }
+    if (provider === "BIGQUERY" && config.authentication === "ADC")
+      delete credentials.service_account_json;
+    if (provider === "REDSHIFT" && config.authentication === "IAM")
+      delete credentials.password;
     return {
       ...form,
       config,
@@ -81,7 +85,9 @@ export function ConnectionWizard({
       category: providerCategory(provider),
       capabilities: capability
         ? [capability]
-        : provider === "AZURE_SYNAPSE"
+        : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+              provider,
+            )
           ? ["DESTINATION"]
           : providerCategory(provider) === "OBJECT_STORAGE"
             ? ["DESTINATION"]

@@ -6,7 +6,6 @@ import { type DestinationForm } from "@/lib/validation";
 import type {
   DatabaseProviderMetadata,
   DeliveryConfiguration,
-  Destination,
 } from "@cluecdc/contracts";
 import { Input } from "@cluecdc/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -53,8 +52,23 @@ export function Unavailable({
   );
 }
 
-export const databaseName = (type: Destination["type"]) =>
-  type === "mysql" ? "MySQL" : "PostgreSQL";
+export const databaseName = (type: string) =>
+  ({
+    mysql: "MySQL",
+    postgresql: "PostgreSQL",
+    clickhouse: "ClickHouse",
+    bigquery: "Google BigQuery",
+    redshift: "Amazon Redshift",
+    azure_synapse: "Azure Synapse Analytics",
+  })[
+    type as
+      | "mysql"
+      | "postgresql"
+      | "clickhouse"
+      | "bigquery"
+      | "redshift"
+      | "azure_synapse"
+  ] || type;
 
 export function ConnectionFields({
   form,

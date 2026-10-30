@@ -9,7 +9,16 @@ class ConnectionInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=1000)
     category: Literal["DATABASE", "OBJECT_STORAGE"] = "DATABASE"
-    provider: Literal["POSTGRESQL", "MYSQL", "AWS_S3", "MINIO", "AZURE_SYNAPSE"]
+    provider: Literal[
+        "POSTGRESQL",
+        "MYSQL",
+        "AWS_S3",
+        "MINIO",
+        "AZURE_SYNAPSE",
+        "CLICKHOUSE",
+        "BIGQUERY",
+        "REDSHIFT",
+    ]
     config: dict
     credentials: dict[str, SecretStr] = Field(default_factory=dict)
     capabilities: list[Literal["SOURCE", "DESTINATION"]] | None = None
@@ -22,6 +31,9 @@ class ConnectionInput(BaseModel):
             "AWS_S3": "OBJECT_STORAGE",
             "MINIO": "OBJECT_STORAGE",
             "AZURE_SYNAPSE": "DATABASE",
+            "CLICKHOUSE": "DATABASE",
+            "BIGQUERY": "DATABASE",
+            "REDSHIFT": "DATABASE",
         }[self.provider]
         if self.category != expected_category:
             raise ValueError(f"{self.provider} connections must use {expected_category}")
@@ -29,6 +41,12 @@ class ConnectionInput(BaseModel):
             return self._validate_object_storage()
         if self.provider == "AZURE_SYNAPSE":
             return self._validate_azure_synapse()
+        if self.provider == "CLICKHOUSE":
+            return self._validate_clickhouse()
+        if self.provider == "BIGQUERY":
+            return self._validate_bigquery()
+        if self.provider == "REDSHIFT":
+            return self._validate_redshift()
         allowed = {
             "host",
             "port",
@@ -72,6 +90,132 @@ class ConnectionInput(BaseModel):
         unknown_secrets = set(self.credentials) - {"password"}
         if unknown_secrets:
             raise ValueError("Unsupported credential fields: " + ", ".join(sorted(unknown_secrets)))
+        return self
+
+    def _destination_only(self, allowed_secrets: set[str]) -> None:
+        if self.capabilities is not None and self.capabilities != ["DESTINATION"]:
+            raise ValueError(f"{self.provider} supports the DESTINATION capability only")
+        self.capabilities = ["DESTINATION"]
+        unknown = set(self.credentials) - allowed_secrets
+        if unknown:
+            raise ValueError("Unsupported credential fields: " + ", ".join(sorted(unknown)))
+
+    def _validate_clickhouse(self) -> "ConnectionInput":
+        allowed = {"host", "port", "database_name", "username", "ssl_enabled", "cloud"}
+        unknown = set(self.config) - allowed
+        if unknown:
+            raise ValueError("Unsupported config fields: " + ", ".join(sorted(unknown)))
+        for key in ("host", "database_name", "username"):
+            if not str(self.config.get(key, "")).strip():
+                raise ValueError(f"{key} is required")
+        port = self.config.get("port", 8443 if self.config.get("ssl_enabled", True) else 8123)
+        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        host = str(self.config["host"]).strip().lower()
+        if "://" in host or "/" in host or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", host):
+            raise ValueError("host must be a DNS name or IP address without a URL scheme")
+        self.config.update(host=host, port=port)
+        self.config.setdefault("ssl_enabled", True)
+        self.config.setdefault("cloud", False)
+        if not all(isinstance(self.config[key], bool) for key in ("ssl_enabled", "cloud")):
+            raise ValueError("TLS and cloud options must be boolean")
+        if self.config["cloud"] and not self.config["ssl_enabled"]:
+            raise ValueError("ClickHouse Cloud requires TLS")
+        self._destination_only({"password"})
+        return self
+
+    def _validate_bigquery(self) -> "ConnectionInput":
+        allowed = {
+            "project_id",
+            "dataset_id",
+            "dataset_location",
+            "authentication",
+            "staging_bucket",
+            "staging_prefix",
+        }
+        unknown = set(self.config) - allowed
+        if unknown:
+            raise ValueError("Unsupported config fields: " + ", ".join(sorted(unknown)))
+        project = str(self.config.get("project_id", "")).strip()
+        dataset = str(self.config.get("dataset_id", "")).strip()
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project):
+            raise ValueError("project_id is not a valid Google Cloud project ID")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,1023}", dataset):
+            raise ValueError("dataset_id is not a valid BigQuery dataset ID")
+        authentication = self.config.get("authentication", "SERVICE_ACCOUNT")
+        if authentication not in {"SERVICE_ACCOUNT", "ADC"}:
+            raise ValueError("authentication must be SERVICE_ACCOUNT or ADC")
+        location = str(self.config.get("dataset_location", "")).strip().upper()
+        if not location:
+            raise ValueError("dataset_location is required")
+        prefix = str(self.config.get("staging_prefix", "cluecdc")).strip().strip("/")
+        if ".." in prefix.split("/") or any(ord(char) < 32 for char in prefix):
+            raise ValueError("staging_prefix contains an unsafe path segment")
+        self.config.update(
+            project_id=project,
+            dataset_id=dataset,
+            dataset_location=location,
+            authentication=authentication,
+            staging_prefix=prefix,
+        )
+        self._destination_only(
+            {"service_account_json"} if authentication == "SERVICE_ACCOUNT" else set()
+        )
+        return self
+
+    def _validate_redshift(self) -> "ConnectionInput":
+        allowed = {
+            "host",
+            "port",
+            "database_name",
+            "schema_name",
+            "username",
+            "authentication",
+            "region",
+            "s3_bucket",
+            "staging_prefix",
+            "iam_role_arn",
+            "ssl_enabled",
+            "serverless",
+            "cluster_identifier",
+            "workgroup_name",
+        }
+        unknown = set(self.config) - allowed
+        if unknown:
+            raise ValueError("Unsupported config fields: " + ", ".join(sorted(unknown)))
+        for key in ("host", "database_name", "schema_name", "username", "region", "s3_bucket"):
+            if not str(self.config.get(key, "")).strip():
+                raise ValueError(f"{key} is required")
+        port = self.config.get("port", 5439)
+        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        authentication = self.config.get("authentication", "PASSWORD")
+        if authentication not in {"PASSWORD", "IAM"}:
+            raise ValueError("authentication must be PASSWORD or IAM")
+        if authentication == "IAM":
+            identity = (
+                self.config.get("workgroup_name")
+                if self.config.get("serverless", False)
+                else self.config.get("cluster_identifier")
+            )
+            if not str(identity or "").strip():
+                field = (
+                    "workgroup_name"
+                    if self.config.get("serverless", False)
+                    else "cluster_identifier"
+                )
+                raise ValueError(f"{field} is required for Redshift IAM authentication")
+        prefix = str(self.config.get("staging_prefix", "cluecdc")).strip().strip("/")
+        if not prefix or ".." in prefix.split("/") or any(ord(char) < 32 for char in prefix):
+            raise ValueError("staging_prefix must be a safe non-empty relative prefix")
+        self.config.update(port=port, authentication=authentication, staging_prefix=prefix)
+        self.config.setdefault("ssl_enabled", True)
+        self.config.setdefault("serverless", False)
+        if self.config["ssl_enabled"] is not True:
+            raise ValueError("Amazon Redshift connections require TLS")
+        secrets = {"password"} if authentication == "PASSWORD" else set()
+        secrets.update({"aws_access_key_id", "aws_secret_access_key", "aws_session_token"})
+        self._destination_only(secrets)
         return self
 
     def _validate_azure_synapse(self) -> "ConnectionInput":
