@@ -6,6 +6,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-30
+
 ### Added
 
 - Added Azure Synapse Analytics Dedicated SQL Pool as the fourth planned v0.3.2
@@ -224,7 +226,8 @@ All notable changes to ClueCDC are documented here. The format follows
 - Required token authentication and non-example secrets in production, bound
   local ports to loopback, and added repository, dependency, and secret scans.
 
-[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cluedata/cluecdc/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/cluedata/cluecdc/compare/v0.3.1...v0.3.2
 [0.3.0]: https://github.com/cluedata/cluecdc/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/cluedata/cluecdc/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cluedata/cluecdc/compare/v0.1.0...v0.2.0

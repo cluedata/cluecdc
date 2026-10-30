@@ -46,9 +46,8 @@ the policy with reviewed private CIDRs when the caller is outside Kubernetes.
 ## Prepare configuration and secrets
 
 Create an environment overlay that replaces the example public hostname,
-Ingress class/TLS secret, resource sizing, and the exact `0.2.1` image tags with
-registry-enforced immutable tags or digests. The base never contains Secret
-values.
+Ingress class/TLS secret, resource sizing, and the pinned versioned image tags
+with registry-enforced immutable digests. The base never contains Secret values.
 
 Create the namespace, then provision `cluecdc-secrets` through the approved
 external-secret controller or, for a one-time operator workflow, stdin:
