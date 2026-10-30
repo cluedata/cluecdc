@@ -1,0 +1,22 @@
+{
+  "source": "sqlserver",
+  "run": "964558dea6c3",
+  "connector": "source-e2e-964558dea6c3",
+  "topic": "source_e2e_964558dea6c3.inventory.dbo.cdc_964558dea6c3",
+  "bucket": "source-e2e-964558dea6c3",
+  "readiness": "PASS",
+  "discovery": "PASS",
+  "snapshot": "PASS",
+  "insert": "PASS",
+  "update": "PASS",
+  "delete": "PASS",
+  "unicode": "PASS",
+  "pause_resume": "PASS",
+  "connector_restart": "PASS",
+  "destination": "MinIO raw JSONL",
+  "stateful_delivery": "NOT_RUN",
+  "outage_recovery": "PASS_WITH_EXISTING_TASK_RESTART",
+  "records_verified": 7,
+  "decimal_precision": "PASS",
+  "bson_nested": "NOT_RUN"
+}

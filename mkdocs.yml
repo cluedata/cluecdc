@@ -114,6 +114,12 @@ nav:
       - PostgreSQL Source: connectors/postgresql.md
       - PostgreSQL Destination: connectors/postgresql-destination.md
       - MySQL: connectors/mysql.md
+      - Source Compatibility: sources/README.md
+      - MariaDB Source: sources/mariadb.md
+      - SQL Server Source: sources/sqlserver.md
+      - MongoDB Source: sources/mongodb.md
+      - Oracle Source: sources/oracle.md
+      - Source Verification Report: sources-extension-report.md
       - AWS S3 and MinIO: connectors/object-storage.md
       - Warehouse Destinations: connectors/warehouse-destinations.md
       - ClickHouse: connectors/clickhouse.md

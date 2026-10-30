@@ -1,0 +1,27 @@
+{
+  "source": "mariadb",
+  "run": "a60003af3734",
+  "connector": "source-e2e-a60003af3734",
+  "topic": "source_e2e_a60003af3734.inventory.cdc_a60003af3734",
+  "bucket": "source-e2e-a60003af3734",
+  "readiness": "PASS",
+  "discovery": "PASS",
+  "snapshot": "PASS",
+  "insert": "PASS",
+  "update": "PASS",
+  "delete": "PASS",
+  "unicode": "PASS",
+  "pause_resume": "PASS",
+  "connector_restart": "PASS",
+  "destination": "MinIO raw JSONL",
+  "stateful_delivery": "PASS_POSTGRESQL_CRUD_DECIMAL_UNICODE",
+  "outage_recovery": "PASS_WITH_EXISTING_TASK_RESTART",
+  "records_verified": 7,
+  "decimal_precision": "PASS",
+  "bson_nested": "NOT_RUN",
+  "source_version": "11.4.13-MariaDB-ubu2404-log",
+  "resume_settings": {
+    "binlog_legacy_event_pos": "ON",
+    "log_bin_compress": "OFF"
+  }
+}

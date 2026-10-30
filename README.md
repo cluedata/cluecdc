@@ -85,11 +85,18 @@ capabilities, role access, and known boundaries.
 | --- | --- | --- | --- |
 | PostgreSQL 13+ | Debezium | JDBC sink | Typed rows/upserts/deletes |
 | MySQL 8 | Debezium | JDBC sink | Typed rows/upserts/deletes |
+| MariaDB 11.4/11.7 | Experimental Debezium | No | Raw event log; conditional JDBC delivery |
+| SQL Server 2017/2019/2022 | Experimental Debezium | No | Raw S3/MinIO event log |
+| MongoDB 6/7/8 replica sets | Experimental Debezium | No | BSON/patch event log |
+| Oracle 19c/21c LogMiner | Experimental; live E2E NOT RUN | No | Raw event log; unverified |
 | AWS S3 / MinIO | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
 | ClickHouse | No | Official ClickHouse sink | Append-only CDC history |
 | Google BigQuery | No | Aiven BigQuery sink | Append-only CDC history |
 | Amazon Redshift | No | ClueCDC staged COPY | Append-only CDC history |
 | Azure Synapse Dedicated SQL Pool | No | ClueCDC staged COPY | Append-only CDC history |
+
+New source setup, compatibility guards and verification limits are documented in the
+[source guide](docs/sources/README.md) and [implementation report](docs/sources-extension-report.md).
 
 The four v0.3.2 warehouse runtimes are not production-ready until their
 real-destination E2E matrices pass. Current-state CDC is disabled; see the

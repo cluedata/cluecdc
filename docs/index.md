@@ -17,6 +17,8 @@ Kafka Connect.
 ## What ClueCDC manages
 
 - PostgreSQL and MySQL source discovery and CDC readiness.
+- Experimental MariaDB, SQL Server, MongoDB and Oracle sources with explicit
+  [compatibility and verification limits](sources/README.md).
 - Debezium source connector configuration and lifecycle.
 - Kafka clusters, topic/partition/offset metadata, and consumer groups.
 - PostgreSQL and MySQL JDBC deliveries with explicit table mappings.

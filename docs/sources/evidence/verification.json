@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-30",
+  "baseline": {
+    "api_passed": 475,
+    "api_skipped": 4,
+    "web_passed": 89,
+    "web_files": 23
+  },
+  "final": {
+    "api_passed": 518,
+    "api_skipped": 4,
+    "web_passed": 94,
+    "web_files": 24
+  },
+  "checks": {
+    "root_verify": "PASS",
+    "api_ruff": "PASS",
+    "api_format": "PASS",
+    "api_mypy": "PASS",
+    "web_lint": "PASS",
+    "web_typecheck": "PASS",
+    "web_production_build": "PASS",
+    "docs_strict_build": "PASS",
+    "api_image_build": "PASS",
+    "connect_image_build_and_java_tests": "PASS",
+    "api_driver_imports": "PASS",
+    "optional_compose_validation": "PASS",
+    "uv_lock_check": "PASS",
+    "sqlite_migration_preservation": "PASS",
+    "postgresql_offline_migration": "PASS",
+    "live_production_migration": "NOT_RUN",
+    "remote_source_ci": "NOT_RUN",
+    "browser_e2e": "NOT_RUN"
+  },
+  "live_e2e": {
+    "postgresql": "PASS",
+    "mysql": "PASS",
+    "mariadb": "PASS",
+    "sqlserver": "PASS",
+    "mongodb": "PASS",
+    "oracle": "NOT_RUN"
+  },
+  "unchanged_implementations": [
+    "apps/api/app/adapters/postgres.py",
+    "apps/api/app/adapters/mysql.py",
+    "apps/api/app/services/debezium.py",
+    "apps/api/app/providers/postgresql.py",
+    "apps/api/app/providers/mysql.py"
+  ],
+  "scope": "Experimental sources; no production readiness certification. Outage tests use existing task restart, never connector recreation or offset reset."
+}

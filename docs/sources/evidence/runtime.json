@@ -1,0 +1,40 @@
+{
+  "debezium_plugins": [
+    {
+      "class": "io.debezium.connector.mariadb.MariaDbConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    },
+    {
+      "class": "io.debezium.connector.mongodb.MongoDbConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    },
+    {
+      "class": "io.debezium.connector.mysql.MySqlConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    },
+    {
+      "class": "io.debezium.connector.oracle.OracleConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    },
+    {
+      "class": "io.debezium.connector.postgresql.PostgresConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    },
+    {
+      "class": "io.debezium.connector.sqlserver.SqlServerConnector",
+      "type": "source",
+      "version": "3.3.2.Final"
+    }
+  ],
+  "observed_oracle_driver": "ojdbc11-21.15.0.0.jar",
+  "api_image": "sha256:c635e7a18dd4d6af2a2d6de70f9c8fd3ec4f0ab9bc69987fd0b4d17502ad2cd5",
+  "connect_image": "sha256:19b3ced5867c60ab1e2a7b2cd85fb72085309583d75e4585a87b019dd02e2f62",
+  "connect_java_transform_assertions": "PASS",
+  "api_source_driver_imports": "PASS",
+  "oracle_live_e2e": "NOT_RUN"
+}
