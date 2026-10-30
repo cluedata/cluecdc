@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.models.entities import KafkaCluster, PipelineDestination
+from app.services.redshift_runtime import _count
 from app.services.warehouses.format import serialize_history_csv
 from app.services.warehouses.staged import process_staged_once
 
@@ -185,3 +186,9 @@ def test_history_csv_preserves_composite_key_as_unambiguous_json():
     row = next(csv.reader(io.StringIO(serialize_history_csv([event], "batch-1").decode())))
     assert row[5] == '{"tenant":"a:b","id":7}'
     assert row[9] == "batch-1"
+
+
+def test_redshift_count_requires_a_result_row():
+    assert _count([1]) == 1
+    with pytest.raises(RuntimeError, match="COUNT query returned no row"):
+        _count(None)

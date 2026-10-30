@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 from contextlib import closing
+from typing import Any
 
 from app.core.errors import DomainError
 from app.models.entities import Connection, KafkaCluster, PipelineDestination
@@ -48,6 +49,12 @@ def _columns() -> str:
     )
 
 
+def _count(row: list[Any] | None) -> int:
+    if not row:
+        raise RuntimeError("Redshift COUNT query returned no row")
+    return int(row[0])
+
+
 def _prepare_sync(
     connection: Connection,
     credentials: dict[str, str],
@@ -82,7 +89,7 @@ def _prepare_sync(
                     "WHERE table_schema=%s AND table_name=%s",
                     (schema, mapping["table_name"]),
                 )
-                present = int(cursor.fetchone()[0]) > 0
+                present = _count(cursor.fetchone()) > 0
                 if not present and not auto_create:
                     raise DomainError(
                         "DESTINATION_TABLE_MISSING",
@@ -197,7 +204,7 @@ def _marker_exists_sync(
                 "WHERE delivery_id=%s AND batch_id=%s",
                 (str(delivery.id), batch_id),
             )
-            return int(cursor.fetchone()[0]) > 0
+            return _count(cursor.fetchone()) > 0
         finally:
             cursor.close()
 
@@ -229,7 +236,7 @@ def _apply_sync(
                 "WHERE delivery_id=%s AND batch_id=%s",
                 (str(delivery.id), batch_id),
             )
-            if int(cursor.fetchone()[0]) > 0:
+            if _count(cursor.fetchone()) > 0:
                 return
             target_columns = ", ".join(_quote(column) for column in HISTORY_COLUMNS)
             selected = ", ".join(f"s.{_quote(column)}" for column in HISTORY_COLUMNS)
