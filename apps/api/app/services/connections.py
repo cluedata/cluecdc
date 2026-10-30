@@ -88,6 +88,8 @@ def _credential_values(data: ConnectionInput) -> dict[str, str]:
 
 
 def _required_credentials(data: ConnectionInput) -> set[str]:
+    if data.provider == "MONGODB":
+        return {"connection_uri"}
     if data.provider == "AZURE_SYNAPSE":
         required = set()
         if data.config["authentication"] == "SQL_PASSWORD":
@@ -172,7 +174,7 @@ async def _run_test(connection: Connection, values: dict[str, str]) -> dict:
     if "SOURCE" in connection.capabilities_json:
         return (
             await get_provider(connection.type)
-            .source_adapter(connection, values["password"])
+            .source_adapter(connection, values.get("connection_uri") if connection.type == "mongodb" else values["password"])
             .test()
         )
     raise DomainError(
@@ -213,6 +215,13 @@ async def create(session: AsyncSession, data: ConnectionInput, actor: str) -> Co
     connection.secret_ref = await secret_provider(session).put_secret(values)
     session.add(connection)
     await session.flush()
+    if data.provider == "MARIADB":
+        from app.providers.server_ids import assign_mysql_server_id
+
+        options = dict(connection.provider_options)
+        options["server_id"] = await assign_mysql_server_id(
+            session, connection.id, options.get("server_id"), exclude_source_id=connection.id)
+        connection.config_json = {**connection.config_json, "provider_options": options}
     audit(session, actor, "connection.created", connection)
     return connection
 

@@ -91,6 +91,14 @@ async def connection_providers(user: Read):
             "warehouse_capabilities": warehouse_capabilities("REDSHIFT"),
         },
     ]
+    from app.providers import provider_metadata
+
+    for item in provider_metadata():
+        if item["type"] in {"mariadb", "sqlserver", "mongodb", "oracle"}:
+            providers.append({"provider": item["type"].upper(), "category": "DATABASE",
+                              "name": item["display_name"], "capabilities": ["SOURCE"],
+                              "description": "Experimental CDC source; see verification status",
+                              "source_capabilities": item["source_capabilities"]})
     return providers
 
 

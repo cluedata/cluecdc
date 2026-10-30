@@ -1,7 +1,7 @@
 import { z } from "zod";
 export const sourceSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
-  type: z.enum(["postgresql", "mysql"]),
+  type: z.enum(["postgresql", "mysql", "mariadb", "sqlserver", "mongodb", "oracle"]),
   environment: z.string().min(1),
   host: z
     .string()
@@ -26,6 +26,7 @@ export const sourceSchema = z.object({
 });
 export type SourceForm = z.infer<typeof sourceSchema>;
 export const destinationSchema = sourceSchema.extend({
+  type: z.enum(["postgresql", "mysql"]),
   environment: z.enum(["DEV", "STAGING", "PROD"]),
   description: z.string().max(1000),
 });

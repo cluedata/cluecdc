@@ -99,6 +99,8 @@ async def test_provider_catalog_exposes_database_and_object_storage_providers(cl
     assert {item["provider"] for item in providers} == {
         "POSTGRESQL",
         "MYSQL",
+        "MARIADB",
+        "SQLSERVER",
         "AWS_S3",
         "MINIO",
         "AZURE_SYNAPSE",

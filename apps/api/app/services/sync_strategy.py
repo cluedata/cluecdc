@@ -170,7 +170,7 @@ def assess(
                     "suggested_sql": f"ALTER TABLE {qualified} REPLICA IDENTITY FULL;",
                 }
             )
-        elif provider == "mysql" and row_image != "FULL":
+        elif provider in {"mysql", "mariadb"} and row_image != "FULL":
             current_state = REQUIRES_CONFIGURATION
             current_reason = "MySQL binlog_row_image must be FULL"
             requirements.append(
@@ -179,6 +179,8 @@ def assess(
                     "message": "Set binlog_row_image=FULL and rediscover metadata",
                 }
             )
+        elif provider in {"sqlserver", "oracle"} and not properties.get("non_pk_before_images_verified"):
+            current_state, current_reason = UNSUPPORTED, "Non-primary CDC key before images have not been verified"
         else:
             current_state, current_reason = SUPPORTED, "Stable enforced unique identity"
 
@@ -195,7 +197,7 @@ def assess(
                 ),
             }
         )
-    elif provider == "mysql" and row_image != "FULL":
+    elif provider in {"mysql", "mariadb"} and row_image != "FULL":
         update_delete = REQUIRES_CONFIGURATION if row_image else UNKNOWN
 
     change_event_log = (
@@ -213,6 +215,11 @@ def assess(
                 "message": "Incremental snapshots remain disabled for non-primary effective keys",
             }
         )
+
+    if provider in {"sqlserver", "oracle", "mongodb"}:
+        incremental = UNSUPPORTED
+    if provider == "mongodb":
+        current_state, current_reason = UNSUPPORTED, "BSON documents and patches require raw event-log delivery"
 
     recommendation = (
         "CURRENT_STATE"

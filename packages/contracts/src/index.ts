@@ -7,7 +7,7 @@ export interface Entity {
 }
 export interface Source extends Entity {
   name: string;
-  type: "postgresql" | "mysql";
+  type: "postgresql" | "mysql" | "mariadb" | "sqlserver" | "mongodb" | "oracle";
   environment: string;
   host: string;
   port: number;
@@ -589,6 +589,10 @@ export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
 export type ConnectionProvider =
   | "POSTGRESQL"
   | "MYSQL"
+  | "MARIADB"
+  | "SQLSERVER"
+  | "MONGODB"
+  | "ORACLE"
   | "AWS_S3"
   | "MINIO"
   | "AZURE_SYNAPSE"

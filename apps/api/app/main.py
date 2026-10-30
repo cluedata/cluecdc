@@ -78,6 +78,7 @@ async def resolve_connect_secret(
         raise DomainError("FORBIDDEN", "Secret service authentication required", 403)
     value = await secret_provider(db).get_secret(reference)
     allowed = {
+        "connection_uri",
         "password",
         "access_key",
         "secret_key",

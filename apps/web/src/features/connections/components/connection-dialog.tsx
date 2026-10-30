@@ -18,6 +18,7 @@ import {
   initialState,
   providerCategory,
   ProviderFields,
+  updateConfig,
 } from "./shared";
 
 type Capability = "SOURCE" | "DESTINATION";
@@ -71,7 +72,7 @@ export function ConnectionDialog({
     ? value.capabilities
     : capability
       ? [capability]
-      : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+      : ["MARIADB", "SQLSERVER", "MONGODB", "ORACLE"].includes(provider) ? ["SOURCE"] : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
             provider,
           )
         ? ["DESTINATION"]
@@ -141,7 +142,7 @@ export function ConnectionDialog({
     onError: (error: Error) => toast.error(error.message),
   });
   const config = (key: string, next: string | number | boolean) =>
-    setForm((old) => ({ ...old, config: { ...old.config, [key]: next } }));
+    setForm((old) => ({ ...old, config: updateConfig(old.config, key, next) }));
   const secret = (key: string, next: string) =>
     setForm((old) => ({
       ...old,

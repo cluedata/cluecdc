@@ -23,6 +23,7 @@ from app.models.entities import (
 )
 from app.providers import get_provider
 from app.providers.types import analyze_columns
+from app.providers.source_capabilities import validate_delivery
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.connections import ConnectionInput
 from app.schemas.requests import DeliveryInput, DestinationInput
@@ -63,6 +64,8 @@ async def _validate_synapse_delivery(
             422,
         )
     pipeline = await get(session, Pipeline, data.pipeline_id)
+    source_connection = await get(session, Connection, pipeline.source_id)
+    validate_delivery(source_connection.type, destination.provider, data.write_mode)
     if not pipeline.connector_id:
         raise DomainError(
             "PIPELINE_NOT_DEPLOYED", "Deploy the capture pipeline before adding a destination", 422
@@ -152,6 +155,8 @@ async def _validate_redshift_delivery(
             422,
         )
     pipeline = await get(session, Pipeline, data.pipeline_id)
+    source_connection = await get(session, Connection, pipeline.source_id)
+    validate_delivery(source_connection.type, destination.provider, data.write_mode)
     if not pipeline.connector_id:
         raise DomainError(
             "PIPELINE_NOT_DEPLOYED", "Deploy the capture pipeline before adding a destination", 422
@@ -638,6 +643,8 @@ async def build(
             422,
         )
     pipeline = await get(session, Pipeline, data.pipeline_id)
+    source_connection = await get(session, Connection, pipeline.source_id)
+    validate_delivery(source_connection.type, destination.provider, data.write_mode)
     if not pipeline.connector_id:
         raise DomainError(
             "PIPELINE_NOT_DEPLOYED", "Deploy the capture pipeline before adding a destination", 422

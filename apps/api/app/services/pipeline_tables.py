@@ -24,6 +24,7 @@ from app.models.entities import (
     now,
 )
 from app.providers import get_provider
+from app.providers.source_capabilities import require_table_management
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import (
     AddPipelineTablesInput,
@@ -108,6 +109,7 @@ async def enqueue_add(
         ).all()
     }
     source = await get(session, Source, pipeline.source_id)
+    require_table_management(source.type)
     operations = []
     for request in data.tables:
         key = (request.schema_name, request.table_name)
@@ -235,7 +237,9 @@ async def enqueue_resync(
     actor: str,
 ) -> PipelineOperation:
     table = await get(session, PipelineTable, table_id)
-    await pipeline_service.locked(session, table.pipeline_id)
+    pipeline = await pipeline_service.locked(session, table.pipeline_id)
+    source = await get(session, Source, pipeline.source_id)
+    require_table_management(source.type)
     if table.cdc_status == "REMOVED":
         raise DomainError("TABLE_REMOVED", "Removed tables cannot be resynced", 409)
     effective_mode = table.effective_key_mode or (
@@ -284,7 +288,9 @@ async def enqueue_remove(
     actor: str,
 ) -> PipelineOperation:
     table = await get(session, PipelineTable, table_id)
-    await pipeline_service.locked(session, table.pipeline_id)
+    pipeline = await pipeline_service.locked(session, table.pipeline_id)
+    source = await get(session, Source, pipeline.source_id)
+    require_table_management(source.type)
     if table.cdc_status == "REMOVED":
         raise DomainError("TABLE_REMOVED", "Table is already removed", 409)
     await _assert_no_active_operation(session, table.id)
@@ -688,7 +694,7 @@ async def _update_source_connector(
         kafka.bootstrap_servers,
         enable_signals=True,
     )
-    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
+    config.update(source_connector_security(kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}))
     if any(
         config.get(key) != connector.config_json.get(key)
         for key in provider.immutable_connector_keys()

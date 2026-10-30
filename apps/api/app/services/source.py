@@ -19,7 +19,8 @@ async def adapter(session: AsyncSession, source: Source):
 
         raise DomainError("CONNECTION_CREDENTIALS_REQUIRED", "Source credentials are missing", 422)
     credentials = await secret_provider(session).get_secret(source.secret_ref)
-    return get_provider(source.type).source_adapter(source, credentials["password"])
+    return get_provider(source.type).source_adapter(
+        source, credentials["connection_uri"] if source.type == "mongodb" else credentials["password"])
 
 
 def _type_change_classification(before: str, after: str, provider: str) -> str:

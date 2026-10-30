@@ -1,11 +1,15 @@
 from app.core.errors import DomainError
 from app.providers.base import DatabaseProvider
+from app.providers.extended import SQLServerProvider
 from app.providers.mysql import MySQLProvider
+from app.providers.mariadb import MariaDBProvider
 from app.providers.postgresql import PostgreSQLProvider
 
 _PROVIDERS: dict[str, DatabaseProvider] = {
     "postgresql": PostgreSQLProvider(),
     "mysql": MySQLProvider(),
+    "mariadb": MariaDBProvider(),
+    "sqlserver": SQLServerProvider(),
 }
 
 
@@ -19,8 +23,11 @@ def get_provider(database_type: str):
 
 
 def provider_metadata() -> list[dict]:
-    return [provider.metadata.as_dict() for provider in _PROVIDERS.values()]
+    return [provider_metadata_for(name) for name in _PROVIDERS]
 
 
 def provider_metadata_for(database_type: str) -> dict:
-    return get_provider(database_type).metadata.as_dict()
+    from app.providers.source_capabilities import source_capabilities
+
+    return {**get_provider(database_type).metadata.as_dict(),
+            "source_capabilities": source_capabilities(database_type.lower())}

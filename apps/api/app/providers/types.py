@@ -36,7 +36,22 @@ def parse_type(provider: str, value: str) -> LogicalType:
     raw = value.strip()
     text = raw.lower()
     first, second = _numbers(text)
-    if provider == "mysql":
+    if provider == "mongodb":
+        return LogicalType("UNSUPPORTED", source_type=raw)
+    if provider == "sqlserver":
+        base = re.split(r"[ (]", text, maxsplit=1)[0]
+        if base in {"tinyint", "smallint", "int", "bigint"}:
+            return LogicalType({"tinyint": "INT16", "smallint": "INT16", "int": "INT32", "bigint": "INT64"}[base], source_type=raw)
+        if base in {"decimal", "numeric"}:
+            return LogicalType("DECIMAL", first or 18, second or 0, source_type=raw)
+        if base in {"char", "nchar", "varchar", "nvarchar"}:
+            return LogicalType("STRING", length=first, source_type=raw)
+        kinds = {"bit": "BOOLEAN", "uniqueidentifier": "UUID", "varbinary": "BYTES",
+                 "binary": "BYTES", "rowversion": "BYTES", "timestamp": "BYTES", "xml": "TEXT",
+                 "date": "DATE", "time": "TIME", "datetime": "DATETIME", "datetime2": "DATETIME",
+                 "smalldatetime": "DATETIME", "datetimeoffset": "TIMESTAMPTZ", "real": "FLOAT32", "float": "FLOAT64"}
+        return LogicalType(kinds.get(base, "UNSUPPORTED"), precision=first, source_type=raw)
+    if provider in {"mysql", "mariadb"}:
         unsigned = " unsigned" in text
         base = re.split(r"[\s(]", text, maxsplit=1)[0]
         if base in {"bool", "boolean"} or (base == "tinyint" and first == 1):
