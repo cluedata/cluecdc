@@ -32,13 +32,13 @@ def test_preflight_rejects_unknown_revision_before_snapshot(monkeypatch):
 
 
 def test_current_revision_is_supported_for_idempotent_upgrade(monkeypatch):
-    snapshot = {"revision": "0007"}
+    snapshot = {"revision": "0013"}
     monkeypatch.setattr(
         metadata_upgrade,
         "environment",
         lambda args: ({}, "postgresql://operator:password@db/metadata"),
     )
-    monkeypatch.setattr(metadata_upgrade, "query", lambda target, sql: "0007")
+    monkeypatch.setattr(metadata_upgrade, "query", lambda target, sql: "0013")
     monkeypatch.setattr(metadata_upgrade, "sanitized_snapshot", lambda values: snapshot)
     assert metadata_upgrade.preflight(arguments()) == snapshot
 
