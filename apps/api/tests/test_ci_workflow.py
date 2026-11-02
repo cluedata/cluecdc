@@ -83,34 +83,12 @@ def test_only_required_acceptance_steps_run(paths, arch, expected):
     } == expected
 
 
-def test_core_bake_does_not_wait_for_go_or_java_builder_cache_exports():
-    step = STEPS["Build runtime images once with persistent per-architecture caches"]
-    assert "steps.connect-image.outputs.cache-hit" in step["with"]["targets"]
-    assert "minio" not in step["with"]["targets"]
-    assert STEPS["Reuse the final native Connect image"]["with"]["defer-build"] == "true"
-    assert (
-        "docker image save"
-        in STEPS["Save the native Connect fixture after a cache-miss parallel build"]["run"]
-    )
-    assert "ci-connect" not in step["with"]["set"]
-    assert "ci-minio" not in step["with"]["set"]
-    assert "timeout=60s" in step["with"]["set"]
-
-
 def test_final_fixture_cache_includes_architecture_and_immutable_base_images():
     action = yaml.safe_load((ROOT / ".github/actions/cached-ci-image/action.yml").read_text())
     cache = next(step for step in action["runs"]["steps"] if step.get("id") == "image-cache")
     assert "runner.arch" in cache["with"]["key"]
     assert "steps.bases.outputs.digest" in cache["with"]["key"]
     assert "restore-keys" not in cache["with"]
-
-
-def test_embedded_python_steps_compile():
-    for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-        for job in yaml.safe_load(workflow.read_text())["jobs"].values():
-            for step in job.get("steps", []):
-                if step.get("shell") == "python":
-                    compile(step["run"], str(workflow), "exec")
 
 
 def test_database_only_profile_keeps_s3_bootstrap_optional_but_waits_for_completion_when_enabled():

@@ -2,6 +2,7 @@ import { expect, test, type BrowserContext } from "@playwright/test";
 import { signIn } from "./auth";
 
 test("admin manages an invited user and UI/API permissions track role and status", async ({
+  baseURL,
   browser,
   page,
   request,
@@ -12,7 +13,7 @@ test("admin manages an invited user and UI/API permissions track role and status
   const password = `Qa-${token}!`;
 
   const invalidContext = await browser.newContext({
-    baseURL: "http://localhost:3000",
+    baseURL,
   });
   try {
     const invalidPage = await invalidContext.newPage();
@@ -53,7 +54,7 @@ test("admin manages an invited user and UI/API permissions track role and status
       .click();
 
     memberContext = await browser.newContext({
-      baseURL: "http://localhost:3000",
+      baseURL,
     });
     const memberPage = await memberContext.newPage();
     await memberPage.goto(inviteUrl);

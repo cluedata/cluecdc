@@ -466,7 +466,10 @@ def main():
     sink["aws.secret.access.key"] = secret
     configs = [config, sink]
     pg_password = env.get("POSTGRES_DEMO_ADMIN_PASSWORD", "postgres123")
-    pg_rows = lambda: asyncio.run(postgres_fixture(table, pg_password))
+
+    def pg_rows():
+        return asyncio.run(postgres_fixture(table, pg_password))
+
     if args.stateful_postgres:
         if args.source != "mariadb":
             raise RuntimeError("Stateful verification is enabled only for MariaDB")

@@ -35,7 +35,11 @@ def test_gate_distinguishes_infrastructure_from_failures_and_preserves_unowned_r
     monkeypatch.setattr(
         gate,
         "load_environment",
-        lambda paths: {"AUTH_MODE": "developer", "TEST_PASSWORD": "fixture-private-password"},
+        lambda paths: {
+            "AUTH_MODE": "developer",
+            "TEST_PASSWORD": "fixture-private-password",
+            "PUBLIC_URL": "http://localhost:3000",
+        },
     )
     ports = iter(range(30000, 30020))
     monkeypatch.setattr(gate, "available_port", lambda: next(ports))
@@ -58,6 +62,10 @@ def test_gate_distinguishes_infrastructure_from_failures_and_preserves_unowned_r
                 raise subprocess.TimeoutExpired(command, 30)
             return subprocess.CompletedProcess(command, int(scenario == "unavailable-daemon"))
         if "up" in command:
+            # Browser contexts and API-generated invite links must reach this owned stack.
+            web_url = f"http://localhost:{os.environ['CLUECDC_WEB_PORT']}"
+            assert os.environ["PLAYWRIGHT_BASE_URL"] == web_url
+            assert os.environ["PUBLIC_URL"] == web_url
             in_progress = json.loads((tmp_path / "artifacts" / "hardening-gate.json").read_text())
             assert in_progress["status"] == "RUNNING"
             assert in_progress["stages"][0]["status"] == "RUNNING"
