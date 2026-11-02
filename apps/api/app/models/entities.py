@@ -210,7 +210,7 @@ class Connection(Entity, Base):
         ),
         CheckConstraint(
             "provider IN ('POSTGRESQL','MYSQL','AWS_S3','MINIO','AZURE_SYNAPSE',"
-            "'CLICKHOUSE','BIGQUERY','REDSHIFT')",
+            "'CLICKHOUSE','BIGQUERY','REDSHIFT','MARIADB','SQLSERVER','MONGODB','ORACLE')",
             name="ck_connections_provider",
         ),
     )

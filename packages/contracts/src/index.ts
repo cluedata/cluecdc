@@ -7,7 +7,7 @@ export interface Entity {
 }
 export interface Source extends Entity {
   name: string;
-  type: "postgresql" | "mysql";
+  type: "postgresql" | "mysql" | "mariadb" | "sqlserver" | "mongodb" | "oracle";
   environment: string;
   host: string;
   port: number;
@@ -557,7 +557,17 @@ export interface Destination extends Entity {
   metrics_notice: string;
   deliveries: Delivery[];
 }
+export interface SourceCapabilities {
+  status: "SUPPORTED" | "EXPERIMENTAL";
+  verification: string;
+  collection_kind: "DOCUMENT" | "RELATIONAL";
+  snapshot_modes: string[];
+  incremental_snapshot: boolean;
+  destination_modes: Record<string, string[]>;
+  limitations?: string[];
+}
 export interface DatabaseProviderMetadata {
+  source_capabilities?: SourceCapabilities;
   type: "postgresql" | "mysql";
   display_name: string;
   icon: string;
@@ -589,6 +599,10 @@ export type ConnectionCategory = "DATABASE" | "OBJECT_STORAGE";
 export type ConnectionProvider =
   | "POSTGRESQL"
   | "MYSQL"
+  | "MARIADB"
+  | "SQLSERVER"
+  | "MONGODB"
+  | "ORACLE"
   | "AWS_S3"
   | "MINIO"
   | "AZURE_SYNAPSE"
@@ -613,6 +627,7 @@ export interface Connection extends Entity {
   used_by_count?: number;
 }
 export interface ConnectionProviderMetadata {
+  source_capabilities?: SourceCapabilities;
   provider: ConnectionProvider;
   category: ConnectionCategory;
   name: string;

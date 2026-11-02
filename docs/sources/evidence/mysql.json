@@ -1,0 +1,22 @@
+{
+  "source": "mysql",
+  "run": "7996084577b4",
+  "connector": "source-e2e-7996084577b4",
+  "topic": "source_e2e_7996084577b4.cluecdc_source.cdc_7996084577b4",
+  "bucket": "source-e2e-7996084577b4",
+  "readiness": "PASS",
+  "discovery": "PASS",
+  "snapshot": "PASS",
+  "insert": "PASS",
+  "update": "PASS",
+  "delete": "PASS",
+  "unicode": "PASS",
+  "pause_resume": "PASS",
+  "connector_restart": "PASS",
+  "destination": "MinIO raw JSONL",
+  "stateful_delivery": "NOT_RUN",
+  "outage_recovery": "NOT_RUN",
+  "records_verified": 5,
+  "decimal_precision": "PASS",
+  "bson_nested": "NOT_RUN"
+}

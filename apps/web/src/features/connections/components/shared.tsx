@@ -28,6 +28,10 @@ export const providerName = (provider: string) =>
   ({
     POSTGRESQL: "PostgreSQL",
     MYSQL: "MySQL",
+    MARIADB: "MariaDB",
+    SQLSERVER: "SQL Server",
+    MONGODB: "MongoDB",
+    ORACLE: "Oracle",
     AWS_S3: "AWS S3",
     MINIO: "MinIO",
     AZURE_SYNAPSE: "Azure Synapse Analytics",
@@ -136,10 +140,27 @@ export const initialState = (provider: ConnectionProvider): FormState => {
       },
     };
   }
-  if (["POSTGRESQL", "MYSQL"].includes(provider)) {
+  if (provider === "MONGODB")
+    return {
+      name: "",
+      description: "",
+      config: {
+        database_name: "",
+        ssl_enabled: true,
+        environment: "DEV",
+        provider_options: { connection_timeout_seconds: 10 },
+      },
+      credentials: { connection_uri: "" },
+    };
+  if (
+    ["POSTGRESQL", "MYSQL", "MARIADB", "SQLSERVER", "ORACLE"].includes(provider)
+  ) {
     const ports: Record<string, number> = {
       POSTGRESQL: 5432,
       MYSQL: 3306,
+      MARIADB: 3306,
+      SQLSERVER: 1433,
+      ORACLE: 1521,
     };
     return {
       name: "",
@@ -149,7 +170,7 @@ export const initialState = (provider: ConnectionProvider): FormState => {
         port: ports[provider],
         database_name: "",
         username: "",
-        ssl_enabled: false,
+        ssl_enabled: ["MARIADB", "SQLSERVER", "ORACLE"].includes(provider),
         environment: "DEV",
       },
       credentials: { password: "" },
@@ -170,6 +191,22 @@ export const initialState = (provider: ConnectionProvider): FormState => {
     },
     credentials: { access_key: "", secret_key: "", session_token: "" },
   };
+};
+
+export const updateConfig = (
+  current: Record<string, unknown>,
+  key: string,
+  value: string | number | boolean,
+) => {
+  if (key.startsWith("provider_options.")) {
+    const options = {
+      ...((current.provider_options as Record<string, unknown>) || {}),
+    };
+    if (value === "") delete options[key.slice(17)];
+    else options[key.slice(17)] = value;
+    return { ...current, provider_options: options };
+  }
+  return { ...current, [key]: value };
 };
 
 export const providerCategory = (
@@ -649,7 +686,59 @@ export function ProviderFields({
       </>
     );
   }
-  if (["POSTGRESQL", "MYSQL"].includes(provider))
+  if (provider === "MONGODB")
+    return (
+      <>
+        <Field label="Database">
+          <Input
+            value={String(form.config.database_name || "")}
+            onChange={(e) => config("database_name", e.target.value)}
+          />
+        </Field>
+        <Field label="MongoDB URI (encrypted; blank keeps current)">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={form.credentials.connection_uri || ""}
+            placeholder="mongodb:// or mongodb+srv://"
+            onChange={(e) => secret("connection_uri", e.target.value)}
+          />
+        </Field>
+        <p className="muted full-width">
+          Include credentials, authSource and replicaSet in the URI. Collections
+          retain BSON as extended JSON. Only raw S3/MinIO event-log delivery is
+          supported; stateful upserts are unavailable.
+        </p>
+        <Field label="Connection timeout (seconds)">
+          <Input
+            type="number"
+            min={1}
+            max={120}
+            value={Number(
+              (form.config.provider_options as Record<string, unknown>)
+                ?.connection_timeout_seconds || 10,
+            )}
+            onChange={(e) =>
+              config(
+                "provider_options.connection_timeout_seconds",
+                Number(e.target.value),
+              )
+            }
+          />
+        </Field>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(form.config.ssl_enabled)}
+            onChange={(e) => config("ssl_enabled", e.target.checked)}
+          />{" "}
+          TLS with certificate verification
+        </label>
+      </>
+    );
+  if (
+    ["POSTGRESQL", "MYSQL", "MARIADB", "SQLSERVER", "ORACLE"].includes(provider)
+  )
     return (
       <>
         <Field label="Host">
@@ -685,6 +774,77 @@ export function ProviderFields({
             onChange={(e) => secret("password", e.target.value)}
           />
         </Field>
+        {provider === "ORACLE" && (
+          <>
+            <Field label="SID (non-CDB; leave service name empty)">
+              <Input
+                value={String(
+                  (form.config.provider_options as Record<string, unknown>)
+                    ?.sid || "",
+                )}
+                onChange={(e) => config("provider_options.sid", e.target.value)}
+              />
+            </Field>
+            <Field label="Service name">
+              <Input
+                value={String(
+                  (form.config.provider_options as Record<string, unknown>)
+                    ?.service_name || "",
+                )}
+                onChange={(e) =>
+                  config("provider_options.service_name", e.target.value)
+                }
+              />
+            </Field>
+            <Field label="PDB service name (optional)">
+              <Input
+                value={String(
+                  (form.config.provider_options as Record<string, unknown>)
+                    ?.pdb_service_name || "",
+                )}
+                onChange={(e) =>
+                  config("provider_options.pdb_service_name", e.target.value)
+                }
+              />
+            </Field>
+            <Field label="PDB name (optional)">
+              <Input
+                value={String(
+                  (form.config.provider_options as Record<string, unknown>)
+                    ?.pdb_name || "",
+                )}
+                onChange={(e) =>
+                  config("provider_options.pdb_name", e.target.value)
+                }
+              />
+            </Field>
+          </>
+        )}
+        {["MARIADB", "SQLSERVER", "ORACLE"].includes(provider) && (
+          <>
+            <Field label="Connection timeout (seconds)">
+              <Input
+                type="number"
+                min={1}
+                max={120}
+                value={Number(
+                  (form.config.provider_options as Record<string, unknown>)
+                    ?.connection_timeout_seconds || 10,
+                )}
+                onChange={(e) =>
+                  config(
+                    "provider_options.connection_timeout_seconds",
+                    Number(e.target.value),
+                  )
+                }
+              />
+            </Field>
+            <p className="muted full-width">
+              Experimental source. Connection success is separate from CDC
+              readiness. Administrative CDC setup must be performed by your DBA.
+            </p>
+          </>
+        )}
         <Field label="Environment">
           <select
             value={String(form.config.environment)}

@@ -9,7 +9,12 @@ import { Button, Input } from "@cluecdc/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FormState, initialState, ProviderFields } from "./shared";
+import {
+  FormState,
+  initialState,
+  ProviderFields,
+  updateConfig,
+} from "./shared";
 
 export function ConnectionEditPage({ id }: { id: string }) {
   const connection = useQuery({
@@ -56,7 +61,7 @@ export function ConnectionEditor({ value }: { value: Connection }) {
     onSuccess: () => router.push(`/connections/${value.id}`),
   });
   const config = (key: string, next: string | number | boolean) =>
-    setForm((old) => ({ ...old, config: { ...old.config, [key]: next } }));
+    setForm((old) => ({ ...old, config: updateConfig(old.config, key, next) }));
   const secret = (key: string, next: string) =>
     setForm((old) => ({
       ...old,

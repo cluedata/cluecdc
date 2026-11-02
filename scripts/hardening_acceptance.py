@@ -99,6 +99,7 @@ def main() -> int:
         COMPOSE_PROJECT_NAME=project,
         KAFKA_TEST_BOOTSTRAP=f"localhost:{ports['KAFKA_PORT']}",
         PLAYWRIGHT_BASE_URL=f"http://localhost:{ports['CLUECDC_WEB_PORT']}",
+        PUBLIC_URL=f"http://localhost:{ports['CLUECDC_WEB_PORT']}",
     )
     os.environ.update(process_environment)
     compose = Compose(project, env_files)

@@ -329,12 +329,31 @@ async def retry_job(
 
 @router.get("/sources/{identifier}/cdc-readiness")
 async def readiness(
+    identifier: UUID,
+    db: DB,
+    user: Annotated[Principal, Depends(require("sources.read"))],
+    connect_cluster_id: UUID | None = None,
+):
+    source = await get(db, Connection, identifier)
+    if "SOURCE" not in source.capabilities_json:
+        raise DomainError("NOT_FOUND", "Source was not found", 404)
+    return await source_service.readiness_for(db, source, connect_cluster_id)
+
+
+@router.get("/sources/{identifier}/databases")
+async def source_databases(
     identifier: UUID, db: DB, user: Annotated[Principal, Depends(require("sources.read"))]
 ):
     source = await get(db, Connection, identifier)
     if "SOURCE" not in source.capabilities_json:
         raise DomainError("NOT_FOUND", "Source was not found", 404)
-    return await (await source_service.adapter(db, source)).readiness()
+    database = await source_service.adapter(db, source)
+    if not hasattr(database, "list_databases"):
+        raise DomainError(
+            "SOURCE_OPERATION_UNSUPPORTED", "Use discovered namespaces for this source", 422
+        )
+    await db.commit()
+    return {"databases": await database.list_databases()}
 
 
 @router.get("/sources/{identifier}/tables")

@@ -60,6 +60,41 @@ def test_ci_changes_and_unknown_build_configuration_fail_closed(path):
     assert all(ci_changes.classify([path]).values())
 
 
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (".github/workflows/docs.yml", {"workflows", "docs"}),
+        (".github/workflows/source-cdc.yml", {"workflows", "api", "compose"}),
+        (".github/workflows/hardening.yml", {"workflows", "api", "deployment"}),
+        (".github/workflows/release.yml", {"workflows", "api"}),
+        (".github/workflows/release-candidate.yml", {"workflows", "api"}),
+        (".github/workflows/release-validation.yml", {"workflows", "api", "deployment"}),
+        ("scripts/release.py", {"api"}),
+        ("scripts/release-check.py", {"api"}),
+        ("scripts/release_metadata.py", {"api"}),
+        ("scripts/check-release-version.py", {"api"}),
+        ("scripts/check_release_publication.py", {"api"}),
+        ("scripts/check-repository.py", {"api"}),
+        ("scripts/deployment_validation.py", {"api", "deployment"}),
+        ("scripts/kubernetes_acceptance.py", {"api", "deployment"}),
+        ("scripts/prepare_ingress_fixture.py", {"api", "deployment"}),
+    ],
+)
+def test_tooling_changes_validate_their_contract_without_unrelated_data_fixtures(path, expected):
+    selected = ci_changes.classify([path])
+    assert {gate for gate, enabled in selected.items() if enabled} == expected
+
+
+def test_scoped_workflow_does_not_hide_other_runtime_changes_or_explicit_full_mode():
+    selected = ci_changes.classify([".github/workflows/docs.yml", "apps/api/app/main.py"])
+    assert all(
+        selected[gate]
+        for gate in ("workflows", "docs", "api", "containers", "cdc", "s3", "browser")
+    )
+    assert all(ci_changes.classify([".github/workflows/docs.yml"], full=True).values())
+    assert all(ci_changes.classify([".github/workflows/new.yml"]).values())
+
+
 def test_manual_fast_mode_and_full_mode_are_explicit():
     assert ci_changes.select_event("workflow_dispatch", {})["docs"]
     assert not ci_changes.select_event("workflow_dispatch", {})["containers"]
@@ -172,7 +207,7 @@ def test_architecture_sensitive_pr_changes_keep_native_arm64(path):
     ["apps/web/src/app/globals.css", "apps/web/src/app/page.tsx", "apps/api/app/main.py"],
 )
 @pytest.mark.parametrize("event_name", ["pull_request", "push"])
-def test_application_prs_use_amd64_but_default_branch_keeps_arm64(path, event_name, monkeypatch):
+def test_architecture_neutral_changes_use_amd64_on_prs_and_pushes(path, event_name, monkeypatch):
     def diff(*args, **kwargs):
         return subprocess.CompletedProcess(args[0], 0, stdout=path.encode() + b"\0")
 
@@ -180,10 +215,23 @@ def test_application_prs_use_amd64_but_default_branch_keeps_arm64(path, event_na
     event = {"before": "a" * 40, "pull_request": {"base": {"sha": "a" * 40}}}
     selected = ci_changes.select_event(event_name, event)
     assert selected["containers"]
-    assert selected["arm64"] is (event_name == "push")
-    assert len(ci_changes.container_matrix(selected)["include"]) == (
-        2 if event_name == "push" else 1
+    assert not selected["arm64"]
+    assert len(ci_changes.container_matrix(selected)["include"]) == 1
+
+
+@pytest.mark.parametrize("event_name", ["pull_request", "push"])
+def test_native_packaging_changes_use_both_cpus_on_prs_and_pushes(event_name, monkeypatch):
+    monkeypatch.setattr(
+        ci_changes.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout=b"apps/api/pyproject.toml\0"
+        ),
     )
+    event = {"before": "a" * 40, "pull_request": {"base": {"sha": "a" * 40}}}
+    selected = ci_changes.select_event(event_name, event)
+    assert selected["arm64"]
+    assert len(ci_changes.container_matrix(selected)["include"]) == 2
 
 
 def test_mixed_pr_keeps_arm64_when_any_file_changes_native_packaging():

@@ -6,20 +6,79 @@ import { Panel } from "@/components/operational";
 import { api } from "@/lib/api";
 import type { ConnectionTestFeedback } from "@/lib/connection-test";
 import { SourceForm, sourceSchema } from "@/lib/validation";
-import type { DatabaseProviderMetadata, Source } from "@cluecdc/contracts";
+import type {
+  Connection,
+  ConnectionProvider,
+  DatabaseProviderMetadata,
+  Source,
+} from "@cluecdc/contracts";
 import { Button, Dialog, Input } from "@cluecdc/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
+import { ConnectionDialog } from "@/features/connections/components/connection-dialog";
 
-export function SourceEditor({
+type EditorProps = {
+  source?: Source;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fullPage?: boolean;
+};
+
+export function SourceEditor(props: EditorProps) {
+  const [newProvider, setNewProvider] = useState<ConnectionProvider | null>(
+    null,
+  );
+  if (!props.source && newProvider)
+    return (
+      <ConnectionDialog
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        value={null}
+        capability="SOURCE"
+        initialProvider={newProvider}
+      />
+    );
+  return props.source &&
+    ["mariadb", "sqlserver", "mongodb", "oracle"].includes(
+      props.source.type,
+    ) ? (
+    <ExtendedSourceEditor {...props} />
+  ) : (
+    <LegacySourceEditor {...props} onExtendedProvider={setNewProvider} />
+  );
+}
+
+function ExtendedSourceEditor(props: EditorProps) {
+  const connection = useQuery({
+    queryKey: ["connection", props.source?.id],
+    queryFn: () => api<Connection>(`/connections/${props.source?.id}`),
+    enabled: props.open,
+  });
+  if (!props.open) return null;
+  if (connection.isError) return <ErrorPanel error={connection.error} />;
+  if (!connection.data) return null;
+  return (
+    <ConnectionDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      value={connection.data}
+      capability="SOURCE"
+    />
+  );
+}
+
+function LegacySourceEditor({
   source,
+  onExtendedProvider,
   open,
   onOpenChange,
   fullPage = false,
 }: {
+  onExtendedProvider?: (provider: ConnectionProvider) => void;
   fullPage?: boolean;
   source?: Source;
   open: boolean;
@@ -110,13 +169,20 @@ export function SourceEditor({
           {...form.register("type")}
           onChange={(event) => {
             const type = event.target.value as SourceForm["type"];
+            if (["mariadb", "sqlserver", "mongodb", "oracle"].includes(type)) {
+              onExtendedProvider?.(type.toUpperCase() as ConnectionProvider);
+              return;
+            }
             form.setValue("type", type);
             const provider = providers.data?.find((item) => item.type === type);
             if (provider) form.setValue("port", provider.default_port);
           }}
         >
           {(providers.data || [])
-            .filter((item) => item.source_supported)
+            .filter(
+              (item) =>
+                item.source_supported && (!source || item.type === source.type),
+            )
             .map((provider) => (
               <option key={provider.type} value={provider.type}>
                 {provider.display_name}

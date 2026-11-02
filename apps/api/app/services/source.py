@@ -13,13 +13,58 @@ from app.repositories.metadata import audit, get
 from app.services.secrets import secret_provider
 
 
+async def readiness_for(session, source, connect_cluster_id=None):
+    result = await (await adapter(session, source)).readiness()
+    from app.providers.source_capabilities import NEW_SOURCES, source_capabilities
+
+    if source.type not in NEW_SOURCES:
+        return result
+    from app.adapters.connect import KafkaConnectClient
+    from app.adapters.source_sql import check, diagnostics
+    from app.models.entities import ConnectCluster
+
+    capabilities = source_capabilities(source.type)
+    checks = list(result.get("checks", []))
+    if connect_cluster_id is None:
+        checks.append(
+            check(
+                "connector_plugin",
+                None,
+                capabilities["connector_class"],
+                False,
+                "Select a Connect cluster to verify plugin/version; "
+                "deployment performs runtime validation",
+                True,
+            )
+        )
+    else:
+        cluster = await get(session, ConnectCluster, connect_cluster_id)
+        await session.commit()
+        plugins = await KafkaConnectClient(cluster.base_url).plugins()
+        plugin = next((p for p in plugins if p["class"] == capabilities["connector_class"]), None)
+        checks.append(
+            check(
+                "connector_plugin",
+                plugin.get("version") if plugin else None,
+                "3.3.2.Final",
+                bool(plugin and plugin.get("version") == "3.3.2.Final"),
+                "Install the required source plugin at the verified Debezium "
+                "version on every worker",
+            )
+        )
+    return {**result, **diagnostics(checks), "source_capabilities": capabilities}
+
+
 async def adapter(session: AsyncSession, source: Source):
     if source.secret_ref is None:
         from app.core.errors import DomainError
 
         raise DomainError("CONNECTION_CREDENTIALS_REQUIRED", "Source credentials are missing", 422)
     credentials = await secret_provider(session).get_secret(source.secret_ref)
-    return get_provider(source.type).source_adapter(source, credentials["password"])
+    return get_provider(source.type).source_adapter(
+        source,
+        credentials["connection_uri"] if source.type == "mongodb" else credentials["password"],
+    )
 
 
 def _type_change_classification(before: str, after: str, provider: str) -> str:

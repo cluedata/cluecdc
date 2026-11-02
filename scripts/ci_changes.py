@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GATES = (
+    "workflows",
     "web",
     "api",
     "docs",
@@ -27,10 +28,42 @@ GATES = (
     "workload",
 )
 
+# These tools are not copied into a runtime image. Their unit/contract tests
+# belong in the API job; exercising CDC, S3 and the browser adds no coverage.
+TOOLING_SCRIPTS = {
+    "scripts/check-repository.py",
+    "scripts/check-release-version.py",
+    "scripts/check_release_publication.py",
+    "scripts/release.py",
+    "scripts/release-check.py",
+    "scripts/release_metadata.py",
+}
+DEPLOYMENT_SCRIPTS = {
+    "scripts/deployment_validation.py",
+    "scripts/kubernetes_acceptance.py",
+    "scripts/prepare_ingress_fixture.py",
+}
+SCOPED_WORKFLOWS = {
+    ".github/workflows/docs.yml": {"workflows", "docs"},
+    ".github/workflows/source-cdc.yml": {"workflows", "api", "compose"},
+    ".github/workflows/hardening.yml": {"workflows", "api", "deployment"},
+    ".github/workflows/release.yml": {"workflows", "api"},
+    ".github/workflows/release-candidate.yml": {"workflows", "api"},
+    ".github/workflows/release-validation.yml": {"workflows", "api", "deployment"},
+}
+
 
 def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
     selected = dict.fromkeys(GATES, full)
     for path in paths:
+        if path in SCOPED_WORKFLOWS:
+            for gate in SCOPED_WORKFLOWS[path]:
+                selected[gate] = True
+            continue
+        if path in TOOLING_SCRIPTS or path in DEPLOYMENT_SCRIPTS:
+            selected["api"] = True
+            selected["deployment"] |= path in DEPLOYMENT_SCRIPTS
+            continue
         if path.startswith((".github/workflows/", ".github/actions/")) or path in {
             ".github/compose.ci.yaml",
             ".github/compose.test.ci.yaml",
@@ -135,8 +168,8 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             web and path.endswith("/package.json")
         )
         audit_api = path == "apps/api/pyproject.toml"
-        # PRs validate native packaging when its inputs change. Default-branch
-        # pushes still smoke every runtime change on both native architectures.
+        # Native packaging changes need both CPUs. Repeating architecture-neutral
+        # application tests on ARM64 does not exercise a different build input.
         arm64 = (
             compose
             or fixtures
@@ -219,8 +252,6 @@ def select_event(
     selected = classify(
         [path.decode("utf-8") for path in result.stdout.split(b"\0") if path]
     )
-    if event_name == "push" and selected["containers"]:
-        selected["arm64"] = True
     return selected
 
 

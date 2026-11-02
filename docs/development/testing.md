@@ -7,6 +7,8 @@ the changed files. Repository safety and Git-history secret scanning always run.
 The stable **CI checks** job fails if any selected job fails or is cancelled;
 use it as the required branch-protection check instead of individual conditional
 jobs. Superseded runs on the same PR/branch are cancelled automatically.
+Selected workflow changes run [actionlint](https://github.com/rhysd/actionlint/blob/main/docs/usage.md)
+for YAML structure, expressions, action inputs and embedded scripts.
 
 | Change | Selected checks |
 | --- | --- |
@@ -19,30 +21,35 @@ jobs. Superseded runs on the same PR/branch are cancelled automatically.
 | Shared API/runtime or integration code | Relevant quality checks and runtime smoke; CDC, S3 and full browser acceptance on AMD64 |
 | Object-storage implementation/fixture only | Real S3 content acceptance; no JDBC/browser acceptance or destination databases |
 | Connector, Docker/Compose or native dependency code | Native AMD64 and ARM64 image builds/core smoke |
-| Compose/Docker configuration | Compose rendering on Ubuntu, macOS and Windows, including CI overrides |
+| Compose/Docker configuration | One Compose rendering check on Ubuntu, including all CI overrides |
 | Kubernetes configuration | Deployment contract and strict Kubernetes schemas |
 | Dependency manifests/lockfiles | Corresponding npm or Python dependency audit |
 | Workload generator | Native image/dependency checks on both architectures; source database regression tests on AMD64, without MinIO/browser/CDC acceptance |
+| Release/repository tooling | API lint, types and unit/contract tests; no runtime data fixtures |
+| Deployment validation/cluster harness | API unit/contract tests and deployment/schema validation; live cluster acceptance stays in hardening |
+| Documentation workflow | Workflow lint and strict documentation build |
+| Release workflows | Workflow lint and API contract tests; deployment validation for shared quality/hardening workflows |
 
-ARM64 uses a native `ubuntu-24.04-arm` runner, not QEMU. To reduce the PR critical
-path, ordinary application/UI changes run the container job on AMD64 only.
+ARM64 uses a native `ubuntu-24.04-arm` runner, not QEMU. Ordinary application/UI
+changes run the container job on AMD64 on both pull requests and branch pushes.
 Changes to Docker/Compose/environment inputs, fixtures/connectors, dependency
 manifests/lockfiles, native source files or the workload generator also select
-ARM64. Every relevant push to `main`/`master` and every full manual CI run keeps
-both architectures. Thus application-only PRs defer ARM64 smoke until after
-merge; they do not claim pre-merge ARM64 verification. Documentation/unit-test-only
-changes still skip runtime containers on both architectures. The change selector
-emits the native runner matrix explicitly, with regression coverage for PR,
-default-branch, mixed-file and fail-closed selections.
+ARM64. Full manual CI and uncertain change comparisons keep both architectures.
+This avoids rebuilding architecture-neutral code a second time after merge;
+native packaging changes still get native build/smoke checks before merge.
+Documentation/unit-test-only changes skip runtime containers on both architectures.
 
 Weekly scheduled runs repeat both dependency audits even without source changes,
 so new advisories are still checked. They do not start runtime/test stacks and
 use a separate concurrency group so they cannot cancel a push/PR validation.
 
-Workflow changes and unknown build configuration select every gate. Deleted
-and renamed files are included; an unavailable comparison base also selects
-every gate. `scripts/ci_changes.py` implements this policy and has regression
-tests for skipped infrastructure and fail-closed comparisons.
+Changes to the main CI workflow, shared actions, selector or CI Compose overrides
+select every gate. Known documentation/release/source workflows select their
+own lint and contract checks, without starting unrelated CDC/S3/browser stacks.
+Unknown workflows/build configuration and an unavailable comparison base still
+select every gate. Deleted and renamed files are included. Mixed changes take
+the union of required checks; scoped tooling never masks an application change.
+`scripts/ci_changes.py` has regression tests for these selections.
 
 Manual CI with `run_full_ci=true` selects every gate; with it disabled, only
 documentation and repository safety checks run. Release validation still runs
@@ -86,21 +93,10 @@ run. Failure diagnostics are redacted and uploaded only when needed; full releas
 hardening retains its success reports. Browser/demo seed scripts remain
 necessary fixtures and are not obsolete.
 
-The supplied ARM64 job log took about 524 seconds: fixture startup/build 152s,
-core startup/build 77s, standalone web/API builds 69s, S3 acceptance 65s, and
-browser installation/tests 77s. Those are the measured old baseline, not a
-promise of the new duration. Cold caches still download/build dependencies;
-measure a fresh GitHub run and a warm-cache repeat after merging this change.
-The subsequent [CI run 39543106344](https://github.com/cluedata/cluecdc/actions/runs/39543106344)
-took 668s on AMD64 and 182s on ARM64 before this fixture-cache refactor. AMD64's
-build/cache step alone took 325s. These are historical observations, not measured
-durations for the new workflow; GitHub cache upload/download still needs a fresh
-run and a warm-cache repeat.
-
 The separate Documentation workflow continues to build and deploy GitHub Pages
 on documentation changes pushed to `main`, or when manually triggered.
-The Documentation workflow builds and publishes the site only; correctness and
-security coverage comes from the CI workflow.
+Its strict build produces the actual Pages artifact; the CI documentation job
+validates pull requests before publication. Neither job deploys from a PR.
 
 The separate **Hardening acceptance** workflow is manually dispatched for
 expensive fault injection and is also called by the Release workflow. Both
@@ -109,6 +105,30 @@ gate cannot be bypassed by a successful unit/build job. The workflow also runs
 a separate isolated kind/Calico/NGINX job for real production rollout, HTTPS
 session boundaries and NetworkPolicy allow/deny/revocation. Preparation never
 dispatches a workflow, pushes a tag, or publishes an image automatically.
+
+## CI check review
+
+Checks are retained when they catch a distinct failure in behavior, data,
+security or packaging. A second execution is useful only when its environment
+or assertions cover something different.
+
+| Check | Decision and reason |
+| --- | --- |
+| API/web unit tests, validation, RBAC and session invalidation | Keep: fast feedback for application behavior and security boundaries |
+| PostgreSQL worker lease/concurrency tests | Keep: SQLite does not exercise PostgreSQL transaction/race behavior |
+| CDC/JDBC/S3 content acceptance and browser integration | Keep for relevant changes: mocks and unit tests cannot verify connector delivery, stored data or browser/API wiring |
+| Recovery, TLS/SASL, metadata backup/upgrade and Kubernetes fault/policy acceptance | Keep in manual/release hardening: these verify operational guarantees; they do not belong on every small PR |
+| Native AMD64/ARM64 smoke | Keep both for packaging/native dependencies and full runs; omit the second CPU for architecture-neutral application-only changes |
+| Compose render on three operating systems | Reduce to Ubuntu: this checks the same daemon-free configuration/schema, not Windows/macOS container behavior |
+| Existing-source pytest subset in every experimental source matrix entry | Remove: the same tests already run in the API job and full release validation; the matrix retains distinct MariaDB/SQL Server/MongoDB live checks and installs runtime dependencies only |
+| Page export `typeof ... === "function"` unit test | Remove: it mocked every page implementation and checked no rendering, navigation or permissions; production build and browser tests cover the actual routes |
+| Assertions on exact cache wiring/timeouts | Remove: these constrained workflow implementation without verifying application behavior; retain CPU/base-digest cache isolation tests |
+| Handwritten Python-only workflow compilation test | Replace with actionlint: validate the workflow and its expressions/scripts with the maintained workflow validator |
+| Dependency audits and repository/secret checks | Keep: unit tests cannot detect newly disclosed advisories or committed secrets; weekly audits cover unchanged dependencies |
+| Full release quality/hardening | Keep regardless of PR selection: validate the exact release candidate/tag rather than assuming a previous run tested it |
+
+Build/cache timing must be measured in GitHub Actions with both a cold and a warm
+cache. Removing duplicate work does not establish a new measured duration.
 
 ## Fast checks
 

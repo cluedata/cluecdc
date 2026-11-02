@@ -85,7 +85,9 @@ export function SourceDetailPage({ id }: { id: string }) {
   const test = useMutation({
     mutationFn: () => post<{ status: string }>(`/sources/${id}/test`),
     onSuccess: () => {
-      toast.success("Database CDC readiness verified");
+      toast.success(
+        "CDC readiness check completed; inspect diagnostics for requirements",
+      );
       client.invalidateQueries({ queryKey: ["source"] });
     },
     onError: (e) => {
@@ -162,8 +164,12 @@ export function SourceDetailPage({ id }: { id: string }) {
       </Link>
       <PageHeader
         title={s.name}
-        description={`${s.host}:${s.port} / ${s.database_name}`}
-        eyebrow="SOURCE / POSTGRESQL"
+        description={
+          s.type === "mongodb"
+            ? `${s.database_name} / MongoDB collections`
+            : `${s.host}:${s.port} / ${s.database_name}`
+        }
+        eyebrow={`SOURCE / ${s.type.toUpperCase()}`}
       >
         <Status value={s.status} />
         {canWrite && (

@@ -12,6 +12,10 @@ class ConnectionInput(BaseModel):
     provider: Literal[
         "POSTGRESQL",
         "MYSQL",
+        "MARIADB",
+        "SQLSERVER",
+        "MONGODB",
+        "ORACLE",
         "AWS_S3",
         "MINIO",
         "AZURE_SYNAPSE",
@@ -28,6 +32,10 @@ class ConnectionInput(BaseModel):
         expected_category = {
             "POSTGRESQL": "DATABASE",
             "MYSQL": "DATABASE",
+            "MARIADB": "DATABASE",
+            "SQLSERVER": "DATABASE",
+            "MONGODB": "DATABASE",
+            "ORACLE": "DATABASE",
             "AWS_S3": "OBJECT_STORAGE",
             "MINIO": "OBJECT_STORAGE",
             "AZURE_SYNAPSE": "DATABASE",
@@ -37,6 +45,12 @@ class ConnectionInput(BaseModel):
         }[self.provider]
         if self.category != expected_category:
             raise ValueError(f"{self.provider} connections must use {expected_category}")
+        if self.provider in {"MARIADB", "SQLSERVER", "MONGODB", "ORACLE"}:
+            if self.capabilities is not None and self.capabilities != ["SOURCE"]:
+                raise ValueError(f"{self.provider} supports SOURCE only")
+            self.capabilities = ["SOURCE"]
+        if self.provider == "MONGODB":
+            return self._validate_mongodb()
         if self.category == "OBJECT_STORAGE":
             return self._validate_object_storage()
         if self.provider == "AZURE_SYNAPSE":
@@ -62,17 +76,27 @@ class ConnectionInput(BaseModel):
         for key in ("host", "database_name", "username"):
             if not str(self.config.get(key, "")).strip():
                 raise ValueError(f"{key} is required")
-        defaults = {"POSTGRESQL": 5432, "MYSQL": 3306}
+        defaults = {
+            "POSTGRESQL": 5432,
+            "MYSQL": 3306,
+            "MARIADB": 3306,
+            "SQLSERVER": 1433,
+            "ORACLE": 1521,
+        }
         port = self.config.get("port", defaults[self.provider])
         if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
             raise ValueError("port must be between 1 and 65535")
         self.config.setdefault("port", port)
-        self.config.setdefault("ssl_enabled", False)
+        self.config.setdefault("ssl_enabled", self.provider in {"MARIADB", "SQLSERVER", "ORACLE"})
         self.config.setdefault("environment", "DEV")
         self.config.setdefault("provider_options", {})
         from app.schemas.requests import SourceInput
 
         SourceInput(name=self.name, type=self.provider.lower(), **self.config)
+        if self.provider in {"MARIADB", "SQLSERVER", "ORACLE"} and not isinstance(
+            self.config["ssl_enabled"], bool
+        ):
+            raise ValueError("ssl_enabled must be boolean")
         options = self.config["provider_options"]
         if not isinstance(options, dict) or any(
             not isinstance(key, str)
@@ -90,6 +114,35 @@ class ConnectionInput(BaseModel):
         unknown_secrets = set(self.credentials) - {"password"}
         if unknown_secrets:
             raise ValueError("Unsupported credential fields: " + ", ".join(sorted(unknown_secrets)))
+        return self
+
+    def _validate_mongodb(self) -> "ConnectionInput":
+        # URI lives exclusively in the encrypted credential store, including URI query secrets.
+        allowed = {"database_name", "ssl_enabled", "environment", "provider_options"}
+        if set(self.config) - allowed:
+            raise ValueError(
+                "MongoDB URI must be supplied as an encrypted connection_uri credential"
+            )
+        database = self.config.get("database_name", "")
+        if not isinstance(database, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,63}", database):
+            raise ValueError("A valid MongoDB database_name is required")
+        self.config.setdefault("ssl_enabled", True)
+        if not isinstance(self.config["ssl_enabled"], bool):
+            raise ValueError("ssl_enabled must be boolean")
+        self.config.setdefault("environment", "DEV")
+        options = self.config.setdefault("provider_options", {})
+        if not isinstance(options, dict) or set(options) - {"connection_timeout_seconds"}:
+            raise ValueError("Unsupported MongoDB options")
+        timeout = options.get("connection_timeout_seconds", 10)
+        if type(timeout) is not int or not 1 <= timeout <= 120:
+            raise ValueError("Connection timeout must be between 1 and 120 seconds")
+        if set(self.credentials) - {"connection_uri"}:
+            raise ValueError("MongoDB requires the encrypted connection_uri credential")
+        uri = self.credentials.get("connection_uri")
+        if uri:
+            from app.providers.mongo_uri import validate_uri
+
+            validate_uri(uri.get_secret_value(), self.config["ssl_enabled"])
         return self
 
     def _destination_only(self, allowed_secrets: set[str]) -> None:

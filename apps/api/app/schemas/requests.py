@@ -5,11 +5,12 @@ from uuid import UUID
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 DATABASE_TYPES = Literal["postgresql", "mysql"]
+SOURCE_TYPES = Literal["postgresql", "mysql", "mariadb", "sqlserver", "mongodb", "oracle"]
 
 
 class SourceInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    type: DATABASE_TYPES = "postgresql"
+    type: SOURCE_TYPES = "postgresql"
     environment: str = Field(default="development", min_length=1, max_length=30)
     host: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9_.:\-]+$")
     port: int = Field(default=5432, ge=1, le=65535)
@@ -21,6 +22,18 @@ class SourceInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_provider_options(self) -> "SourceInput":
+        if (
+            self.type in {"mariadb", "sqlserver", "mongodb", "oracle"}
+            and "ssl_enabled" not in self.model_fields_set
+        ):
+            self.ssl_enabled = True
+        if (
+            self.type in {"mariadb", "sqlserver", "mongodb", "oracle"}
+            and "port" not in self.model_fields_set
+        ):
+            self.port = {"mariadb": 3306, "sqlserver": 1433, "mongodb": 27017, "oracle": 1521}[
+                self.type
+            ]
         allowed = (
             {"connection_timeout_seconds", "ssl_mode", "max_connector_outage_seconds"}
             if self.type == "postgresql"
@@ -31,6 +44,32 @@ class SourceInput(BaseModel):
                 "max_connector_outage_seconds",
             }
         )
+        if self.type == "sqlserver":
+            allowed = {"connection_timeout_seconds"}
+        elif self.type == "oracle":
+            allowed = {
+                "connection_timeout_seconds",
+                "service_name",
+                "pdb_name",
+                "pdb_service_name",
+                "sid",
+            }
+        elif self.type == "mongodb":
+            allowed = {"connection_timeout_seconds"}
+        if self.type in {"sqlserver", "oracle", "mongodb"}:
+            for key, value in self.provider_options.items():
+                if key != "connection_timeout_seconds" and (
+                    not isinstance(value, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_$#.-]{1,128}", value)
+                ):
+                    raise ValueError(f"Invalid {key}")
+        if self.type == "oracle":
+            if not re.fullmatch(r"[A-Za-z0-9_$#.-]{1,128}", self.database_name):
+                raise ValueError("Invalid Oracle CDB/database name")
+            if self.provider_options.get("sid") and (
+                self.provider_options.get("service_name") or self.provider_options.get("pdb_name")
+            ):
+                raise ValueError("SID cannot be combined with service-name/PDB configuration")
         unknown = set(self.provider_options) - allowed
         if unknown:
             raise ValueError(f"Unsupported {self.type} options: {', '.join(sorted(unknown))}")
@@ -272,6 +311,7 @@ class PipelineInput(BaseModel):
 
 
 class DestinationInput(SourceInput):
+    type: DATABASE_TYPES = "postgresql"
     environment: Literal["DEV", "STAGING", "PROD"] = "DEV"
     description: str = Field(default="", max_length=1000)
 

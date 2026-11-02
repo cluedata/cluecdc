@@ -1,0 +1,32 @@
+{
+  "source": "mongodb",
+  "run": "31f1d68fe39f",
+  "connector": "source-e2e-31f1d68fe39f",
+  "topic": "source_e2e_31f1d68fe39f.inventory.cdc_31f1d68fe39f",
+  "bucket": "source-e2e-31f1d68fe39f",
+  "readiness": "PASS",
+  "discovery": "PASS",
+  "snapshot": "PASS",
+  "insert": "PASS",
+  "update": "PASS",
+  "delete": "PASS",
+  "unicode": "PASS",
+  "pause_resume": "PASS",
+  "connector_restart": "PASS",
+  "destination": "MinIO raw JSONL",
+  "stateful_delivery": "NOT_RUN",
+  "outage_recovery": "PASS_WITH_EXISTING_TASK_RESTART",
+  "records_verified": 7,
+  "decimal_precision": "PASS",
+  "bson_nested": "PASS",
+  "bson_type_checks": [
+    "ObjectId",
+    "Decimal128",
+    "Date",
+    "Binary",
+    "Nested documents",
+    "Array",
+    "Null",
+    "Boolean"
+  ]
+}

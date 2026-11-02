@@ -1,6 +1,8 @@
 from typing import Any
 
 SENSITIVE_KEY_MARKERS = (
+    "connection_uri",
+    "mongodb.connection.string",
     "password",
     "passwd",
     "credential",

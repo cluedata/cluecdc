@@ -27,6 +27,7 @@ import {
   initialState,
   providerCategory,
   ProviderFields,
+  updateConfig,
   providerName,
 } from "./shared";
 
@@ -85,13 +86,15 @@ export function ConnectionWizard({
       category: providerCategory(provider),
       capabilities: capability
         ? [capability]
-        : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
-              provider,
-            )
-          ? ["DESTINATION"]
-          : providerCategory(provider) === "OBJECT_STORAGE"
+        : ["MARIADB", "SQLSERVER", "MONGODB", "ORACLE"].includes(provider)
+          ? ["SOURCE"]
+          : ["AZURE_SYNAPSE", "CLICKHOUSE", "BIGQUERY", "REDSHIFT"].includes(
+                provider,
+              )
             ? ["DESTINATION"]
-            : undefined,
+            : providerCategory(provider) === "OBJECT_STORAGE"
+              ? ["DESTINATION"]
+              : undefined,
     };
   };
   const create = useMutation({
@@ -107,7 +110,7 @@ export function ConnectionWizard({
   };
   const config = (key: string, value: string | number | boolean) =>
     setForm((old) =>
-      old ? { ...old, config: { ...old.config, [key]: value } } : old,
+      old ? { ...old, config: updateConfig(old.config, key, value) } : old,
     );
   const secret = (key: string, value: string) =>
     setForm((old) =>

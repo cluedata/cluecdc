@@ -1,0 +1,38 @@
+# Optional source fixtures. Never add these to default depends_on.
+# Local fixture credentials only; all published ports are loopback-bound.
+services:
+  mariadb-source:
+    profiles: [sources-mariadb]
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: local-cdc-fixture-password
+      MARIADB_DATABASE: inventory
+      MARIADB_USER: cdc
+      MARIADB_PASSWORD: local-cdc-fixture-password
+    command: ["--server-id=445566", "--log-bin=mariadb-bin", "--binlog-format=ROW", "--binlog-row-image=FULL", "--binlog-legacy-event-pos=ON", "--log-bin-compress=OFF", "--expire-logs-days=7", "--character-set-server=utf8mb4"]
+    ports: ["127.0.0.1:13306:3306"]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  sqlserver-source:
+    profiles: [sources-sqlserver]
+    image: mcr.microsoft.com/mssql/server:2022-CU22-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: Local-CDC-Fixture-Password-123!
+      MSSQL_AGENT_ENABLED: "true"
+    ports: ["127.0.0.1:11433:1433"]
+  mongodb-source:
+    profiles: [sources-mongodb]
+    image: mongo:7.0
+    command: [mongod, --replSet, cluecdc-rs, --bind_ip_all]
+    ports: ["127.0.0.1:17017:27017"]
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+# Oracle is intentionally operator-provided; see docs/sources/oracle.md.

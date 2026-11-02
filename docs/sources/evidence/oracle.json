@@ -1,0 +1,5 @@
+{
+  "source": "oracle",
+  "e2e": "NOT_RUN",
+  "reason": "No operator-provided Oracle instance and validated licensing/topology available. Unit/config/diagnostic paths tested; not production-ready."
+}

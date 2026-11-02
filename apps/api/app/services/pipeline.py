@@ -24,6 +24,7 @@ from app.models.entities import (
 )
 from app.providers import get_provider
 from app.providers.server_ids import assign_mysql_connector_server_id
+from app.providers.source_capabilities import NEW_SOURCES, source_topic, validate_capture
 from app.repositories.metadata import audit, get, serialize
 from app.schemas.requests import PipelineInput, TableSelection
 from app.services import connections as connection_service
@@ -65,6 +66,7 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
     source = await get(session, Source, data.source_id)
     if source.category != "DATABASE" or "SOURCE" not in source.capabilities_json:
         raise DomainError("SOURCE_CONNECTION_REQUIRED", "Select a database source connection", 422)
+    validate_capture(source.type, data)
     cluster = await get(session, ConnectCluster, data.connect_cluster_id)
     kafka = await get(session, KafkaCluster, data.kafka_cluster_id)
     if cluster.kafka_cluster_id != data.kafka_cluster_id:
@@ -78,6 +80,7 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
         ).all()
     }
     for table in data.tables:
+        source_topic(source, data.topic_prefix, table.schema_name, table.table_name)
         found = discovered.get((table.schema_name, table.table_name))
         if not found:
             raise DomainError(
@@ -105,19 +108,29 @@ async def build(session: AsyncSession, data: PipelineInput) -> tuple[dict, Conne
     config = get_provider(source.type).build_source_config(
         source,
         data,
-        f"${{cluecdc:{source.secret_ref}:password}}",
+        f"${{cluecdc:{source.secret_ref}:"
+        + ("connection_uri" if source.type == "mongodb" else "password")
+        + "}",
         f"cluecdc-preview-{data.topic_prefix}",
         kafka.bootstrap_servers,
     )
-    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
+    config.update(
+        source_connector_security(
+            kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}
+        )
+    )
     return config, cluster
 
 
 async def preview(session: AsyncSession, data: PipelineInput) -> dict:
     config, _ = await build(session, data)
+    source = await get(session, Source, data.source_id)
     return {
         "config": redact(config),
-        "topics": [f"{data.topic_prefix}.{t.schema_name}.{t.table_name}" for t in data.tables],
+        "topics": [
+            source_topic(source, data.topic_prefix, t.schema_name, t.table_name)
+            for t in data.tables
+        ],
     }
 
 
@@ -127,6 +140,12 @@ async def validate_tables_live(
     source = await get(session, Source, data.source_id)
     database = await source_adapter(session, source)
     await session.commit()
+    if source.type in NEW_SOURCES:
+        readiness = await database.readiness()
+        if readiness.get("success") is not True:
+            raise DomainError(
+                "SOURCE_CDC_NOT_READY", "Source CDC prerequisites are not satisfied", 422, readiness
+            )
     results = {}
     for table in data.tables:
         readiness = await database.inspect_table(table.schema_name, table.table_name)
@@ -178,7 +197,7 @@ async def create(session: AsyncSession, data: PipelineInput, actor: str) -> Pipe
         },
     )
     source = await get(session, Source, data.source_id)
-    if source.type == "mysql":
+    if source.type in {"mysql", "mariadb"}:
         options = dict(config_options.get("provider_options", {}))
         options["server_id"] = await assign_mysql_connector_server_id(session, source, pipeline_id)
         config_options["provider_options"] = options
@@ -205,7 +224,7 @@ async def create(session: AsyncSession, data: PipelineInput, actor: str) -> Pipe
                 pipeline_id=pipeline.id,
                 schema_name=t.schema_name,
                 table_name=t.table_name,
-                topic_name=f"{data.topic_prefix}.{t.schema_name}.{t.table_name}",
+                topic_name=source_topic(source, data.topic_prefix, t.schema_name, t.table_name),
                 primary_key_columns=current["primary_key_columns"],
                 sync_mode=strategy["selected_sync_mode"],
                 effective_key_mode=strategy["effective_key"]["mode"],
@@ -312,15 +331,23 @@ async def deploy(session: AsyncSession, pipeline_id: uuid.UUID, actor: str) -> d
     config = get_provider(source.type).build_source_config(
         source,
         data,
-        f"${{cluecdc:{source.secret_ref}:password}}",
+        f"${{cluecdc:{source.secret_ref}:"
+        + ("connection_uri" if source.type == "mongodb" else "password")
+        + "}",
         name,
         kafka.bootstrap_servers,
     )
-    config.update(source_connector_security(kafka, mysql=source.type == "mysql"))
+    config.update(
+        source_connector_security(
+            kafka, mysql=source.type in {"mysql", "mariadb", "sqlserver", "oracle"}
+        )
+    )
     client = KafkaConnectClient(cluster.base_url)
     cluster_id = cluster.id
     # Close the metadata transaction before any Kafka/Connect network calls.
     await session.commit()
+    if source.type in NEW_SOURCES:
+        await validate_tables_live(session, data)
     await client.validate(config)
     await KafkaExplorer(await kafka_credentials(session, kafka)).ensure_topics(
         kafka, [notification_topic(pipeline.topic_prefix)]
