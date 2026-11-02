@@ -132,7 +132,7 @@ jobs:
       # The production build is verified once, inside the web image below.
 
   api:
-    needs: changes
+    needs: [changes, repository]
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -207,7 +207,7 @@ jobs:
       - run: npm audit --package-lock-only --audit-level=critical
 
   audit-api:
-    needs: changes
+    needs: [changes, repository]
     if: needs.changes.outputs.audit_api == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -224,7 +224,7 @@ jobs:
 
   containers-and-smoke:
     name: Native ${{ matrix.arch }} build and smoke
-    needs: changes
+    needs: [changes, repository]
     if: needs.changes.outputs.containers == 'true'
     strategy:
       fail-fast: false

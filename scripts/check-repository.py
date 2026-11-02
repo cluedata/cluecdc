@@ -16,6 +16,7 @@ TEXT_SUFFIXES = {
     ".java",
     ".js",
     ".json",
+    ".lock",
     ".md",
     ".mjs",
     ".py",
@@ -40,6 +41,7 @@ PRIVATE_PATH = re.compile(
 MANDATORY_CLOUD = re.compile(
     r"https?://(?:api|license|analytics)\.cluecdc\.com", re.IGNORECASE
 )
+CONFLICT_MARKER = re.compile(r"^(?:<{7}|>{7})(?: |$)", re.MULTILINE)
 
 
 def tracked_files() -> list[Path]:
@@ -67,6 +69,8 @@ def main() -> int:
         except UnicodeDecodeError:
             continue
         relative = path.relative_to(ROOT)
+        if CONFLICT_MARKER.search(value):
+            failures.append(f"{relative}: unresolved merge conflict")
         for name, pattern in STRONG_SECRET_PATTERNS.items():
             if pattern.search(value):
                 failures.append(f"{relative}: possible {name}")
