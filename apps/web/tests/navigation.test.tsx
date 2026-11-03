@@ -85,7 +85,7 @@ describe("main navigation", () => {
       within(operations)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Monitoring", "Alerts", "Audit"]);
+    ).toEqual(["Monitoring", "Data Quality", "Alerts", "Audit"]);
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "User" })).toHaveAttribute(
       "href",
@@ -176,8 +176,13 @@ describe("main navigation", () => {
   it.each([
     {
       role: "Viewer" as const,
-      permissions: ["overview.read", "pipelines.read", "deliveries.read"],
-      visible: ["Overview", "Pipelines", "Deliveries"],
+      permissions: [
+        "overview.read",
+        "pipelines.read",
+        "deliveries.read",
+        "data_quality.read",
+      ],
+      visible: ["Overview", "Pipelines", "Deliveries", "Data Quality"],
       hidden: ["Sources", "Destinations", "Monitoring", "Settings", "User"],
     },
     {
@@ -190,6 +195,7 @@ describe("main navigation", () => {
         "deliveries.write",
         "sources.read",
         "destinations.read",
+        "data_quality.read",
       ],
       visible: [
         "Overview",
@@ -197,6 +203,7 @@ describe("main navigation", () => {
         "Deliveries",
         "Sources",
         "Destinations",
+        "Data Quality",
       ],
       hidden: ["Monitoring", "Alerts", "Settings", "User"],
     },

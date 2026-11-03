@@ -137,6 +137,7 @@ nav:
       - Snapshots and Resnapshots: pipelines/snapshots.md
       - Error Recovery: pipelines/error-recovery.md
   - Operations:
+      - Data Quality: operations/data-quality.md
       - User Management: operations/user-management.md
       - Monitoring: operations/monitoring.md
       - Alerts: alerting.md
@@ -157,6 +158,11 @@ nav:
       - Authentication: security/authentication.md
       - Roles and Permissions: security/roles.md
   - Development:
+      - Data Quality Overview: features/data-quality.md
+      - v0.3.4 Data Quality Design: development/v0.3.4-data-quality-design.md
+      - v0.3.4 Data Quality Compatibility: development/v0.3.4-data-quality-compatibility.md
+      - PostgreSQL to MySQL Data Quality: development/v0.3.4-data-quality-cross-provider.md
+      - v0.3.4 Data Quality Verification: development/v0.3.4-data-quality-test-report.md
       - Architecture: development/architecture.md
       - Local Development: development/setup.md
       - Backend and Frontend: development/backend-frontend.md
@@ -174,6 +180,12 @@ nav:
       - v0.3.0 Visual Revision: development/v0.3.0-visual-revision.md
       - v0.3.0 Release Notes: releases/v0.3.0.md
       - v0.3.2 Destination Status: development/v0.3.2-destinations.md
+      - v0.3.3 Reliability Baseline: development/v0.3.3-reliability-baseline.md
+      - v0.3.3 E2E Validation: development/v0.3.3-e2e-report.md
+      - v0.3.3 Recovery Validation: development/v0.3.3-recovery-report.md
+      - v0.3.3 Compatibility: development/v0.3.3-compatibility-matrix.md
+      - v0.3.4 Release Notes: releases/v0.3.4.md
+      - v0.3.4 Release Readiness: development/v0.3.4-release-readiness.md
       - v0.3.2 Release Notes: releases/v0.3.2.md
       - v0.2.1 Release Notes: releases/v0.2.1.md
       - v0.2.1 Hardening Progress: development/v0.2.1-hardening-progress.md

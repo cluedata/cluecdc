@@ -68,8 +68,9 @@ any failed or rejected production upgrade is restoring the verified pre-upgrade
 backup into a new empty database, validating it, and performing a controlled
 endpoint cutover as described in [metadata backup and restore](../operations/backup-restore.md).
 
-For other revisions, use the fresh-database procedure below; there is no complete
-historical upgrade chain.
+For released revisions through v0.3.2, follow the v0.3.4 procedure below.
+For unknown revisions, use the fresh-database procedure below; there is no
+complete historical upgrade chain.
 
 Use a new, empty metadata database and recreate connections and control-plane
 resources from reviewed configuration. External Kafka topics, connector
@@ -81,6 +82,36 @@ database until the replacement environment is verified.
 For disposable local installations only, replacing the specifically identified
 metadata volume is an option. Never use broad `down -v` commands where Kafka,
 database or object-storage data must be retained.
+
+## Upgrade to v0.3.4
+
+The v0.3.4 metadata head is **0015**. A v0.3.2 installation at **0013** applies
+0014 (additional allowed source-provider values) and 0015 (four Data Quality
+metadata tables). The migrations preserve existing resource and encrypted-secret
+identities and do not change Source or Destination table schemas.
+
+Back up metadata with the existing encryption key and verify restoration. Stop
+old API/worker processes, then use the candidate's guarded upgrade tool against
+the intended metadata database:
+
+```bash
+python scripts/metadata_backup.py backup --output /secure/cluecdc-pre-v034.dump
+python scripts/metadata_upgrade.py preflight
+python scripts/metadata_upgrade.py upgrade \
+  --backup-dump /secure/cluecdc-pre-v034.dump
+```
+
+Keep `DATABASE_URL` and `SECRET_ENCRYPTION_KEY` scoped to the intended deployment.
+Preflight rejects unknown revisions; the upgrade validates the backup, applies
+Alembic, checks schema drift and compares existing resource/credential evidence.
+After an approved rollout, confirm revision 0015, API/worker health and existing
+pipeline/delivery status before enabling Data Quality schedules.
+
+Disposable regression covers upgrade, schema-drift checks, downgrade to 0014 and
+re-upgrade while preserving unrelated rows. Downgrading 0015 deletes Data Quality
+configuration and history. Downgrading 0014 is blocked while new source-provider
+Connections exist. Production recovery uses the verified backup and controlled
+cutover; a downgrade does not provide a lossless rollback.
 
 ## Model boundary
 

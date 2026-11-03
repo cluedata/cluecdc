@@ -49,7 +49,7 @@ async def maria_setup(table):
 
     connection = await aiomysql.connect(
         host="127.0.0.1",
-        port=13306,
+        port=int(os.getenv("SOURCE_E2E_PORT", "13306")),
         user="root",
         password="local-cdc-fixture-password",
         db="inventory",
@@ -76,7 +76,7 @@ async def maria_change(table, sql):
 
     connection = await aiomysql.connect(
         host="127.0.0.1",
-        port=13306,
+        port=int(os.getenv("SOURCE_E2E_PORT", "13306")),
         user="root",
         password="local-cdc-fixture-password",
         db="inventory",
@@ -94,7 +94,9 @@ async def mongo_setup(table):
     from bson import Binary, Decimal128, ObjectId
     from pymongo import AsyncMongoClient
 
-    client = AsyncMongoClient("mongodb://127.0.0.1:17017/?directConnection=true")
+    client = AsyncMongoClient(
+        f"mongodb://127.0.0.1:{os.getenv('SOURCE_E2E_PORT', '17017')}/?directConnection=true"
+    )
     hello = await client.admin.command("hello")
     if not hello.get("setName"):
         await client.admin.command(
@@ -102,7 +104,13 @@ async def mongo_setup(table):
             {
                 "_id": "cluecdc-rs",
                 "members": [
-                    {"_id": 0, "host": "cluecdc-source-fixtures-mongodb-source-1:27017"}
+                    {
+                        "_id": 0,
+                        "host": os.getenv(
+                            "SOURCE_E2E_MONGO_MEMBER",
+                            "cluecdc-source-fixtures-mongodb-source-1:27017",
+                        ),
+                    }
                 ],
             },
         )
@@ -127,7 +135,9 @@ async def mongo_change(table, operation):
     from bson import ObjectId
     from pymongo import AsyncMongoClient
 
-    client = AsyncMongoClient("mongodb://127.0.0.1:17017/?directConnection=true")
+    client = AsyncMongoClient(
+        f"mongodb://127.0.0.1:{os.getenv('SOURCE_E2E_PORT', '17017')}/?directConnection=true"
+    )
     collection = client.inventory[table]
     identity = ObjectId("000000000000000000000002")
     if operation == "insert":
@@ -139,7 +149,9 @@ async def mongo_change(table, operation):
     else:
         await collection.insert_one(
             {
-                "_id": ObjectId(),
+                "_id": ObjectId(
+                    f"{10 + int(operation.split('-')[1]) if operation.startswith('outage-') else 3:024x}"
+                ),
                 "label": operation
                 if operation.startswith("outage-")
                 else "after-restart",
@@ -152,7 +164,11 @@ def sqlserver_sql(sql, database="inventory"):
     import mssql_python
 
     c = mssql_python.connect(
-        "Server=tcp:127.0.0.1,11433;Database=" + database + ";UID=sa;"
+        "Server=tcp:127.0.0.1,"
+        + os.getenv("SOURCE_E2E_PORT", "11433")
+        + ";Database="
+        + database
+        + ";UID=sa;"
         "PWD={Local-CDC-Fixture-Password-123!};Encrypt=no;TrustServerCertificate=no;",
         autocommit=True,
         timeout=15,
@@ -214,7 +230,7 @@ async def postgres_fixture(table, password, prepare=False):
 
     connection = await asyncpg.connect(
         host="127.0.0.1",
-        port=5434,
+        port=int(os.getenv("SOURCE_E2E_POSTGRES_PORT", "5434")),
         user="postgres",
         password=password,
         database="cluecdc_destination",
@@ -255,7 +271,7 @@ async def existing_fixture(kind, table, env, operation="setup"):
 
         connection = await asyncpg.connect(
             host="127.0.0.1",
-            port=5434,
+            port=int(os.getenv("SOURCE_E2E_POSTGRES_PORT", "5434")),
             user="postgres",
             password=password,
             database="cluecdc_source",
@@ -307,6 +323,7 @@ def main():
         action="store_true",
         help="Also verify MariaDB state in the existing PostgreSQL test destination",
     )
+    parser.add_argument("--fixture-project", default="cluecdc-source-fixtures")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     from cdc_acceptance_support import load_fixture_environment
@@ -374,7 +391,12 @@ def main():
         "sqlserver": "Local-CDC-Fixture-Password-123!",
     }.get(args.source, "local-cdc-fixture-password")
 
+    expected_operations = [{"operation": "snapshot", "id": 1}]
+
     def mutate(operation):
+        expected_operations.append(
+            {"operation": operation, "id": 3 if operation == "restart" else 2}
+        )
         asyncio.run(
             existing_fixture(args.source, table, env, operation)
             if old
@@ -391,6 +413,7 @@ def main():
         ssl_enabled=False,
         provider_options={"server_id": int(run[:6], 16) + 700000000},
     )
+    local_port = int(os.getenv("SOURCE_E2E_PORT", str(local_port)))
     local = Source(
         name="e2e",
         type=args.source,
@@ -402,7 +425,7 @@ def main():
         provider_options={},
     )
     local_secret = (
-        "mongodb://127.0.0.1:17017/?directConnection=true&replicaSet=cluecdc-rs"
+        f"mongodb://127.0.0.1:{local_port}/?directConnection=true&replicaSet=cluecdc-rs"
         if args.source == "mongodb"
         else password
     )
@@ -526,7 +549,12 @@ def main():
                 if isinstance(value, str):
                     value = json.loads(value)
                 if isinstance(value, dict):
-                    result.append(value)
+                    key = record.get("key")
+                    if isinstance(key, str):
+                        key = json.loads(key)
+                    if isinstance(key, dict):
+                        key = key.get("payload", key)
+                    result.append({**value, "_fixture_event_key": key})
         return result
 
     with httpx.Client(base_url=args.connect_url, timeout=90) as client:
@@ -577,6 +605,13 @@ def main():
                 lambda: {"c", "u", "d"} <= {r.get("op") for r in records()},
                 "INSERT/UPDATE/DELETE in destination",
             )
+            deleted = next(record for record in records() if record.get("op") == "d")
+            if args.source == "mongodb":
+                assert "000000000000000000000002" in json.dumps(
+                    deleted["_fixture_event_key"]
+                )
+            else:
+                assert deleted["_fixture_event_key"]["id"] == 2
             if args.source != "mongodb":
                 assert any(
                     r.get("op") == "u" and document(r).get("label") == "updated"
@@ -640,12 +675,35 @@ def main():
                 ),
                 "capture after connector restart",
             )
+            if args.stateful_postgres:
+                wait_for(
+                    lambda: pg_rows().get(3, {}).get("label") == "after-restart",
+                    "PostgreSQL after restart",
+                )
             recovery = "NOT_RUN"
             if args.outage_container:
-                expected_container = f"cluecdc-source-fixtures-{args.source}-source-1"
+                expected_container = f"{args.fixture_project}-{args.source}-source-1"
                 if args.outage_container != expected_container:
                     raise RuntimeError(
                         "Outage tests are restricted to named disposable source fixtures"
+                    )
+                inspected = subprocess.run(
+                    ["docker", "inspect", args.outage_container],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                labels = json.loads(inspected.stdout)[0]["Config"]["Labels"]
+                assert labels.get("com.docker.compose.project") == args.fixture_project
+                assert (
+                    labels.get("com.docker.compose.service") == args.source + "-source"
+                )
+                if args.fixture_project != "cluecdc-source-fixtures":
+                    assert args.fixture_project.startswith("cluecdc-reliability-")
+                    assert (
+                        labels.get("io.cluecdc.reliability.owner")
+                        == args.fixture_project.rsplit("-", 1)[1]
                     )
                 for cycle in range(2):
                     offsets = client.get(f"/connectors/{name}/offsets").json()
@@ -672,6 +730,9 @@ def main():
                         f"/connectors/{name}/restart?includeTasks=true&onlyFailed=true"
                     ).raise_for_status()
                     marker = f"outage-{cycle}"
+                    expected_operations.append(
+                        {"operation": "insert", "id": 10 + cycle, "label": marker}
+                    )
                     if args.source == "mongodb":
                         asyncio.run(mongo_change(table, marker))
                     else:
@@ -695,9 +756,20 @@ def main():
                     assert (
                         client.get(f"/connectors/{name}/offsets").json().get("offsets")
                     )
+                    if args.stateful_postgres:
+                        wait_for(
+                            lambda cycle=cycle, marker=marker: (
+                                pg_rows().get(10 + cycle, {}).get("label") == marker
+                            ),
+                            "PostgreSQL after source outage",
+                        )
                 recovery = "PASS_WITH_EXISTING_TASK_RESTART"
+            if args.stateful_postgres:
+                expected_ids = {1, 3, *([10, 11] if args.outage_container else [])}
+                assert set(pg_rows()) == expected_ids
             evidence = {
                 "source": args.source,
+                "expected_operations": expected_operations,
                 "run": run,
                 "connector": name,
                 "topic": topic,
@@ -719,7 +791,7 @@ def main():
                 "pause_resume": "PASS",
                 "connector_restart": "PASS",
                 "destination": "MinIO raw JSONL",
-                "stateful_delivery": "PASS_POSTGRESQL_CRUD_DECIMAL_UNICODE"
+                "stateful_delivery": "PASS_POSTGRESQL_CRUD_DECIMAL_UNICODE_RESTART_AND_CONFIGURED_OUTAGES"
                 if args.stateful_postgres
                 else "NOT_RUN",
                 "outage_recovery": recovery,

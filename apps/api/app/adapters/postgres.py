@@ -56,6 +56,16 @@ class PostgresAdapter:
         async with self.connection() as conn:
             return {"status": "HEALTHY", "version": await conn.fetchval("SELECT version()")}
 
+    async def replication_slot_status(self, slot_name: str) -> dict | None:
+        """Inspect one owned position; never advance, recreate or remove a slot."""
+        async with self.connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT slot_name, wal_status, restart_lsn::text AS restart_lsn "
+                "FROM pg_replication_slots WHERE slot_name=$1 AND database=current_database()",
+                slot_name,
+            )
+            return dict(row) if row else None
+
     async def readiness(self) -> dict:
         async with self.connection() as conn:
             checks: list[dict] = []

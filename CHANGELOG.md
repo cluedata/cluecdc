@@ -6,6 +6,41 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-03
+
+### Added
+
+- Added experimental MariaDB, SQL Server, MongoDB and Oracle source providers,
+  shared connection/discovery/readiness UI/API, explicit delivery capability
+  guards and migration 0014. Oracle live verification remains NOT RUN.
+- Added Data Quality: six read-only rules, independent relational
+  dataset discovery, durable manual/scheduled Jobs, existing-channel alerts, RBAC,
+  audit/history, five-step UI and isolated database/session-browser validation.
+- Verified PostgreSQL to MySQL Data Quality alongside same-provider PostgreSQL
+  and MySQL pairs, with conservative schema compatibility and UTC timestamp
+  normalization. The reverse MySQL to PostgreSQL pair remains unsupported.
+- Added isolated API-driven CDC correctness, ordered replay, outage, interrupted
+  snapshot, expired-WAL and browser acceptance, structured evidence, a generated
+  compatibility matrix, pinned fixture images and a dedicated reliability CI tier.
+- Added explicitly configured real-cloud warehouse runners; missing cloud and
+  approved Oracle infrastructure remains unverified.
+- Required real-database Data Quality, migration and browser evidence in both
+  release-candidate validation and the tag publication gate.
+
+### Changed
+
+- Placed Data Quality in the Operations navigation group after Monitoring.
+
+### Fixed
+
+- Recover staged warehouse batches using their original persisted Kafka ranges
+  before accepting new work; preserve applied state when a destination marker is
+  unavailable and block incomplete/expired recovery without checkpointing.
+- Report PostgreSQL lost-slot recovery requirements even when Debezium still
+  reports RUNNING or is unassigned during startup; preserve all saved positions.
+- Include the native libraries required by the SQL Server/Synapse Python driver
+  in the API/worker image and verify native driver loading during image builds.
+
 ## [0.3.2] - 2026-10-30
 
 ### Added

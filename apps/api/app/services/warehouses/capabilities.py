@@ -38,8 +38,8 @@ _CAPABILITIES: dict[str, dict] = {
             "Append-only history is available through the pinned ClickHouse Kafka Connect sink.",
             "Delivery is at-least-once unless operators separately provision and validate "
             "KeeperMap.",
-            "Local sink rows, restart, and outage recovery passed; full PostgreSQL/MySQL "
-            "capture matrices did not run.",
+            "PostgreSQL/MySQL fixture capture, snapshot, CRUD, ordered replay and outage "
+            "recovery are covered by v0.3.3 evidence; broader deployments remain unverified.",
             "ReplacingMergeTree current-state mode remains disabled until replay and delete "
             "behavior pass container E2E tests.",
         ],

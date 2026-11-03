@@ -36,6 +36,7 @@ def test_every_non_public_api_route_has_server_side_authentication():
 
 def test_builtin_permission_matrix_remains_least_privilege():
     assert PERMISSIONS["Viewer"] == {
+        "data_quality.read",
         "overview.read",
         "pipelines.read",
         "deliveries.read",

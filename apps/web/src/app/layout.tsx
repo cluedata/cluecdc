@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import "./design-system.css";
 import "./clean-tech-spectrum.css";
+import "@/features/data-quality/styles.css";
 import { Providers } from "@/components/providers";
 import { Shell } from "@/components/shell";
 

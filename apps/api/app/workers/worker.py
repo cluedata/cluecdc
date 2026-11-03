@@ -229,6 +229,10 @@ async def run_job() -> bool:
                 result = await health(session, resource_id, actor)
             elif kind == "pipeline_operation":
                 result = await run_operation(session, resource_id)
+            elif kind == "data_quality":
+                from app.services.data_quality import run_job as run_quality_job
+
+                result = await run_quality_job(session, resource_id, job_id, WORKER_ID)
             else:
                 raise DomainError("UNKNOWN_JOB", "Unknown job type")
             await session.commit()
@@ -396,10 +400,19 @@ async def _infrastructure_health_batch() -> None:
 
 async def worker_loop() -> None:
     next_reconcile = 0.0
+    next_quality_cleanup = 0.0
     next_infrastructure_health = 0.0
     concurrency = get_settings().worker_concurrency
     while True:
         try:
+            from app.services.data_quality import cleanup, schedule_due
+
+            async with Session() as session:
+                await schedule_due(session)
+                if asyncio.get_running_loop().time() >= next_quality_cleanup:
+                    await cleanup(session)
+                    next_quality_cleanup = asyncio.get_running_loop().time() + 3600
+                await session.commit()
             async with asyncio.TaskGroup() as group:
                 jobs = [group.create_task(run_job()) for _ in range(concurrency)]
             processed = any(job.result() for job in jobs)

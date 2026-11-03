@@ -16,9 +16,12 @@ not fetch remote state or change files/tags. Use `python scripts/release.py plan
 --json` for machine-readable output, or add `-- --require-new-tag` to the npm
 command to fail on a local tag conflict.
 
-The manual **Release candidate** workflow runs `release-validation.yml` and
-`hardening.yml` on the selected branch. The tag-triggered publisher calls those
-same workflows, avoiding a second quality definition. Shared validation invokes
+The manual **Release candidate** workflow runs `release-validation.yml`,
+`data-quality.yml` and `hardening.yml` on the selected branch. The tag-triggered
+publisher calls those same workflows, avoiding a second quality definition.
+Data Quality requires real PostgreSQL/MySQL rule execution, migration round trips
+and Admin/Ops/Viewer browser checks, with `data-quality-evidence` uploaded for
+review. Shared validation invokes
 `release-check.py --preparation --quality-only`; it also checks Kubernetes
 schemas, scans Git history and archives source plus candidate metadata/checksums.
 

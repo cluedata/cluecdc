@@ -13,6 +13,7 @@ const statusGroups: Record<StatusTone, string[]> = {
     "HEALTHY",
     "READY",
     "PASSED",
+    "PASS",
     "COMPLETED",
     "RESOLVED",
     "CONNECTED",
@@ -24,6 +25,7 @@ const statusGroups: Record<StatusTone, string[]> = {
   ],
   bad: [
     "FAILED",
+    "FAIL",
     "ERROR",
     "CRITICAL",
     "UNHEALTHY",
@@ -35,6 +37,7 @@ const statusGroups: Record<StatusTone, string[]> = {
   warn: [
     "DEGRADED",
     "WARNING",
+    "INCONCLUSIVE",
     "PENDING",
     "ACKNOWLEDGED",
     "POTENTIALLY_BREAKING",

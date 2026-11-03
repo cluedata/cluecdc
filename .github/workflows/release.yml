@@ -46,8 +46,12 @@ jobs:
     needs: [validate, publication-preflight]
     uses: ./.github/workflows/hardening.yml
 
+  data-quality:
+    needs: [validate, publication-preflight]
+    uses: ./.github/workflows/data-quality.yml
+
   containers:
-    needs: [validate, publication-preflight, hardening]
+    needs: [validate, publication-preflight, hardening, data-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -115,7 +119,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   github-release:
-    needs: [validate, publication-preflight, hardening, containers]
+    needs: [validate, publication-preflight, hardening, data-quality, containers]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -1,0 +1,47 @@
+# Isolated resources only. Never attach to the operator's CDC Compose project.
+services:
+  metadata:
+    image: postgres:17.9
+    environment: {POSTGRES_USER: dq, POSTGRES_PASSWORD: dq-test-only, POSTGRES_DB: dq}
+    ports: ["127.0.0.1:55435:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dq -d dq"]
+      interval: 2s
+      timeout: 2s
+      retries: 40
+  postgres-source:
+    image: postgres:17.9
+    environment: {POSTGRES_USER: dq, POSTGRES_PASSWORD: dq-test-only, POSTGRES_DB: dq}
+    ports: ["127.0.0.1:55436:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dq -d dq"]
+      interval: 2s
+      timeout: 2s
+      retries: 40
+  postgres-destination:
+    image: postgres:17.9
+    environment: {POSTGRES_USER: dq, POSTGRES_PASSWORD: dq-test-only, POSTGRES_DB: dq}
+    ports: ["127.0.0.1:55437:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dq -d dq"]
+      interval: 2s
+      timeout: 2s
+      retries: 40
+  mysql-source:
+    image: mysql:8.4
+    environment: {MYSQL_ROOT_PASSWORD: dq-test-only, MYSQL_DATABASE: dq, MYSQL_USER: dq, MYSQL_PASSWORD: dq-test-only}
+    ports: ["127.0.0.1:33308:3306"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -pdq-test-only --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  mysql-destination:
+    image: mysql:8.4
+    environment: {MYSQL_ROOT_PASSWORD: dq-test-only, MYSQL_DATABASE: dq, MYSQL_USER: dq, MYSQL_PASSWORD: dq-test-only}
+    ports: ["127.0.0.1:33309:3306"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -pdq-test-only --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 60

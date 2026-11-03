@@ -1,0 +1,127 @@
+name: CDC reliability
+
+on:
+  schedule:
+    - cron: "43 4 * * 6"
+  workflow_dispatch:
+    inputs:
+      chaos:
+        description: "Interrupt only runner-owned disposable services"
+        type: boolean
+        default: false
+      extended_sources:
+        description: "Include MariaDB, SQL Server Developer and MongoDB fixtures"
+        type: boolean
+        default: false
+      interrupted_snapshot:
+        description: "Verify PostgreSQL recovery during a 50,000-row initial snapshot"
+        type: boolean
+        default: false
+      expired_history:
+        description: "Expire WAL only in an owned PostgreSQL fixture"
+        type: boolean
+        default: false
+      browser:
+        description: "Build the current UI and run real session/RBAC/operator browser tests"
+        type: boolean
+        default: false
+      cloud:
+        description: "Use dedicated cloud resources from CDC_RELIABILITY_CLOUD_CONFIG"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cdc-reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e 'apps/api[dev]'
+      - name: Build pinned runtime fixtures
+        run: |
+          docker build -f infrastructure/docker/api.Dockerfile -t cluecdc-reliability-api:local .
+          docker build -f infrastructure/docker/connect.Dockerfile -t cluecdc-reliability-connect:local .
+          docker build -f infrastructure/docker/minio-test.Dockerfile -t cluecdc-reliability-minio:local .
+      - name: Execute local real CDC and recovery
+        env:
+          CHAOS: ${{ inputs.chaos || github.event_name == 'schedule' }}
+          EXTENDED: ${{ inputs.extended_sources || github.event_name == 'schedule' }}
+          SNAPSHOT: ${{ inputs.interrupted_snapshot || github.event_name == 'schedule' }}
+          HISTORY: ${{ inputs.expired_history || github.event_name == 'schedule' }}
+          BROWSER: ${{ inputs.browser || false }}
+        shell: python
+        run: |
+          import os, subprocess, sys
+          command = [sys.executable, 'scripts/cdc_reliability.py', '--execute']
+          if os.environ['CHAOS'] == 'true': command.append('--chaos')
+          if os.environ['EXTENDED'] == 'true': command.append('--extra-sources')
+          if os.environ['SNAPSHOT'] == 'true': command.append('--snapshot-interruption')
+          if os.environ['HISTORY'] == 'true': command.append('--source-history-expiration')
+          if os.environ['BROWSER'] == 'true':
+              subprocess.run(['docker', 'build', '-f', 'Dockerfile', '-t', 'cluecdc-reliability-web:local', '.'], check=True)
+              subprocess.run(['npm', 'ci'], check=True)
+              subprocess.run(['npm', 'exec', '-w', '@cluecdc/web', '--', 'playwright', 'install', '--with-deps', '--no-shell', 'chromium'], check=True)
+              command.append('--browser')
+          subprocess.run(command, check=True, timeout=3300)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cdc-reliability-local
+          path: artifacts/cdc-reliability/
+          if-no-files-found: error
+
+  cloud:
+    if: github.event_name == 'workflow_dispatch' && inputs.cloud
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e apps/api
+      - name: Build runtime fixtures
+        run: |
+          docker build -f infrastructure/docker/api.Dockerfile -t cluecdc-reliability-api:local .
+          docker build -f infrastructure/docker/connect.Dockerfile -t cluecdc-reliability-connect:local .
+          docker build -f infrastructure/docker/minio-test.Dockerfile -t cluecdc-reliability-minio:local .
+      - name: Execute explicitly configured cloud CDC
+        env:
+          CLOUD_CONFIG: ${{ secrets.CDC_RELIABILITY_CLOUD_CONFIG }}
+        shell: python
+        run: |
+          import json, os, pathlib, subprocess, sys, tempfile
+          raw = os.environ.get('CLOUD_CONFIG')
+          if not raw:
+              subprocess.run([sys.executable, 'scripts/cdc_reliability.py'], check=True)
+              raise SystemExit('NOT RUN: Real cloud infrastructure unavailable')
+          config = json.loads(raw)
+          pairs = ','.join(f'{s}:{d}' for s in ('postgresql','mysql')
+                           for d in ('BIGQUERY','REDSHIFT','AZURE_SYNAPSE') if d in config)
+          if not pairs: raise SystemExit('No cloud destinations explicitly configured')
+          with tempfile.TemporaryDirectory() as directory:
+              path = pathlib.Path(directory) / 'cloud.json'
+              path.write_text(raw)
+              path.chmod(0o600)
+              subprocess.run([sys.executable, 'scripts/cdc_reliability.py', '--execute',
+                              '--cloud-config', str(path), '--pairs', pairs], check=True, timeout=3300)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cdc-reliability-cloud
+          path: artifacts/cdc-reliability/
+          if-no-files-found: error

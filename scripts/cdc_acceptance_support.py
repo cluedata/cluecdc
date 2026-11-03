@@ -51,15 +51,22 @@ def load_fixture_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
 
 
 class ApiClient:
-    def __init__(self, base_url: str, sensitive_values: Iterable[str] = ()) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        sensitive_values: Iterable[str] = (),
+        *,
+        use_environment_token: bool = True,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.sensitive_values = tuple(value for value in sensitive_values if value)
         self.cookie_jar = http.cookiejar.CookieJar()
+        self.use_environment_token = use_environment_token
 
     def authenticate(self, environment: Mapping[str, str]) -> None:
         """Create a browser-style session when bearer-token mode is not configured."""
 
-        if os.environ.get("CLUECDC_TOKEN"):
+        if self.use_environment_token and os.environ.get("CLUECDC_TOKEN"):
             return
         self.request(
             "/auth/login",
@@ -76,7 +83,7 @@ class ApiClient:
         self, path: str, method: str = "GET", data: object | None = None
     ) -> Any:
         headers = {"Content-Type": "application/json"}
-        if token := os.environ.get("CLUECDC_TOKEN"):
+        if self.use_environment_token and (token := os.environ.get("CLUECDC_TOKEN")):
             headers["Authorization"] = "Bearer " + token
         request = urllib.request.Request(
             self.base_url + path,

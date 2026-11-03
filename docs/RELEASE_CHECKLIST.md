@@ -55,6 +55,7 @@ complete unless it was verified against the release candidate commit.
 - [ ] Production schema/policy checks and read-only/SIGTERM runtime tests pass
 - [ ] Target-cluster rollout, ingress and CNI NetworkPolicy enforcement pass
 - [ ] Reusable Hardening acceptance workflow passes for the exact candidate SHA
+- [ ] Reusable Data Quality database, migration and browser workflow passes for the exact candidate SHA
 
 ## Release
 
@@ -63,7 +64,7 @@ complete unless it was verified against the release candidate commit.
 - [ ] Release notes are finalized and changelog date is `YYYY-MM-DD`
 - [ ] `check-release-version.py --require-final` passes
 - [ ] Release candidate workflow passes for the exact approved commit
-- [ ] Candidate source archive, metadata, checksums and both hardening reports are reviewed
+- [ ] Candidate source archive, metadata, checksums, Data Quality evidence and both hardening reports are reviewed
 - [ ] Release workflow and GitHub/GHCR package access are ready
 - [ ] `v<VERSION>` Git tag has not been created during release preparation
 - [ ] Maintainer has approved the exact commit to tag

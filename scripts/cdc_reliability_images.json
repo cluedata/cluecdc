@@ -1,0 +1,9 @@
+{
+  "postgres:17.9": "postgres:17.9@sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545",
+  "mysql:8.4": "mysql:8.4@sha256:0f51e63e537a1f176423fa03ef559aabe6fa4372a53160a44bc7e75da7d15364",
+  "apache/kafka:4.1.2": "apache/kafka:4.1.2@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e",
+  "mariadb:11.4": "mariadb:11.4@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620",
+  "mongo:7.0": "mongo:7.0@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4",
+  "mcr.microsoft.com/mssql/server:2022-CU22-ubuntu-22.04": "mcr.microsoft.com/mssql/server:2022-CU22-ubuntu-22.04@sha256:db9a8fe3098b7e8bbde41106bdc7caee942e97124e5fdb71b872ca208de3092d",
+  "clickhouse/clickhouse-server:26.8.20.9-alpine": "clickhouse/clickhouse-server:26.8.20.9-alpine@sha256:1e67397fa4828e8dbb95b3bcc37a8822749ca5e46bd208b3ef336f365c522688"
+}
