@@ -26,15 +26,15 @@ The status terms below are deliberately separate from connection/UI support:
 | --- | --- | --- | --- | --- |
 | Connection CRUD/UI | PASS | PASS | PASS | PASS |
 | Mocked/unit connection test | PASS | PASS | PASS | PASS |
-| Real connection test | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Real connection test | PASS (local 26.8.20.9) | NOT RUN | NOT RUN | NOT RUN |
 | Append-only implementation | PASS | PASS | PASS | PASS |
-| Initial snapshot events | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) |
-| Continuous INSERT/UPDATE/DELETE history | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) |
+| Initial snapshot events | PASS (real PostgreSQL/MySQL fixtures) | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) |
+| Continuous INSERT/UPDATE/DELETE history | PASS (real PostgreSQL/MySQL fixtures) | PASS (design/unit) | PASS (design/unit) | PASS (design/unit) |
 | Keyless event-log mode | PASS | PASS | PASS | PASS |
 | Composite key preservation | PASS (JSON encoding) | PASS (JSON encoding) | PASS (JSON encoding) | PASS (JSON encoding) |
 | Retry/restart recovery | Connector-managed, at-least-once | Connector-managed | PASS (mock crash test) | PASS (mock crash test) |
 | Real destination row verification | PASS (local 26.8 LTS) | NOT RUN | NOT RUN | NOT RUN |
-| PostgreSQL/MySQL capture-to-warehouse E2E | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| PostgreSQL/MySQL capture-to-warehouse E2E | PASS (v0.3.3 fixture scope) | NOT RUN | NOT RUN | NOT RUN |
 | Current-state CDC/upsert/delete | NOT SUPPORTED | NOT SUPPORTED | NOT SUPPORTED | NOT SUPPORTED |
 | Automatic schema evolution | NOT SUPPORTED; fixed history schema | NOT SUPPORTED; fixed history schema | NOT SUPPORTED; fixed history schema | NOT SUPPORTED; fixed history schema |
 | Production-ready | No | No | No | No |
@@ -45,11 +45,13 @@ real warehouse accepted the rows. See the
 [implementation evidence](../development/v0.3.2-destinations.md) before a
 production rollout.
 
-The local ClickHouse PASS used the pinned Connect image and a real ClickHouse
-26.8.20.9 server. It verified create/update/delete envelopes in target rows,
-composite-key JSON, Connect restart, and recovery after a temporary destination
-outage. Records were synthetic Debezium envelopes produced directly to Kafka;
-therefore PostgreSQL/MySQL source capture E2E remains NOT RUN.
+The original v0.3.2 ClickHouse tests used synthetic Debezium envelopes. The
+v0.3.3 reliability suite additionally verifies real PostgreSQL/MySQL snapshot and
+streaming capture, composite-key JSON, Kafka identity/payload preservation,
+ordered replay, restart and disposable outage recovery against ClickHouse
+26.8.20.9. See [current verification and limits](../development/v0.3.3-compatibility-matrix.md).
+History remains at-least-once; current-state mode and production certification
+remain disabled. Cloud warehouse E2E is still NOT RUN.
 
 ## Runtime architecture
 

@@ -1,5 +1,9 @@
 # CDC source extension: implementation and verification
 
+For subsequent reliability evidence and current scope, see the
+[v0.3.3 compatibility report](development/v0.3.3-compatibility-matrix.md).
+The results below remain the historical source-extension baseline.
+
 Date: 2026-10-30. Branch: `feat/extend-cdc-sources`. This is an experimental
 extension, not a release or production deployment. **The full production
 acceptance checklist is not certified.** Oracle live E2E is NOT RUN and the

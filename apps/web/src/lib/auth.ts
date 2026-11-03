@@ -22,6 +22,12 @@ export function hasPermission(
 export function requiredPermissionForPath(path: string): string | null {
   if (path === "/login" || path.startsWith("/invite/")) return null;
   if (path === "/" || path.startsWith("/overview")) return "overview.read";
+  if (
+    path.startsWith("/data-quality/new") ||
+    (path.startsWith("/data-quality") && path.endsWith("/edit"))
+  )
+    return "data_quality.write";
+  if (path.startsWith("/data-quality")) return "data_quality.read";
   if (path.startsWith("/pipelines/new")) return "pipelines.write";
   if (path.startsWith("/pipelines")) return "pipelines.read";
   if (path.startsWith("/deliveries/new")) return "deliveries.write";

@@ -1,0 +1,76 @@
+name: Data Quality
+on:
+  pull_request:
+    paths: ["apps/api/**", "apps/web/**", "scripts/data_quality*", "infrastructure/tests/data-quality.compose.yaml", ".github/workflows/data-quality.yml"]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: data-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DQ_LIVE_TESTS: "1"
+      DQ_EVIDENCE_DIR: artifacts/data-quality
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq
+      API_INTERNAL_URL: http://127.0.0.1:8014
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3014
+      DQ_BROWSER_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: python -m pip install -e 'apps/api[dev]'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - name: Start isolated real databases
+        run: docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml up -d --wait
+      - name: API, real rules, worker concurrency and alerts
+        run: python -m pytest apps/api/tests -q --junitxml=artifacts/data-quality/api.xml
+      - name: Prepare SELECT-only datasets and session users
+        run: python scripts/data_quality_fixture.py
+      - name: Additive migration round trip and drift
+        run: python scripts/data_quality_migrations.py
+      - name: Web checks
+        run: npm run lint && npm run typecheck && npm run test:web && npm run build
+      - name: Start isolated API, worker and production web
+        run: |
+          python -c "import sys; sys.path.insert(0,'scripts'); import data_quality_fixture; import uvicorn; uvicorn.run('app.main:app',host='127.0.0.1',port=8014)" > artifacts/data-quality/api-server.log 2>&1 &
+          python -c "import sys; sys.path.insert(0,'scripts'); import data_quality_fixture; import asyncio; from app.workers.worker import worker_loop; asyncio.run(worker_loop())" > artifacts/data-quality/worker.log 2>&1 &
+          npm --workspace apps/web run start -- --port 3014 > artifacts/data-quality/web.log 2>&1 &
+          python - <<'PY'
+          import time, httpx
+          for _ in range(60):
+              try:
+                  if httpx.get('http://127.0.0.1:3014/login').status_code == 200:
+                      break
+              except httpx.HTTPError:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit('Isolated web server did not start')
+          PY
+      - name: Real Admin, Ops and Viewer browser workflows
+        working-directory: apps/web
+        run: npx playwright test tests/e2e/data-quality.spec.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: data-quality-evidence
+          path: |
+            artifacts/data-quality
+            apps/web/test-results
+          retention-days: 14
+      - name: Stop only this disposable project
+        if: always()
+        run: docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml down

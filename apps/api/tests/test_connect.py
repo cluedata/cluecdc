@@ -5,6 +5,44 @@ from app.adapters.connect import KafkaConnectClient, classify_task_failure, fail
 from app.core.errors import DomainError
 
 
+@pytest.mark.parametrize(
+    "trace,provider",
+    [
+        (
+            "ERROR: requested WAL segment 00000001000000000000007A has already been removed",
+            "PostgreSQL",
+        ),
+        (
+            'ERROR: can no longer get changes from replication slot "test"; '
+            "this slot has been invalidated",
+            "PostgreSQL",
+        ),
+        ("Could not find first log file name in binary log index file", "MySQL"),
+        (
+            "The connector is trying to read binlog starting at mysql-bin.000042 "
+            "but it is no longer available",
+            "MySQL",
+        ),
+    ],
+)
+def test_missing_relational_history_requires_explicit_recovery(trace, provider):
+    failure = classify_task_failure(trace, "source")
+    assert failure.code == "SOURCE_RECOVERY_REQUIRED"
+    assert failure.category == "RECOVERY_REQUIRED" and not failure.retryable
+    assert provider in failure.message
+    assert "resnapshot" in failure.message
+
+
+def test_source_transient_connectivity_and_authentication_are_distinct():
+    transient = classify_task_failure("Connection refused: private-host", "source")
+    assert transient.code == "SOURCE_CONNECTION_UNAVAILABLE" and transient.retryable
+    authentication = classify_task_failure(
+        "password authentication failed for private-user", "source"
+    )
+    assert authentication.code == "SOURCE_AUTHENTICATION_FAILED" and not authentication.retryable
+    assert "private-" not in transient.message + authentication.message
+
+
 async def test_connect_timeout_is_explicit():
     def handler(request):
         raise httpx.ReadTimeout("timeout")

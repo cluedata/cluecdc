@@ -3,23 +3,17 @@ import hashlib
 import json
 from contextlib import closing
 
-from aiokafka import AIOKafkaConsumer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adapters.kafka import options as kafka_options
 from app.core.errors import DomainError
 from app.models.entities import (
     Connection,
     KafkaCluster,
     PipelineDestination,
-    WarehouseBatchLedger,
 )
 from app.services.azure_synapse.connection import _connection_string, _storage_client
-from app.services.azure_synapse.planner import classify_error, plan_batch
-from app.services.warehouses.format import HISTORY_COLUMNS, serialize_history_csv
-from app.services.warehouses.kafka import commit_map, normalize_event
-from app.services.warehouses.ledger import checkpoint_ready, fail, transition
+from app.services.azure_synapse.planner import classify_error
+from app.services.warehouses.format import HISTORY_COLUMNS
 from app.services.warehouses.schema import validate_fixed_history_schema
 
 SYNAPSE_HISTORY_TYPES = {
@@ -279,151 +273,37 @@ async def process_once(
     kafka: KafkaCluster,
     kafka_credentials: dict[str, str],
 ) -> dict:
-    topics = [mapping["topic"] for mapping in delivery.topic_mapping_json]
-    config = delivery.configuration_json
-    consumer = AIOKafkaConsumer(
-        *topics,
-        group_id=f"cluecdc-synapse-{delivery.id.hex}",
-        enable_auto_commit=False,
-        auto_offset_reset="earliest",
-        **kafka_options(kafka, kafka_credentials),
-    )
-    await consumer.start()
-    try:
-        recovery = await session.scalar(
-            select(WarehouseBatchLedger)
-            .where(
-                WarehouseBatchLedger.delivery_id == delivery.id,
-                WarehouseBatchLedger.status == "APPLIED",
-            )
-            .order_by(WarehouseBatchLedger.created_at)
-            .limit(1)
-        )
-        if recovery is not None:
-            await consumer.getmany(timeout_ms=500, max_records=1)
-            if not await marker_exists(destination, credentials, delivery, recovery.batch_id):
-                fail(recovery, "AZURE_SYNAPSE_DESTINATION_MARKER_MISSING", retryable=False)
-                await session.commit()
-                raise DomainError(
-                    "AZURE_SYNAPSE_DESTINATION_MARKER_MISSING",
-                    "Applied ledger batch has no destination marker; checkpoint is blocked",
-                    409,
-                )
-            await consumer.commit(commit_map(recovery.source_offsets_json))
-            transition(recovery, "CHECKPOINTED")
-            await session.commit()
-            return {"status": "CHECKPOINTED", "batch_id": recovery.batch_id, "recovered": True}
+    # Share the existing ledger/checkpoint authority with Redshift while retaining
+    # the original Synapse consumer group and provider-specific SQL/storage work.
+    from app.services.warehouses.staged import process_staged_once
 
-        polled = await consumer.getmany(
-            timeout_ms=int(config.get("batch_flush_interval_ms", 1000)),
-            max_records=int(config.get("batch_size", 10000)),
-        )
-        events = [normalize_event(record) for records in polled.values() for record in records]
-        if not events:
-            return {"status": "IDLE", "records": 0}
-        plan = plan_batch(str(delivery.id), events, str(destination.config_json["staging_prefix"]))
-        batch = await session.scalar(
-            select(WarehouseBatchLedger).where(
-                WarehouseBatchLedger.delivery_id == delivery.id,
-                WarehouseBatchLedger.batch_id == plan.batch_id,
-            )
-        )
-        if batch is None:
-            batch = WarehouseBatchLedger(
-                delivery_id=delivery.id,
-                batch_id=plan.batch_id,
-                source_offsets_json=plan.source_offsets,
-                staging_manifest_json={},
-                status="CREATED",
-            )
-            session.add(batch)
-            await session.commit()
-        if batch.status == "CHECKPOINTED":
-            await consumer.commit(commit_map(batch.source_offsets_json))
-            return {"status": "CHECKPOINTED", "batch_id": batch.batch_id, "replayed": True}
-        if batch.status == "TERMINAL_FAILED":
-            raise DomainError(
-                batch.last_error_code or "AZURE_SYNAPSE_BATCH_TERMINAL",
-                "A terminal Synapse batch failure requires operator intervention",
-                409,
-            )
-        try:
-            if batch.status != "APPLIED":
-                if batch.status in {"RETRYABLE_FAILED", "CREATED"}:
-                    transition(batch, "STAGING")
-                    await session.commit()
-                if batch.status == "STAGING":
-                    body = serialize_history_csv(events, batch.batch_id)
-                    account = destination.config_json["storage_account"]
-                    container = destination.config_json["container"]
-                    storage_uri = (
-                        f"https://{account}.blob.core.windows.net/{container}/{plan.staging_key}"
-                    )
-                    manifest = {
-                        "version": 1,
-                        "batch_id": batch.batch_id,
-                        "delivery_id": str(delivery.id),
-                        "record_count": len(events),
-                        "sha256": hashlib.sha256(body).hexdigest(),
-                        "source_offsets": plan.source_offsets,
-                        "data_uri": storage_uri,
-                    }
-                    await asyncio.to_thread(
-                        _stage_sync,
-                        destination,
-                        credentials,
-                        plan.staging_key,
-                        body,
-                        manifest,
-                    )
-                    batch.staging_manifest_json = manifest
-                    transition(batch, "STAGED")
-                    await session.commit()
-                storage_uri = str(batch.staging_manifest_json.get("data_uri", ""))
-                if not storage_uri:
-                    raise DomainError(
-                        "AZURE_SYNAPSE_STAGING_MANIFEST_INVALID",
-                        "Staged batch has no durable data URI",
-                        409,
-                    )
-                if batch.status == "STAGED":
-                    transition(batch, "APPLYING")
-                    await session.commit()
-                await asyncio.to_thread(
-                    _apply_sync,
-                    destination,
-                    credentials,
-                    delivery,
-                    batch.batch_id,
-                    storage_uri,
-                )
-                if not await marker_exists(destination, credentials, delivery, batch.batch_id):
-                    raise DomainError(
-                        "AZURE_SYNAPSE_DESTINATION_MARKER_MISSING",
-                        "Synapse apply completed without a durable destination marker",
-                        503,
-                    )
-                transition(batch, "APPLIED")
-                await session.commit()
-            if not checkpoint_ready(batch):
-                raise DomainError(
-                    "AZURE_SYNAPSE_CHECKPOINT_BLOCKED",
-                    "Kafka checkpoint is blocked until destination apply is durable",
-                    409,
-                )
-            await consumer.commit(commit_map(batch.source_offsets_json))
-            transition(batch, "CHECKPOINTED")
-            await session.commit()
-            return {
-                "status": "CHECKPOINTED",
-                "batch_id": batch.batch_id,
-                "records": len(events),
-            }
-        except Exception as exc:
-            if batch.status not in {"APPLIED", "CHECKPOINTED", "TERMINAL_FAILED"}:
-                classification = classify_error(exc)
-                fail(batch, classification["code"], retryable=classification["retryable"])
-                await session.commit()
-            raise
-    finally:
-        await consumer.stop()
+    async def stage(key: str, body: bytes, manifest: dict) -> dict:
+        account = destination.config_json["storage_account"]
+        container = destination.config_json["container"]
+        manifest = {
+            **manifest,
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "data_uri": f"https://{account}.blob.core.windows.net/{container}/{key}",
+        }
+        await asyncio.to_thread(_stage_sync, destination, credentials, key, body, manifest)
+        return manifest
+
+    async def apply(batch_id: str, uri: str) -> None:
+        await asyncio.to_thread(_apply_sync, destination, credentials, delivery, batch_id, uri)
+
+    async def marker(batch_id: str) -> bool:
+        return await marker_exists(destination, credentials, delivery, batch_id)
+
+    return await process_staged_once(
+        session,
+        delivery,
+        kafka,
+        kafka_credentials,
+        provider="AZURE_SYNAPSE",
+        staging_prefix=str(destination.config_json["staging_prefix"]),
+        stage=stage,
+        apply=apply,
+        marker_exists=marker,
+        classify=classify_error,
+        consumer_group_prefix="cluecdc-synapse",
+    )

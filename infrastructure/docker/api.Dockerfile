@@ -25,7 +25,13 @@ LABEL org.opencontainers.image.title="ClueCDC API" \
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY --from=builder /wheels /wheels
+# mssql-python loads its native ODBC companion only on first connection;
+# importing the module alone does not verify these runtime dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libltdl7 libkrb5-3 libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir --no-index /wheels/* && rm -rf /wheels
+RUN python -c "import ctypes,pathlib,mssql_python_odbc; drivers=list((pathlib.Path(mssql_python_odbc.get_libs_dir())/'linux'/'debian_ubuntu').rglob('libmsodbcsql-*.so.*')); assert len(drivers)==1; ctypes.CDLL(str(drivers[0]))"
 COPY apps/api/ ./
 RUN useradd --create-home cluecdc && chown -R cluecdc:cluecdc /app
 USER cluecdc

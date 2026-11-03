@@ -20,8 +20,12 @@ jobs:
     needs: validate
     uses: ./.github/workflows/hardening.yml
 
+  data-quality:
+    needs: validate
+    uses: ./.github/workflows/data-quality.yml
+
   summary:
-    needs: [validate, hardening]
+    needs: [validate, hardening, data-quality]
     runs-on: ubuntu-latest
     steps:
       - name: Summarize candidate evidence, not release approval
@@ -32,8 +36,8 @@ jobs:
           {
             echo "## Candidate v${VERSION} validated"
             echo "Commit: ${CANDIDATE_SHA}"
-            echo "Quality, browser/CDC and Kubernetes fixture gates passed."
-            echo "Download release-artifacts and both hardening reports from this run."
+            echo "Quality, Data Quality databases/browser/migrations, CDC and Kubernetes fixture gates passed."
+            echo "Download release-artifacts, data-quality-evidence and both hardening reports from this run."
             echo "Draft metadata or an existing version tag still blocks promotion; review release-metadata.json."
             echo "Target-environment review and maintainer approval are still required."
             echo "No tag, container image or GitHub Release was published."

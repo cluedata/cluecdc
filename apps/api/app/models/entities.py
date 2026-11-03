@@ -533,6 +533,67 @@ class Job(Entity, Base):
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class DataQualityCheck(Entity, Base):
+    __tablename__ = "data_quality_checks"
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    source_connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("connections.id"))
+    destination_connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("connections.id"))
+    pipeline_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("pipelines.id"))
+    config_json: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    active_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    alert_state_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(320))
+    updated_by: Mapped[str] = mapped_column(String(320))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DataQualityRule(Entity, Base):
+    __tablename__ = "data_quality_rules"
+    check_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("data_quality_checks.id", ondelete="CASCADE"), index=True
+    )
+    rule_type: Mapped[str] = mapped_column(String(30))
+    config_json: Mapped[dict] = mapped_column(JSON)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class DataQualityRun(Entity, Base):
+    __tablename__ = "data_quality_runs"
+    __table_args__ = (UniqueConstraint("check_id", "occurrence", name="uq_dq_occurrence"),)
+    check_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("data_quality_checks.id"), index=True)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"), unique=True)
+    trigger: Mapped[str] = mapped_column(String(20))
+    occurrence: Mapped[str] = mapped_column(String(120))
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    quality: Mapped[str | None] = mapped_column(String(20))
+    snapshot_json: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer)
+    window_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    consistency: Mapped[str] = mapped_column(String(20), default="BEST_EFFORT")
+    error_code: Mapped[str | None] = mapped_column(String(80))
+
+
+class DataQualityRuleResult(Entity, Base):
+    __tablename__ = "data_quality_rule_results"
+    __table_args__ = (UniqueConstraint("run_id", "rule_id", name="uq_dq_rule_result"),)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("data_quality_runs.id", ondelete="CASCADE"), index=True
+    )
+    # Deliberately not a rule FK: editing/removing a rule preserves historical evidence.
+    rule_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    rule_type: Mapped[str] = mapped_column(String(30))
+    quality: Mapped[str] = mapped_column(String(20))
+    evidence_json: Mapped[dict] = mapped_column(JSON)
+
+
 # Import compatibility only. Both names resolve to the same mapped class/table.
 Source = Connection
 Destination = Connection

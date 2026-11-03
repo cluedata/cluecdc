@@ -31,8 +31,9 @@ contain documented breaking changes; patch releases should remain compatible.
 4. Finalize release notes and the changelog date (`YYYY-MM-DD`), commit the
    candidate, and complete [the release checklist](docs/RELEASE_CHECKLIST.md).
    Run the manual **Release candidate** workflow on that branch, before creating
-   any tag. It runs shared validation plus both live-hardening and Kubernetes
-   gates with read-only repository permissions; it does not publish images.
+   any tag. It runs shared validation, real-database Data Quality with browser
+   and migration checks, plus both live-hardening and Kubernetes gates with
+   read-only repository permissions; it does not publish images.
 
    Maintainers can select the branch in Actions, or explicitly dispatch:
 
@@ -42,7 +43,7 @@ contain documented breaking changes; patch releases should remain compatible.
 
    A newly added dispatch workflow must first be available on the default branch.
    Download `release-artifacts` (source archive, `release-metadata.json`,
-   `SHA256SUMS`) and both hardening reports. Check the exact candidate SHA,
+   `SHA256SUMS`), `data-quality-evidence` and both hardening reports. Check the exact candidate SHA,
    warnings, test outcomes and cleanup. Draft/occupied-version candidates may
    be tested but are not promotable. Any later commit needs new evidence.
 
@@ -58,7 +59,7 @@ rollout evidence, dependency exceptions and third-party notices:
 2. The maintainer separately creates and pushes a signed annotated
    `v<VERSION>` tag for the approved commit. There is intentionally no script or
    workflow that creates or pushes this tag for you.
-3. The tag workflow re-runs the shared quality and both hardening gates on the
+3. The tag workflow re-runs shared quality, Data Quality and both hardening gates on the
    tagged SHA; candidate artifacts are not blindly trusted for publication.
    A read-only preflight checks default-branch ancestry and rejects existing
    GitHub Releases or exact GHCR version tags. Authentication/network failures

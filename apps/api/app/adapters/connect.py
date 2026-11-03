@@ -39,6 +39,15 @@ def classify_task_failure(trace: object, connector_type: str = "sink") -> TaskFa
                 "ora-00308",
                 "scn is no longer available",
                 "lsn is no longer available",
+                "requested wal segment",
+                "replication slot does not exist",
+                "can no longer get changes from replication slot",
+                "this slot has been invalidated",
+                "wal position is no longer available",
+                "could not find first log file name in binary log index file",
+                "the connector is trying to read binlog starting at",
+                "binlog event is not available",
+                "purged binary log",
             )
         ):
             return TaskFailure(
@@ -46,6 +55,40 @@ def classify_task_failure(trace: object, connector_type: str = "sink") -> TaskFa
                 "RECOVERY_REQUIRED",
                 False,
                 failure_hint(trace, connector_type),
+            )
+        if any(
+            marker in text
+            for marker in (
+                "password authentication failed",
+                "access denied for user",
+                "login failed for user",
+                "authentication failed",
+                "not authorized",
+            )
+        ):
+            return TaskFailure(
+                "SOURCE_AUTHENTICATION_FAILED",
+                "AUTHENTICATION",
+                False,
+                "Source authentication failed; verify the saved credentials and permissions",
+            )
+        if any(
+            marker in text
+            for marker in (
+                "connection refused",
+                "connection reset",
+                "connection timed out",
+                "connect timed out",
+                "temporary failure in name resolution",
+                "server closed the connection unexpectedly",
+            )
+        ):
+            return TaskFailure(
+                "SOURCE_CONNECTION_UNAVAILABLE",
+                "TRANSIENT_CONNECTIVITY",
+                True,
+                "Source connection is temporarily unavailable; restore connectivity and "
+                "verify capture resumes from saved offsets",
             )
         hint = failure_hint(trace, connector_type)
         return TaskFailure("SOURCE_TASK_FAILED", "SOURCE_FAILURE", False, hint)
@@ -175,8 +218,10 @@ def failure_hint(trace: object, connector_type: str = "sink") -> str:
             ),
             (
                 (
-                    "requested wal segment has already been removed",
+                    "requested wal segment",
                     "replication slot does not exist",
+                    "can no longer get changes from replication slot",
+                    "this slot has been invalidated",
                     "wal position is no longer available",
                 ),
                 "PostgreSQL replication position is unavailable; restore retained WAL/slot "

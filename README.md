@@ -16,6 +16,12 @@ It gives operators one UI and API for connections, table discovery, connector
 lifecycle, deliveries, health, alerts, and audit history. ClueCDC configures the
 data plane; CDC records never flow through its API.
 
+The v0.3.4 [Data Quality module](docs/features/data-quality.md) adds six
+read-only rules for comparable PostgreSQL/MySQL current-state tables, independent
+of pipeline ownership. See the [verification report](docs/development/v0.3.4-data-quality-test-report.md)
+for scope, evidence and release-review limitations, and the
+[v0.3.4 release notes](docs/releases/v0.3.4.md) for upgrade instructions.
+
 <p align="center">
   <img src="docs/assets/homepage.png" alt="ClueCDC pipeline overview" width="1100">
 </p>

@@ -419,6 +419,35 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
         status = {"error": {"code": exc.code, "message": exc.message}, "tasks": []}
         capture_state = "UNKNOWN"
         cluster.status = "UNAVAILABLE"
+    # Debezium can report RUNNING while repeatedly trying an invalidated slot.
+    # Only a definitive observation of this connector's exact PostgreSQL slot
+    # overrides capture health. Probe failures remain explicitly unavailable.
+    slot_name = connector.config_json.get("slot.name")
+    if (
+        capture_state not in {"PAUSED", "STOPPED"}
+        and pipeline.desired_state == "RUNNING"
+        and slot_name
+    ):
+        source = await get(session, Source, pipeline.source_id)
+        if source.type == "postgresql":
+            try:
+                adapter = await source_adapter(session, source)
+                probe = getattr(adapter, "replication_slot_status", None)
+                if callable(probe):
+                    position = await probe(str(slot_name))
+                    position = position if isinstance(position, dict) else None
+                    status["source_position"] = position or {"status": "UNAVAILABLE"}
+                    if position and position.get("wal_status") == "lost":
+                        status["error"] = {
+                            "code": "SOURCE_RECOVERY_REQUIRED",
+                            "retryable": False,
+                            "message": "PostgreSQL replication slot has lost required WAL; restore "
+                            "retained history or plan an explicit resnapshot and destination "
+                            "reconciliation. Saved offsets will not be reset",
+                        }
+                        capture_state = "FAILED"
+            except DomainError as exc:
+                status["source_position"] = {"status": "UNAVAILABLE", "code": exc.code}
     links = (
         await session.scalars(
             select(PipelineDestination).where(PipelineDestination.pipeline_id == pipeline.id)
@@ -475,7 +504,9 @@ async def reconcile(session: AsyncSession, pipeline: Pipeline) -> dict:
                 connector_name=connector.name,
                 category="CONNECT",
                 severity="error" if state != "UNKNOWN" else "warning",
-                message=f"Connector runtime state changed to {state}",
+                message=status["error"]["message"]
+                if status.get("error", {}).get("code") == "SOURCE_RECOVERY_REQUIRED"
+                else f"Connector runtime state changed to {state}",
             )
         )
     if state == "RUNNING" and previous != "RUNNING":

@@ -20,11 +20,15 @@ SESSION_COOKIE = "cluecdc_session"
 
 PERMISSIONS = {
     "Viewer": {
+        "data_quality.read",
         "overview.read",
         "pipelines.read",
         "deliveries.read",
     },
     "Ops": {
+        "data_quality.read",
+        "data_quality.write",
+        "data_quality.run",
         "overview.read",
         "sources.read",
         "destinations.read",

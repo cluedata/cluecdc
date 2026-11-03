@@ -369,7 +369,7 @@ def workflow(name):
 def test_candidate_and_publication_share_the_exact_validation_and_hardening_workflows():
     candidate = workflow("release-candidate.yml")
     release = workflow("release.yml")
-    for name in ("validate", "hardening"):
+    for name in ("validate", "hardening", "data-quality"):
         assert candidate["jobs"][name]["uses"] == release["jobs"][name]["uses"]
     assert candidate["permissions"] == {"contents": "read"}
     assert set(candidate["on"]) == {"workflow_dispatch"}
@@ -383,7 +383,7 @@ def test_publication_cannot_bypass_hardening_or_preflight_or_overwrite_release_a
     assert set(release["on"]) == {"push"}
     assert release["on"]["push"]["tags"] == ["v*"]
     for name in ("containers", "github-release"):
-        assert {"validate", "hardening", "publication-preflight"} <= set(
+        assert {"validate", "hardening", "data-quality", "publication-preflight"} <= set(
             release["jobs"][name]["needs"]
         )
         assert "if" not in release["jobs"][name]
@@ -395,6 +395,31 @@ def test_publication_cannot_bypass_hardening_or_preflight_or_overwrite_release_a
     assert "metadata['git_sha'] != os.environ['GITHUB_SHA']" in commands
     containers = release["jobs"]["containers"]["steps"]
     assert any("--component" in step.get("run", "") for step in containers)
+
+
+def test_candidate_requires_real_data_quality_evidence_before_success():
+    candidate = workflow("release-candidate.yml")
+    assert "data-quality" in candidate["jobs"]["summary"]["needs"]
+    assert candidate["jobs"]["data-quality"]["needs"] == "validate"
+    release = workflow("release.yml")
+    assert set(release["jobs"]["data-quality"]["needs"]) == {"validate", "publication-preflight"}
+    data_quality = workflow("data-quality.yml")
+    assert "workflow_call" in data_quality["on"]
+    assert data_quality["permissions"] == {"contents": "read"}
+    # Reusable and standalone runs must not cancel one another on the same ref.
+    assert "github.workflow" in data_quality["concurrency"]["group"]
+    job = data_quality["jobs"]["verify"]
+    assert job["env"]["DQ_LIVE_TESTS"] == "1"
+    assert job["env"]["DQ_BROWSER_TESTS"] == "1"
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "scripts/data_quality_migrations.py" in commands
+    assert "tests/e2e/data-quality.spec.ts" in commands
+    assert any(
+        step.get("uses", "").startswith("actions/upload-artifact@")
+        and step["with"]["name"] == "data-quality-evidence"
+        and step["if"] == "always()"
+        for step in job["steps"]
+    )
 
 
 def test_shared_validation_retains_database_security_schema_and_source_evidence_gates():

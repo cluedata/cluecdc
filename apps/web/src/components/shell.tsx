@@ -102,6 +102,12 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
         icon: Activity,
         permission: "*",
       },
+      {
+        label: "Data Quality",
+        href: "/data-quality",
+        icon: Activity,
+        permission: "data_quality.read",
+      },
       { label: "Alerts", href: "/alerts", icon: Bell, permission: "*" },
       {
         label: "Audit",
