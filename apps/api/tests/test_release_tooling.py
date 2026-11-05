@@ -421,6 +421,7 @@ def test_data_quality_stays_available_manually_without_blocking_candidates():
 def test_shared_validation_requires_api_tests_and_preserves_source_artifact_identity():
     shared = workflow("release-validation.yml")["jobs"]
     assert shared["api"]["uses"] == "./.github/workflows/ci.yml"
+    assert shared["api"]["with"]["scope"] == "api"
     validation = shared["quality"]
     assert validation["needs"] == "api"
     commands = "\n".join(step.get("run", "") for step in validation["steps"])

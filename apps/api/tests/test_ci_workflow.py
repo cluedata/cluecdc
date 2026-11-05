@@ -29,13 +29,31 @@ def workflow(name):
     return yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
 
 
-def test_automatic_ci_runs_api_tests_without_frontend_or_live_stacks():
+def test_automatic_ci_only_runs_selected_jobs_and_preserves_required_check():
     ci = workflow("ci.yml")
     assert set(ci["on"]) == {"pull_request", "push", "workflow_dispatch", "workflow_call"}
-    assert set(ci["jobs"]) == {"api"}
+    scoped = {
+        "api",
+        "web",
+        "docs",
+        "compose",
+        "deployment",
+        "tooling",
+        "workflows",
+        "workload",
+        "images",
+    }
+    assert set(ci["jobs"]) == scoped | {"changes", "checks"}
+    for name in scoped:
+        assert ci["jobs"][name]["needs"] == "changes"
+        assert ci["jobs"][name]["if"] == f"needs.changes.outputs.{name} == 'true'"
+    check = ci["jobs"]["checks"]
+    assert check["name"] == "CI checks"
+    assert check["if"] == "always()"
+    assert set(check["needs"]) == scoped | {"changes"}
+    assert "success" in check["steps"][0]["run"] and "skipped" in check["steps"][0]["run"]
+    assert ci["jobs"]["changes"]["steps"][0]["with"]["fetch-depth"] == "0"
     job = ci["jobs"]["api"]
-    assert job["name"] == "CI checks"  # Preserve the existing required check name.
-    assert "if" not in job
     assert job["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
     assert job["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
     assert job["env"]["DQ_LIVE_TESTS"] == "0"
@@ -43,7 +61,9 @@ def test_automatic_ci_runs_api_tests_without_frontend_or_live_stacks():
     assert "pytest apps/api/tests" in commands
     assert "--junitxml=" in commands
     assert not any(tool in commands for tool in ("npm", "playwright", "docker", "kubectl"))
-    assert not any("uses" in task for task in ci["jobs"].values())
+    web_commands = "\n".join(step.get("run", "") for step in ci["jobs"]["web"]["steps"])
+    assert "pytest" not in web_commands and "playwright" not in web_commands
+    assert "npm run test:web" in web_commands
 
 
 @pytest.mark.parametrize(

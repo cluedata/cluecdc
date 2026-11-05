@@ -1,13 +1,14 @@
 # Release checklist
 
 Use a reviewed, clean default-branch checkout and record the exact candidate SHA.
-Automatic CI and the release test gate use backend/API tests only. Record optional
+Automatic CI selects changed components; release validation explicitly runs API
+tests. Record optional
 manual checks separately; an API PASS does not establish UI or real CDC behavior.
 
 ## Required API and release checks
 
 - [ ] Candidate commit is reviewed and the working tree is clean
-- [ ] **CI checks** passes: backend/API tests with disposable PostgreSQL worker coverage
+- [ ] **CI checks** passes for the selected components; release API tests include PostgreSQL worker coverage
 - [ ] `release:plan` matches package, changelog, release notes and deployment images
 - [ ] Release notes are finalized and the changelog date is `YYYY-MM-DD`
 - [ ] `check-release-version.py --require-final` passes

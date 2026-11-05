@@ -20,7 +20,7 @@ not fetch remote state or change files/tags. Use `python scripts/release.py plan
 command to fail on a local tag conflict.
 
 The manual **Release candidate** workflow and tag-triggered publisher both use
-`release-validation.yml`. It calls the same backend/API workflow as ordinary CI,
+`release-validation.yml`. It calls the scoped CI workflow with `scope=api`,
 checks version/notes/changelog/image references, and archives the exact source SHA
 with metadata and checksums. Candidate runs have read-only repository permissions
 and no publishing jobs. Review `api-tests` and `release-artifacts` for that SHA.
@@ -28,7 +28,8 @@ and no publishing jobs. Review `api-tests` and `release-artifacts` for that SHA.
 Browser, real Data Quality/CDC and Kubernetes hardening are optional manual
 workflows, not candidate or publication prerequisites. The former broad CI is
 available as **Extended validation (manual)**. No scheduled heavy suites run.
-API success does not establish UI, end-to-end CDC or deployment behavior. Run
+Ordinary PR/push CI selects tests by changed folders. Release API success does
+not establish UI, end-to-end CDC or deployment behavior. Run
 additional suites explicitly when that evidence is needed for a deployment.
 
 Publication requires finalized notes/date, default-branch ancestry and a

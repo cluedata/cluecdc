@@ -2,23 +2,46 @@
 
 ## GitHub Actions
 
-Pull requests and pushes to `main`/`master` run **backend/API tests only**.
-The existing required check name **CI checks** is preserved. The single job
-installs `apps/api[dev]`, checks repository safety and runs `pytest apps/api/tests`
-with an isolated PostgreSQL service for worker concurrency tests. It uploads
-`api-tests.xml` even when tests fail. It does not install Node/Playwright, build
-application images or start Kafka/Connect, Source/Destination or Kubernetes stacks.
+Pull requests and pushes to `main`/`master` select independent jobs from changed
+paths using `scripts/ci_scope.py`. A lightweight selector reads the complete Git
+diff, checks repository safety and publishes the selected scopes. **CI checks**
+remains the stable required check and only requires selected jobs to pass;
+unrelated jobs are skipped before dependency installation or services start.
 
-The suite covers endpoint behavior, validation, authentication, RBAC and backend
-service/worker contracts. Live Data Quality provider tests are opt-in and skipped
-in this profile. Passing API CI does not claim browser rendering, real CDC,
-provider compatibility, image runtime or cluster verification.
+| Changed paths | Automatic CI |
+| --- | --- |
+| `apps/api/**` | Backend/API tests with disposable PostgreSQL worker coverage |
+| `apps/web/**`, `packages/ui/**`, root npm manifests | Web format, lint, types, unit tests and production build |
+| `packages/contracts/**` | API and web, since both sides use the shared contract |
+| `docs/**`, Markdown, MkDocs configuration/dependencies | Strict documentation build only; no publication |
+| `deploy/kubernetes/**`, deployment harness/tests | Static deployment validation and deployment contract tests; no live cluster |
+| Compose/environment files, `infrastructure/tests/**` | Render Compose configurations; no stack startup |
+| CI/release scripts and their contract tests | Targeted tooling tests |
+| `.github/workflows/**`, `.github/actions/**` | actionlint and targeted workflow/tooling contracts |
+| `scripts/commerce-workload/**` | Workload tests with a separate PostgreSQL fixture |
+| Individual Dockerfiles / `infrastructure/connect/**` | Build only the affected image; no push or runtime stack |
+| `.dockerignore` | Build API, web and Connect images, whose shared context rules changed |
+| License/ignore files | Repository safety only |
 
-Release candidates and release tags reuse this same API workflow, then validate
-release metadata and create source/checksum artifacts. Image builds happen when
-publishing a release; they are needed to produce its deliverables.
+Multiple changed folders select the union of their scopes. A move or rename
+checks both old and new paths. Unknown paths fail selection with a request to
+add an explicit rule; an unavailable comparison also fails selection. Neither
+case silently starts every job. On a repository's first push, all tracked paths
+are genuinely new and are classified normally. An ordinary PR/push never has an
+implicit full-CI fallback.
 
-Extra validation is available through **Actions ? Run workflow**, with no automatic
+Manual **CI ? Run workflow** defaults to `scope=changes`, comparing the selected
+commit with its first parent, including merge commits. An operator may instead
+choose one component explicitly. Release candidates and release tags explicitly
+choose `scope=api`, preserving their API test gate and metadata/source artifacts
+without activating other scopes.
+
+API tests cover endpoint behavior, validation, authentication, RBAC and backend
+service/worker contracts. Real Data Quality providers remain opt-in. Browser,
+live CDC and Kubernetes acceptance are still manual. API success does not certify
+UI, real-provider data flow or cluster behavior.
+
+Extra validation is available through **Actions / Run workflow**, with no automatic
 PR/push or scheduled triggers:
 
 | Manual workflow | Scope |

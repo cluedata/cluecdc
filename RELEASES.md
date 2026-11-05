@@ -20,7 +20,7 @@ contain documented breaking changes; patch releases should remain compatible.
    complete worker concurrency coverage; tests write to it. Never point it at
    application metadata. `release:plan` only reads local metadata/Git state:
    it does not fetch or establish remote availability.
-3. Run the same backend suite as automatic CI:
+3. Run the backend suite used for API changes and release validation:
 
    ```bash
    python -m pytest apps/api/tests -q

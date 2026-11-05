@@ -23,6 +23,8 @@ permissions:
 jobs:
   api:
     uses: ./.github/workflows/ci.yml
+    with:
+      scope: api
 
   quality:
     needs: api

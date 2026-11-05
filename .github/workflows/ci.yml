@@ -5,18 +5,61 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "Validate changed folders or one explicit component"
+        type: choice
+        default: changes
+        options: [changes, api, web, docs, compose, deployment, tooling, workflows, workload]
   workflow_call:
+    inputs:
+      scope:
+        description: "changes or one component; release validation explicitly selects api"
+        type: string
+        default: changes
 
 permissions:
   contents: read
 
 concurrency:
-  group: api-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: scoped-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Select changed folders
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.scope.outputs.api }}
+      web: ${{ steps.scope.outputs.web }}
+      docs: ${{ steps.scope.outputs.docs }}
+      compose: ${{ steps.scope.outputs.compose }}
+      deployment: ${{ steps.scope.outputs.deployment }}
+      tooling: ${{ steps.scope.outputs.tooling }}
+      workflows: ${{ steps.scope.outputs.workflows }}
+      workload: ${{ steps.scope.outputs.workload }}
+      images: ${{ steps.scope.outputs.images }}
+      image_matrix: ${{ steps.scope.outputs.image_matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python scripts/check-repository.py
+      - id: scope
+        name: Select only affected components
+        env:
+          CI_SCOPE: ${{ inputs.scope || 'changes' }}
+        run: python scripts/ci_scope.py
+
   api:
-    name: CI checks
+    name: API tests
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -53,3 +96,168 @@ jobs:
           name: api-tests
           path: artifacts/api-tests.xml
           if-no-files-found: ignore
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:web
+      - run: npm run build
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - run: python -m pip install -r requirements-docs.txt
+      - run: python -m mkdocs build --strict
+
+  tooling:
+    needs: changes
+    if: needs.changes.outputs.tooling == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: >-
+          python -m pytest -q
+          apps/api/tests/test_ci_scope.py
+          apps/api/tests/test_ci_workflow.py
+          apps/api/tests/test_ci_changes.py
+          apps/api/tests/test_release_tooling.py
+          apps/api/tests/test_repository_checks.py
+          apps/api/tests/test_hardening_gate.py
+          apps/api/tests/test_kafka_acceptance_fixture.py
+          apps/api/tests/test_acceptance_diagnostics.py
+          apps/api/tests/test_acceptance_tls.py
+          apps/api/tests/test_reliability_harness.py
+
+  compose:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose --env-file .env.example config --quiet
+      - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml config --quiet
+      - run: docker compose -f infrastructure/tests/data-quality.compose.yaml config --quiet
+
+  deployment:
+    needs: changes
+    if: needs.changes.outputs.deployment == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: python scripts/deployment_validation.py
+      - run: python -m pytest -q apps/api/tests/test_deployment_validation.py apps/api/tests/test_ingress_fixture.py
+
+  workflows:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+  workload:
+    needs: changes
+    if: needs.changes.outputs.workload == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGDATABASE: workload_test
+      PGUSER: workload_test
+      PGPASSWORD: workload-test-only
+    services:
+      postgres:
+        image: postgres:17.9
+        env:
+          POSTGRES_DB: workload_test
+          POSTGRES_USER: workload_test
+          POSTGRES_PASSWORD: workload-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U workload_test -d workload_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r scripts/commerce-workload/requirements.txt
+      - run: python -m unittest discover -s scripts/commerce-workload -p 'test_*.py'
+
+  images:
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: cluecdc-ci-${{ matrix.component }}:check
+          cache-from: type=gha,scope=scoped-${{ matrix.component }}
+          cache-to: type=gha,scope=scoped-${{ matrix.component }},mode=max,ignore-error=true
+
+  checks:
+    name: CI checks
+    needs: [changes, api, web, docs, tooling, compose, deployment, workflows, workload, images]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require selected components to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        shell: python
+        run: |
+          import json, os
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failures = {name: job["result"] for name, job in results.items()
+                      if job["result"] not in ("success", "skipped")}
+          if results["changes"]["result"] != "success" or failures:
+              raise SystemExit(str(failures) or "CI scope selection did not succeed")
+          print("Selected components passed; unrelated jobs were skipped.")
