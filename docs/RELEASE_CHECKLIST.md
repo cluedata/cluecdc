@@ -1,78 +1,41 @@
 # Release checklist
 
-Use this checklist from a reviewed, clean default-branch checkout. Do not mark an item
-complete unless it was verified against the release candidate commit.
+Use a reviewed, clean default-branch checkout and record the exact candidate SHA.
+Automatic CI and the release test gate use backend/API tests only. Record optional
+manual checks separately; an API PASS does not establish UI or real CDC behavior.
 
-## Code
+## Required API and release checks
 
-- [ ] Default branch is clean; candidate SHA is recorded
-- [ ] CI passes
-- [ ] Backend build passes
-- [ ] Frontend build passes
-- [ ] Tests pass
-- [ ] Migrations pass from a fresh database and `alembic check` reports no drift
-- [ ] Populated v0.2.0 (`0003`) upgrade preserves identities, ciphertext and secrets
-- [ ] Verified metadata restore rejects wrong keys and nonempty targets
-
-## Docker
-
-- [ ] Web, API, and Connect images build
-- [ ] Compose starts from a fresh clone and copied `.env.example`
-- [ ] All health checks pass
-- [ ] Persistent volumes survive a stop/start cycle
-
-## CDC
-
-- [ ] Source can be created
-- [ ] Debezium connector runs
-- [ ] Kafka receives events
-- [ ] Delivery connector runs
-- [ ] Destination receives INSERT
-- [ ] Destination receives UPDATE
-- [ ] Destination receives DELETE
-- [ ] PostgreSQL to PostgreSQL passes
-- [ ] PostgreSQL to MinIO passes
-- [ ] Other supported paths are tested or explicitly recorded as not tested
-- [ ] Four PostgreSQL/MySQL JDBC paths reconcile snapshot and streamed state
-- [ ] Snapshot/schema, retention, restart and failure-injection suites pass
-- [ ] TLS/mTLS, SASL/PLAIN and SCRAM clients plus authenticated source/sink CDC pass
-
-## Documentation
-
-- [ ] README is accurate
-- [ ] Strict docs build passes
-- [ ] Screenshots render
-- [ ] Internal and external links work
-- [ ] Changelog is updated
-
-## Security
-
-- [ ] No secrets are committed
-- [ ] Runtime dependency scans pass and accepted development findings are reviewed
-- [ ] Security policy and private reporting link are present
-- [ ] Container and deployment defaults were reviewed
-- [ ] Container vulnerability review is recorded (dependency audits are not image scans)
-- [ ] Production schema/policy checks and read-only/SIGTERM runtime tests pass
-- [ ] Target-cluster rollout, ingress and CNI NetworkPolicy enforcement pass
-- [ ] Reusable Hardening acceptance workflow passes for the exact candidate SHA
-- [ ] Reusable Data Quality database, migration and browser workflow passes for the exact candidate SHA
-
-## Release
-
-- [ ] `npm run release:plan` matches package, changelog, notes and deployment images
-- [ ] New version is unused locally and remotely; no release tag has been moved
-- [ ] Release notes are finalized and changelog date is `YYYY-MM-DD`
+- [ ] Candidate commit is reviewed and the working tree is clean
+- [ ] **CI checks** passes: backend/API tests with disposable PostgreSQL worker coverage
+- [ ] `release:plan` matches package, changelog, release notes and deployment images
+- [ ] Release notes are finalized and the changelog date is `YYYY-MM-DD`
 - [ ] `check-release-version.py --require-final` passes
 - [ ] Release candidate workflow passes for the exact approved commit
-- [ ] Candidate source archive, metadata, checksums, Data Quality evidence and both hardening reports are reviewed
+- [ ] Candidate source archive, metadata, checksums and API test report are reviewed
+- [ ] Version is unused locally, on GitHub and in GHCR; no existing tag is moved
 - [ ] Release workflow and GitHub/GHCR package access are ready
-- [ ] `v<VERSION>` Git tag has not been created during release preparation
-- [ ] Maintainer has approved the exact commit to tag
+- [ ] Maintainer approves the exact commit before creating its signed release tag
+
+## Optional manual validation
+
+Select these workflows explicitly when relevant to a deployment. They do not
+block the API CI job or image/release publisher.
+
+- [ ] Extended validation: frontend tests/build, lint/types, dependency/secret scans,
+      Compose rendering and native image/runtime checks
+- [ ] Data Quality: real PostgreSQL/MySQL rules, migration round trip and browser cases
+- [ ] CDC reliability: CRUD, replay, outages, snapshots and source-history diagnostics
+- [ ] Experimental source CDC fixtures, with unavailable infrastructure marked NOT RUN
+- [ ] Hardening: metadata upgrade/restore, secret boundaries, Kafka TLS/SASL and browser flows
+- [ ] Kubernetes/target-cluster rollout, HTTPS and NetworkPolicy/CNI acceptance
+- [ ] Container vulnerability review and third-party notices
+- [ ] Documentation build and GitHub Pages publication
 
 ## Post-release
 
-- [ ] GitHub Release is visible
-- [ ] Exact version Docker images are available; stable releases advance minor/latest aliases only
-- [ ] Published image labels and digests are correct
-- [ ] Documentation is available
-- [ ] Quick start is verified against released images/source
+- [ ] GitHub Release is visible with source/checksum/metadata assets
+- [ ] Exact web, API/worker and Connect image versions are available
+- [ ] Published digests and version/revision labels match the tagged commit
+- [ ] Stable releases advance minor/latest aliases; prereleases do not
+- [ ] Quick start and selected deployment are checked against published artifacts

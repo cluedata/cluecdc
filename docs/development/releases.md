@@ -2,7 +2,10 @@
 
 ClueCDC follows Semantic Versioning. The `0.x` line may contain documented breaking changes in minor releases; patch releases should remain compatible.
 
-Release preparation updates versions and the changelog, passes unit and live CDC checks, validates migrations and documentation, scans secrets/dependencies, and reviews third-party notices. Container vulnerability review remains a checklist responsibility. Maintainers create a signed annotated tag only from the reviewed default branch.
+Release preparation updates versions and the changelog and validates the candidate
+with backend/API tests and release metadata checks. Live CDC, browser, migration,
+deployment and security acceptance remain optional manual validation. Maintainers
+create a signed annotated tag only from the reviewed default branch.
 
 The process is in `RELEASES.md`; the authoritative verification checklist is
 [`docs/RELEASE_CHECKLIST.md`](../RELEASE_CHECKLIST.md). Pushing an approved
@@ -16,21 +19,17 @@ not fetch remote state or change files/tags. Use `python scripts/release.py plan
 --json` for machine-readable output, or add `-- --require-new-tag` to the npm
 command to fail on a local tag conflict.
 
-The manual **Release candidate** workflow runs `release-validation.yml`,
-`data-quality.yml` and `hardening.yml` on the selected branch. The tag-triggered
-publisher calls those same workflows, avoiding a second quality definition.
-Data Quality requires real PostgreSQL/MySQL rule execution, migration round trips
-and Admin/Ops/Viewer browser checks, with `data-quality-evidence` uploaded for
-review. Shared validation invokes
-`release-check.py --preparation --quality-only`; it also checks Kubernetes
-schemas, scans Git history and archives source plus candidate metadata/checksums.
+The manual **Release candidate** workflow and tag-triggered publisher both use
+`release-validation.yml`. It calls the same backend/API workflow as ordinary CI,
+checks version/notes/changelog/image references, and archives the exact source SHA
+with metadata and checksums. Candidate runs have read-only repository permissions
+and no publishing jobs. Review `api-tests` and `release-artifacts` for that SHA.
 
-Hardening includes security, integrity, recovery, schema, metadata restore/upgrade,
-production lifecycle and browser checks, plus isolated kind/Calico/HTTPS and
-NetworkPolicy acceptance. Candidate runs have read-only repository permissions
-and no publishing jobs. Review the exact SHA and all reports, not just a green
-summary. Candidate success with draft metadata or an already-used version is
-not permission to publish.
+Browser, real Data Quality/CDC and Kubernetes hardening are optional manual
+workflows, not candidate or publication prerequisites. The former broad CI is
+available as **Extended validation (manual)**. No scheduled heavy suites run.
+API success does not establish UI, end-to-end CDC or deployment behavior. Run
+additional suites explicitly when that evidence is needed for a deployment.
 
 Publication requires finalized notes/date, default-branch ancestry and a
 preflight that rejects existing releases/version images. The publisher does not
@@ -49,8 +48,8 @@ python scripts/release-check.py --preparation --allow-dirty --browser --live-env
 ```
 
 Preparation works on any named branch, not one version-specific branch.
-The quality-only profile also works on a detached candidate checkout (as in tag
-CI). The second command builds local images and runs the isolated live core and
+The optional quality-only profile also works on a detached checkout. The second
+command builds local images and runs the isolated live core and
 browser gate; browser fixtures need an explicitly prepared disposable dotenv.
 Never supply production credentials. Docker/Compose must be usable.
 

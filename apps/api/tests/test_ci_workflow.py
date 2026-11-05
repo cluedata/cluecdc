@@ -1,4 +1,4 @@
-"""Keep workflow conditions in sync with the path selector, on both native CPUs."""
+"""Automatic API checks and optional extended validation must stay separate."""
 
 import ast
 import re
@@ -9,7 +9,7 @@ import yaml
 from scripts import ci_changes
 
 ROOT = Path(__file__).resolve().parents[3]
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/extended-validation.yml").read_text())
 STEPS = {step.get("name"): step for step in WORKFLOW["jobs"]["containers-and-smoke"]["steps"]}
 ACCEPTANCE = {
     "minio": "Reuse the final S3 fixture image only when needed",
@@ -23,6 +23,44 @@ ACCEPTANCE = {
     "workload": "Build the optional workload tool only when it changes",
     "arm-dependencies": "Verify ARM64 workload native dependencies without database fixtures",
 }
+
+
+def workflow(name):
+    return yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
+
+
+def test_automatic_ci_runs_api_tests_without_frontend_or_live_stacks():
+    ci = workflow("ci.yml")
+    assert set(ci["on"]) == {"pull_request", "push", "workflow_dispatch", "workflow_call"}
+    assert set(ci["jobs"]) == {"api"}
+    job = ci["jobs"]["api"]
+    assert job["name"] == "CI checks"  # Preserve the existing required check name.
+    assert "if" not in job
+    assert job["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
+    assert job["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
+    assert job["env"]["DQ_LIVE_TESTS"] == "0"
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "pytest apps/api/tests" in commands
+    assert "--junitxml=" in commands
+    assert not any(tool in commands for tool in ("npm", "playwright", "docker", "kubectl"))
+    assert not any("uses" in task for task in ci["jobs"].values())
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "extended-validation.yml",
+        "hardening.yml",
+        "data-quality.yml",
+        "cdc-reliability.yml",
+        "source-cdc.yml",
+        "docs.yml",
+    ],
+)
+def test_extended_checks_and_documentation_only_run_when_requested(name):
+    configuration = workflow(name)
+    assert "workflow_dispatch" in configuration["on"]
+    assert set(configuration["on"]) <= {"workflow_dispatch", "workflow_call"}
 
 
 def condition(expression, gates, arch):

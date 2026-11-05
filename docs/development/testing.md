@@ -2,133 +2,37 @@
 
 ## GitHub Actions
 
-Automatic CI on pushes to `main`/`master` and pull requests selects gates from
-the changed files. Repository safety and Git-history secret scanning always run.
-The stable **CI checks** job fails if any selected job fails or is cancelled;
-use it as the required branch-protection check instead of individual conditional
-jobs. Superseded runs on the same PR/branch are cancelled automatically.
-Selected workflow changes run [actionlint](https://github.com/rhysd/actionlint/blob/main/docs/usage.md)
-for YAML structure, expressions, action inputs and embedded scripts.
+Pull requests and pushes to `main`/`master` run **backend/API tests only**.
+The existing required check name **CI checks** is preserved. The single job
+installs `apps/api[dev]`, checks repository safety and runs `pytest apps/api/tests`
+with an isolated PostgreSQL service for worker concurrency tests. It uploads
+`api-tests.xml` even when tests fail. It does not install Node/Playwright, build
+application images or start Kafka/Connect, Source/Destination or Kubernetes stacks.
 
-| Change | Selected checks |
+The suite covers endpoint behavior, validation, authentication, RBAC and backend
+service/worker contracts. Live Data Quality provider tests are opt-in and skipped
+in this profile. Passing API CI does not claim browser rendering, real CDC,
+provider compatibility, image runtime or cluster verification.
+
+Release candidates and release tags reuse this same API workflow, then validate
+release metadata and create source/checksum artifacts. Image builds happen when
+publishing a release; they are needed to produce its deliverables.
+
+Extra validation is available through **Actions ? Run workflow**, with no automatic
+PR/push or scheduled triggers:
+
+| Manual workflow | Scope |
 | --- | --- |
-| Markdown/documentation | Strict MkDocs build; no application images or fixtures |
-| Web unit tests | Web format, lint, types and unit tests |
-| API unit tests | API lint, types and tests with real PostgreSQL worker concurrency |
-| Menu, login or CSS | Web quality, runtime smoke and core-only Playwright login/navigation checks; no CDC databases or MinIO |
-| Web public assets | Web quality plus native runtime/asset smoke |
-| Other web application code | Runtime smoke and full browser flows with fixtures, without repeating JDBC/S3 content acceptance |
-| Shared API/runtime or integration code | Relevant quality checks and runtime smoke; CDC, S3 and full browser acceptance on AMD64 |
-| Object-storage implementation/fixture only | Real S3 content acceptance; no JDBC/browser acceptance or destination databases |
-| Connector, Docker/Compose or native dependency code | Native AMD64 and ARM64 image builds/core smoke |
-| Compose/Docker configuration | One Compose rendering check on Ubuntu, including all CI overrides |
-| Kubernetes configuration | Deployment contract and strict Kubernetes schemas |
-| Dependency manifests/lockfiles | Corresponding npm or Python dependency audit |
-| Workload generator | Native image/dependency checks on both architectures; source database regression tests on AMD64, without MinIO/browser/CDC acceptance |
-| Release/repository tooling | API lint, types and unit/contract tests; no runtime data fixtures |
-| Deployment validation/cluster harness | API unit/contract tests and deployment/schema validation; live cluster acceptance stays in hardening |
-| Documentation workflow | Workflow lint and strict documentation build |
-| Release workflows | Workflow lint and API contract tests; deployment validation for shared quality/hardening workflows |
+| Extended validation (manual) | Previous web/lint/audit/Compose/image/smoke/CDC/browser checks; `run_full_ci=true` selects all |
+| Data Quality | Real PostgreSQL/MySQL rules, migration and browser checks |
+| Hardening acceptance | Recovery, Kafka security, metadata restore, browser and Kubernetes fixtures |
+| CDC reliability | CRUD, replay and optional failure injection/source scenarios |
+| Experimental source CDC acceptance | Optional MariaDB, SQL Server and MongoDB fixtures |
+| Documentation | Build and publish GitHub Pages on request |
 
-ARM64 uses a native `ubuntu-24.04-arm` runner, not QEMU. Ordinary application/UI
-changes run the container job on AMD64 on both pull requests and branch pushes.
-Changes to Docker/Compose/environment inputs, fixtures/connectors, dependency
-manifests/lockfiles, native source files or the workload generator also select
-ARM64. Full manual CI and uncertain change comparisons keep both architectures.
-This avoids rebuilding architecture-neutral code a second time after merge;
-native packaging changes still get native build/smoke checks before merge.
-Documentation/unit-test-only changes skip runtime containers on both architectures.
-
-Weekly scheduled runs repeat both dependency audits even without source changes,
-so new advisories are still checked. They do not start runtime/test stacks and
-use a separate concurrency group so they cannot cancel a push/PR validation.
-
-Changes to the main CI workflow, shared actions, selector or CI Compose overrides
-select every gate. Known documentation/release/source workflows select their
-own lint and contract checks, without starting unrelated CDC/S3/browser stacks.
-Unknown workflows/build configuration and an unavailable comparison base still
-select every gate. Deleted and renamed files are included. Mixed changes take
-the union of required checks; scoped tooling never masks an application change.
-`scripts/ci_changes.py` has regression tests for these selections.
-
-Manual CI with `run_full_ci=true` selects every gate; with it disabled, only
-documentation and repository safety checks run. Release validation still runs
-all quality/dependency gates regardless of changed paths, followed by the full
-hardening and Kubernetes acceptance gates.
-
-API and web images are built once with Bake and per-image/per-architecture GitHub
-Actions build caches. Their cache exports have a 60-second timeout; an export
-failure cannot bypass image build or smoke failures. API, worker and MinIO bootstrap share one API image through
-`.github/compose.ci.yaml` and `.github/compose.test.ci.yaml`. Core startup uses
-`--no-build`; relevant AMD64 runs add test fixtures to the existing stack without
-an intermediate `down`. The CI test override puts MinIO/bootstrap behind the
-`object-storage` profile; S3-only runs start the PostgreSQL source, not destination
-databases. The API's bucket-bootstrap dependency is optional while that profile
-is disabled and waits for successful completion when enabled. Both paths are
-compatible with Compose 2.24.7. This changes CI overrides only, not the normal
-Compose quick start.
-
-Connect and MinIO use `.github/actions/cached-ci-image`: cache the loadable final
-image archive, not all Java/Go builder layers. A cache miss builds normally with
-`--pull` for MinIO; a Connect miss joins the parallel API/web Bake build. The
-finished image is saved by the cache action's job cleanup hook; a hit loads it
-directly. Exact keys include
-runner OS/CPU, Dockerfile/source/build-context inputs and resolved upstream base
-image digests. There are no stale prefix restores. Loaded/built image architecture
-must match the native runner. MinIO is prepared only for S3 content or full
-browser acceptance, after core smoke; it never blocks core startup.
-
-The selector emits independent `cdc`, `s3`, `browser` and `browser_integration`
-gates. Core browser checks do not become full integration just because an
-unrelated workload file also changes. Shared backend/build inputs remain
-conservative and select full acceptance. The optional host Python tooling installs
-only the pinned boto3/confluent-kafka requirements read from the API manifest;
-it does not install the API development toolchain again. Browser installation
-skips the unused headless-shell download because the tests use Chromium channel.
-ARM64 does not install host npm/pip application tooling
-or repeat MinIO, CDC, S3 or Playwright acceptance. Its core HTTP/asset, native
-image optimization and migration smoke checks remain enabled whenever selected. The
-optional commerce image is built only for workload changes or an explicit full
-run. Failure diagnostics are redacted and uploaded only when needed; full release
-hardening retains its success reports. Browser/demo seed scripts remain
-necessary fixtures and are not obsolete.
-
-The separate Documentation workflow continues to build and deploy GitHub Pages
-on documentation changes pushed to `main`, or when manually triggered.
-Its strict build produces the actual Pages artifact; the CI documentation job
-validates pull requests before publication. Neither job deploys from a PR.
-
-The separate **Hardening acceptance** workflow is manually dispatched for
-expensive fault injection and is also called by the Release workflow. Both
-container publication and GitHub Release creation depend on it; a failed live
-gate cannot be bypassed by a successful unit/build job. The workflow also runs
-a separate isolated kind/Calico/NGINX job for real production rollout, HTTPS
-session boundaries and NetworkPolicy allow/deny/revocation. Preparation never
-dispatches a workflow, pushes a tag, or publishes an image automatically.
-
-## CI check review
-
-Checks are retained when they catch a distinct failure in behavior, data,
-security or packaging. A second execution is useful only when its environment
-or assertions cover something different.
-
-| Check | Decision and reason |
-| --- | --- |
-| API/web unit tests, validation, RBAC and session invalidation | Keep: fast feedback for application behavior and security boundaries |
-| PostgreSQL worker lease/concurrency tests | Keep: SQLite does not exercise PostgreSQL transaction/race behavior |
-| CDC/JDBC/S3 content acceptance and browser integration | Keep for relevant changes: mocks and unit tests cannot verify connector delivery, stored data or browser/API wiring |
-| Recovery, TLS/SASL, metadata backup/upgrade and Kubernetes fault/policy acceptance | Keep in manual/release hardening: these verify operational guarantees; they do not belong on every small PR |
-| Native AMD64/ARM64 smoke | Keep both for packaging/native dependencies and full runs; omit the second CPU for architecture-neutral application-only changes |
-| Compose render on three operating systems | Reduce to Ubuntu: this checks the same daemon-free configuration/schema, not Windows/macOS container behavior |
-| Existing-source pytest subset in every experimental source matrix entry | Remove: the same tests already run in the API job and full release validation; the matrix retains distinct MariaDB/SQL Server/MongoDB live checks and installs runtime dependencies only |
-| Page export `typeof ... === "function"` unit test | Remove: it mocked every page implementation and checked no rendering, navigation or permissions; production build and browser tests cover the actual routes |
-| Assertions on exact cache wiring/timeouts | Remove: these constrained workflow implementation without verifying application behavior; retain CPU/base-digest cache isolation tests |
-| Handwritten Python-only workflow compilation test | Replace with actionlint: validate the workflow and its expressions/scripts with the maintained workflow validator |
-| Dependency audits and repository/secret checks | Keep: unit tests cannot detect newly disclosed advisories or committed secrets; weekly audits cover unchanged dependencies |
-| Full release quality/hardening | Keep regardless of PR selection: validate the exact release candidate/tag rather than assuming a previous run tested it |
-
-Build/cache timing must be measured in GitHub Actions with both a cold and a warm
-cache. Removing duplicate work does not establish a new measured duration.
+These workflows are not dependencies of the release publisher. Their scripts and
+local commands remain available. Workflow dispatches and publishing still require
+an explicit operator action; changing CI does not run them.
 
 ## Fast checks
 
@@ -283,12 +187,12 @@ or data mismatch failures produce `FAIL` and exit code 1. Neither is success.
 Bounded sanitized service logs aid diagnosis; raw metadata archives and
 temporary TLS private keys are excluded from CI artifact upload.
 
-The CI invocation also supplies `--env-file .env --browser` after creating a
+The manual hardening workflow supplies `--env-file .env --browser` after creating a
 disposable `.env` from the examples and bootstrapping secrets. This runs the
 existing demo fixtures and Playwright suite inside the owned project. It does
 not overwrite a developer's `.env`; use a disposable checkout for that workflow.
 
-CI first builds five local images with Bake and independent GitHub Actions
+That manual workflow first builds five local images with Bake and GitHub Actions
 cache scopes (API/worker share one image). It then passes
 `--prebuilt-image-prefix cluecdc-hardening-ci`, requiring locally loaded
 `PREFIX-{api,web,connect,minio,bootstrap}:ci` images and starting with `--no-build`.

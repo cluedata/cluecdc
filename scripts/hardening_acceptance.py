@@ -77,6 +77,10 @@ def main() -> int:
         parser.error(
             "Browser acceptance requires the CI .env fixture also passed with --env-file"
         )
+    if args.browser:
+        # Developer mode treats every request as Admin, even after an Ops login.
+        # The owned browser stack must exercise real sessions and role revocation.
+        environment["AUTH_MODE"] = "session"
     project = "cluecdc-hardening-" + uuid.uuid4().hex[:12]
     ports: dict[str, int] = {}
     for name in (
@@ -119,6 +123,7 @@ def main() -> int:
             ).strip()
         ),
         "browser_requested": args.browser,
+        "auth_mode": environment["AUTH_MODE"],
         "build_mode": "prebuilt" if args.prebuilt_image_prefix else "source",
         "project": project,
         "status": "RUNNING",

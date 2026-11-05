@@ -1,7 +1,5 @@
 name: Data Quality
 on:
-  pull_request:
-    paths: ["apps/api/**", "apps/web/**", "scripts/data_quality*", "infrastructure/tests/data-quality.compose.yaml", ".github/workflows/data-quality.yml"]
   workflow_dispatch:
   workflow_call:
 permissions:

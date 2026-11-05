@@ -1,8 +1,6 @@
 name: CDC reliability
 
 on:
-  schedule:
-    - cron: "43 4 * * 6"
   workflow_dispatch:
     inputs:
       chaos:

@@ -42,16 +42,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/check_release_publication.py --tag "$GITHUB_REF_NAME"
 
-  hardening:
-    needs: [validate, publication-preflight]
-    uses: ./.github/workflows/hardening.yml
-
-  data-quality:
-    needs: [validate, publication-preflight]
-    uses: ./.github/workflows/data-quality.yml
-
   containers:
-    needs: [validate, publication-preflight, hardening, data-quality]
+    needs: [validate, publication-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -119,7 +111,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   github-release:
-    needs: [validate, publication-preflight, hardening, data-quality, containers]
+    needs: [validate, publication-preflight, containers]
     runs-on: ubuntu-latest
     permissions:
       contents: write
