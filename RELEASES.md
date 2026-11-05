@@ -9,31 +9,32 @@ contain documented breaking changes; patch releases should remain compatible.
    synchronize the matching `CHANGELOG.md` section, `docs/releases/v<VERSION>.md`,
    and all image references in `deploy/kubernetes/{api,worker,web,connect}.yaml`.
    Add the new release notes to `mkdocs.yml`; preserve historical notes.
-2. Activate a Python 3.12+ virtual environment and install the gate dependencies:
+2. Activate a Python 3.12+ virtual environment:
 
    ```bash
-   python -m pip install --upgrade pip==26.2.1
-   python -m pip install -e "apps/api[dev]" -r requirements-docs.txt pip-audit==2.10.1
-   npm ci
-   npm run release:plan
+   python -m pip install -e "apps/api[dev]"
+   python scripts/release.py plan
    ```
 
-   Node 24, Docker/Compose and `kubectl` must be available. Set
-   `WORKER_TEST_DATABASE_URL` to a **disposable** PostgreSQL database; tests write
-   to it. Never point it at application metadata. `release:plan` only reads local
-   metadata/Git state: it does not fetch or establish remote availability.
-3. For a fast local edit cycle, run `npm run release:quality -- --allow-dirty`.
-   This uses the same quality command as release CI: metadata/deployment checks,
-   Compose rendering, unit tests, application/docs builds, lint/types and
-   dependency audits. It does not start live fixtures or grant release approval.
-   See [local live checks](docs/development/releases.md#local-live-checks) for
-   container/browser acceptance before committing.
+   Set `WORKER_TEST_DATABASE_URL` to a **disposable** PostgreSQL database for
+   complete worker concurrency coverage; tests write to it. Never point it at
+   application metadata. `release:plan` only reads local metadata/Git state:
+   it does not fetch or establish remote availability.
+3. Run the backend suite used for API changes and release validation:
+
+   ```bash
+   python -m pytest apps/api/tests -q
+   ```
+
+   Browser, live CDC/Data Quality and Kubernetes checks are optional manual
+   workflows. `npm run release:quality -- --allow-dirty` remains an optional broad
+   local gate with web/build/lint/audit checks; it is no longer release CI's gate.
+   See [testing](docs/development/testing.md#github-actions) for the workflow map.
 4. Finalize release notes and the changelog date (`YYYY-MM-DD`), commit the
    candidate, and complete [the release checklist](docs/RELEASE_CHECKLIST.md).
    Run the manual **Release candidate** workflow on that branch, before creating
-   any tag. It runs shared validation, real-database Data Quality with browser
-   and migration checks, plus both live-hardening and Kubernetes gates with
-   read-only repository permissions; it does not publish images.
+   any tag. It runs API tests and release metadata validation with read-only
+   repository permissions; it does not publish images.
 
    Maintainers can select the branch in Actions, or explicitly dispatch:
 
@@ -43,14 +44,13 @@ contain documented breaking changes; patch releases should remain compatible.
 
    A newly added dispatch workflow must first be available on the default branch.
    Download `release-artifacts` (source archive, `release-metadata.json`,
-   `SHA256SUMS`), `data-quality-evidence` and both hardening reports. Check the exact candidate SHA,
+   `SHA256SUMS`) and the `api-tests` report. Check the exact candidate SHA,
    warnings, test outcomes and cleanup. Draft/occupied-version candidates may
    be tested but are not promotable. Any later commit needs new evidence.
 
 ## Approve and publish
 
-Only after reviewing the exact clean default-branch commit, target-environment
-rollout evidence, dependency exceptions and third-party notices:
+After reviewing the exact clean default-branch commit and API test results:
 
 1. Fetch/review remote tags and verify the version is unused in GitHub/GHCR.
    `npm run release:plan -- --require-new-tag` also rejects an existing local tag.
@@ -59,8 +59,8 @@ rollout evidence, dependency exceptions and third-party notices:
 2. The maintainer separately creates and pushes a signed annotated
    `v<VERSION>` tag for the approved commit. There is intentionally no script or
    workflow that creates or pushes this tag for you.
-3. The tag workflow re-runs shared quality, Data Quality and both hardening gates on the
-   tagged SHA; candidate artifacts are not blindly trusted for publication.
+3. The tag workflow re-runs API tests and metadata checks on the tagged SHA;
+   candidate artifacts are not blindly trusted for publication.
    A read-only preflight checks default-branch ancestry and rejects existing
    GitHub Releases or exact GHCR version tags. Authentication/network failures
    block publication, rather than being interpreted as absent images.

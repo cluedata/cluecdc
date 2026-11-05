@@ -33,6 +33,11 @@ test("admin manages an invited user and UI/API permissions track role and status
   }
 
   await signIn(page, request);
+  const adminSession = await (await request.get("/api/v1/session")).json();
+  expect(
+    adminSession.auth_mode,
+    "User role and session-revocation checks require AUTH_MODE=session",
+  ).toBe("session");
   let userId = "";
   let memberContext: BrowserContext | undefined;
   try {
@@ -78,10 +83,16 @@ test("admin manages an invited user and UI/API permissions track role and status
       .getByRole("button", { name: "Sign in", exact: true })
       .click();
     await expect(memberPage).toHaveURL(/\/overview$/);
+    const opsSession = await (
+      await memberContext.request.get("/api/v1/session")
+    ).json();
+    expect(opsSession.role).toBe("Ops");
     const memberNav = memberPage.getByRole("navigation", {
       name: "Main navigation",
     });
-    await expect(memberNav.getByRole("link", { name: "User" })).toHaveCount(0);
+    await expect(
+      memberNav.getByRole("link", { name: "User", exact: true }),
+    ).toHaveCount(0);
     expect((await memberContext.request.get("/api/v1/users")).status()).toBe(
       403,
     );
@@ -106,6 +117,13 @@ test("admin manages an invited user and UI/API permissions track role and status
       .getByRole("button", { name: "Sign in", exact: true })
       .click();
     await expect(memberPage).toHaveURL(/\/overview$/);
+    const viewerSession = await (
+      await memberContext.request.get("/api/v1/session")
+    ).json();
+    expect(viewerSession.role).toBe("Viewer");
+    await expect(
+      memberNav.getByRole("link", { name: "User", exact: true }),
+    ).toHaveCount(0);
 
     const pipelines = await (await request.get("/api/v1/pipelines")).json();
     expect(pipelines.length).toBeGreaterThan(0);

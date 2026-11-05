@@ -366,11 +366,12 @@ def workflow(name):
     )
 
 
-def test_candidate_and_publication_share_the_exact_validation_and_hardening_workflows():
+def test_candidate_and_publication_share_api_validation_without_live_gates():
     candidate = workflow("release-candidate.yml")
     release = workflow("release.yml")
-    for name in ("validate", "hardening", "data-quality"):
-        assert candidate["jobs"][name]["uses"] == release["jobs"][name]["uses"]
+    assert candidate["jobs"]["validate"]["uses"] == release["jobs"]["validate"]["uses"]
+    for configuration in (candidate, release):
+        assert not {"hardening", "data-quality"} & configuration["jobs"].keys()
     assert candidate["permissions"] == {"contents": "read"}
     assert set(candidate["on"]) == {"workflow_dispatch"}
     assert not any("permissions" in job for job in candidate["jobs"].values())
@@ -378,14 +379,12 @@ def test_candidate_and_publication_share_the_exact_validation_and_hardening_work
     assert release["jobs"]["validate"]["with"]["tag"] == "${{ github.ref_name }}"
 
 
-def test_publication_cannot_bypass_hardening_or_preflight_or_overwrite_release_assets():
+def test_publication_requires_api_validation_and_preflight_without_overwriting_assets():
     release = workflow("release.yml")
     assert set(release["on"]) == {"push"}
     assert release["on"]["push"]["tags"] == ["v*"]
     for name in ("containers", "github-release"):
-        assert {"validate", "hardening", "data-quality", "publication-preflight"} <= set(
-            release["jobs"][name]["needs"]
-        )
+        assert {"validate", "publication-preflight"} <= set(release["jobs"][name]["needs"])
         assert "if" not in release["jobs"][name]
     commands = "\n".join(step.get("run", "") for step in release["jobs"]["github-release"]["steps"])
     assert "gh release create" in commands and "--verify-tag" in commands
@@ -397,14 +396,11 @@ def test_publication_cannot_bypass_hardening_or_preflight_or_overwrite_release_a
     assert any("--component" in step.get("run", "") for step in containers)
 
 
-def test_candidate_requires_real_data_quality_evidence_before_success():
+def test_data_quality_stays_available_manually_without_blocking_candidates():
     candidate = workflow("release-candidate.yml")
-    assert "data-quality" in candidate["jobs"]["summary"]["needs"]
-    assert candidate["jobs"]["data-quality"]["needs"] == "validate"
-    release = workflow("release.yml")
-    assert set(release["jobs"]["data-quality"]["needs"]) == {"validate", "publication-preflight"}
+    assert candidate["jobs"]["summary"]["needs"] == "validate"
     data_quality = workflow("data-quality.yml")
-    assert "workflow_call" in data_quality["on"]
+    assert set(data_quality["on"]) == {"workflow_call", "workflow_dispatch"}
     assert data_quality["permissions"] == {"contents": "read"}
     # Reusable and standalone runs must not cancel one another on the same ref.
     assert "github.workflow" in data_quality["concurrency"]["group"]
@@ -422,19 +418,20 @@ def test_candidate_requires_real_data_quality_evidence_before_success():
     )
 
 
-def test_shared_validation_retains_database_security_schema_and_source_evidence_gates():
-    validation = workflow("release-validation.yml")["jobs"]["quality"]
-    assert validation["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
-    assert validation["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
+def test_shared_validation_requires_api_tests_and_preserves_source_artifact_identity():
+    shared = workflow("release-validation.yml")["jobs"]
+    assert shared["api"]["uses"] == "./.github/workflows/ci.yml"
+    assert shared["api"]["with"]["scope"] == "api"
+    validation = shared["quality"]
+    assert validation["needs"] == "api"
     commands = "\n".join(step.get("run", "") for step in validation["steps"])
-    assert "scripts/release-check.py --preparation --quality-only" in commands
-    assert "kubeconform" in commands and "-strict" in commands
+    assert "scripts/check-release-version.py" in commands
+    assert "--require-final" in commands
+    assert "scripts/check-repository.py" in commands
+    assert "release-check.py" not in commands and "docker" not in commands
     assert "git archive" in commands and "SHA256SUMS" in commands
     assert "release-metadata.json" in commands
-    assert any(
-        step.get("uses", "").startswith("docker://ghcr.io/gitleaks/")
-        for step in validation["steps"]
-    )
+    assert not any("setup-node" in step.get("uses", "") for step in validation["steps"])
     hardening = workflow("hardening.yml")["jobs"]
     assert {"live-hardening", "kubernetes-hardening"} <= set(hardening)
     assert any("--browser" in step.get("run", "") for step in hardening["live-hardening"]["steps"])

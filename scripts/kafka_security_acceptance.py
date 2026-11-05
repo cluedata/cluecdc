@@ -588,6 +588,7 @@ num.partitions=1
             api = ApiClient(
                 args.api_url, [password, certs["ssl_key_pem"], certs["ssl_ca_pem"]]
             )
+            api.authenticate(environment)
             api.request("/kafka/clusters")
             for container in (api_id, connect):
                 logs = docker("logs", container)

@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 
+@pytest.mark.parametrize("browser", [False, True])
 @pytest.mark.parametrize(
     ("scenario", "exit_code", "status", "cleanup"),
     [
@@ -24,13 +25,18 @@ import yaml
     ],
 )
 def test_gate_distinguishes_infrastructure_from_failures_and_preserves_unowned_resources(
-    monkeypatch, tmp_path, scenario, exit_code, status, cleanup
+    monkeypatch, tmp_path, scenario, exit_code, status, cleanup, browser
 ):
     """TEST-01/SEC-04: unavailable tools are not passes; only owned fixtures get cleanup."""
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / "scripts"))
     gate = importlib.import_module("hardening_acceptance")
     monkeypatch.setattr(gate, "ROOT", tmp_path)
-    monkeypatch.setattr(sys, "argv", ["hardening_acceptance.py"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["hardening_acceptance.py"]
+        + (["--browser", "--env-file", str(tmp_path / ".env")] if browser else []),
+    )
     monkeypatch.setattr(os, "environ", dict(os.environ))
     monkeypatch.setattr(
         gate,
@@ -66,6 +72,7 @@ def test_gate_distinguishes_infrastructure_from_failures_and_preserves_unowned_r
             web_url = f"http://localhost:{os.environ['CLUECDC_WEB_PORT']}"
             assert os.environ["PLAYWRIGHT_BASE_URL"] == web_url
             assert os.environ["PUBLIC_URL"] == web_url
+            assert os.environ["AUTH_MODE"] == ("session" if browser else "developer")
             in_progress = json.loads((tmp_path / "artifacts" / "hardening-gate.json").read_text())
             assert in_progress["status"] == "RUNNING"
             assert in_progress["stages"][0]["status"] == "RUNNING"
@@ -95,6 +102,7 @@ def test_gate_distinguishes_infrastructure_from_failures_and_preserves_unowned_r
     assert report.get("cleanup") == cleanup
     assert report["git_sha"] == "fixture-commit"
     assert report["dirty"] is False
+    assert report["auth_mode"] == ("session" if browser else "developer")
     teardown = [command for command in commands if "down" in command]
     assert bool(teardown) == (cleanup is not None)
     if teardown:

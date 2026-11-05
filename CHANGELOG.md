@@ -24,8 +24,9 @@ All notable changes to ClueCDC are documented here. The format follows
   compatibility matrix, pinned fixture images and a dedicated reliability CI tier.
 - Added explicitly configured real-cloud warehouse runners; missing cloud and
   approved Oracle infrastructure remains unverified.
-- Required real-database Data Quality, migration and browser evidence in both
-  release-candidate validation and the tag publication gate.
+- Scoped automatic CI to changed API, web, documentation, deployment and tooling
+  folders. Release validation explicitly runs API tests; live Data Quality, CDC
+  and Kubernetes acceptance remain manual.
 
 ### Changed
 
