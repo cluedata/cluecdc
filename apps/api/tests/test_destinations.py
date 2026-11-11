@@ -21,10 +21,25 @@ from app.models.entities import (
     SourceTable,
 )
 from app.schemas.requests import DeliveryInput
-from app.services.destinations.adapter import PostgresDestinationAdapter, supported_type
+from app.services.destinations.adapter import (
+    PostgresDestinationAdapter,
+    column_ddl_type,
+    supported_type,
+)
 from app.services.destinations.config import JDBC_CLASS
 from app.services.secrets import EncryptedDatabaseSecretProvider
 from tests.test_api import setup_pipeline
+
+
+def test_cross_provider_ddl_uses_validated_target_type_and_rejects_unsupported_mapping():
+    assert column_ddl_type({"type": "bytea", "destination_type": "longblob"}) == "longblob"
+    assert (
+        column_ddl_type({"type": "timestamp without time zone", "destination_type": "datetime(6)"})
+        == "datetime(6)"
+    )
+    assert column_ddl_type({"type": "text"}) == "text"
+    with pytest.raises(DomainError, match="safe destination type"):
+        column_ddl_type({"type": "geometry", "destination_type": None})
 
 
 async def test_auto_evolution_precreates_missing_required_column_as_nullable(monkeypatch):

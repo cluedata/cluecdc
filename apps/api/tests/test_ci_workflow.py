@@ -66,6 +66,24 @@ def test_automatic_ci_only_runs_selected_jobs_and_preserves_required_check():
     assert "npm run test:web" in web_commands
 
 
+def test_observability_ci_validates_overlay_and_builds_its_local_base_before_derived_image():
+    ci = workflow("ci.yml")
+    compose = "\n".join(step.get("run", "") for step in ci["jobs"]["compose"]["steps"])
+    overlay = "-f infrastructure/observability/compose.yaml config --quiet"
+    assert "-f compose.yaml -f compose.test.yaml " + overlay in compose
+    steps = ci["jobs"]["images"]["steps"]
+    base = next(s for s in steps if s.get("name") == "Build Connect base for observability")
+    derived = next(s for s in steps if s.get("name") == "Build observability Connect image")
+    assert steps.index(base) < steps.index(derived)
+    assert base["if"] == derived["if"] == "matrix.component == 'observability-connect'"
+    assert "--builder default" in base["run"] and "--builder default" in derived["run"]
+    assert "-t cluecdc-kafka-connect:latest" in base["run"]
+    assert "-f infrastructure/docker/observability-connect.Dockerfile" in derived["run"]
+    regular = next(s for s in steps if s.get("uses") == "docker/build-push-action@v7")
+    assert regular["if"] == "matrix.component != 'observability-connect'"
+    assert regular["with"]["push"] == "false"
+
+
 @pytest.mark.parametrize(
     "name",
     [

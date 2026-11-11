@@ -33,6 +33,8 @@ class AlertEvent:
             "connector": self.details.get("connector"),
             "task_id": self.details.get("task_id"),
         }
+        if self.event_type.startswith("CDC_") and self.details.get("observability_rule_id"):
+            identity["observability_rule_id"] = self.details["observability_rule_id"]
         encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 

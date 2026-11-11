@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-11T02:07:44.708523+00:00",
+  "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+  "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6",
+  "algorithm": "SHA256 of UTF-8 canonical JSON files list (sort_keys=True, separators=comma/colon); per-file SHA256 uses raw bytes",
+  "excluded_paths": [
+    "docs/development/v0.3.5-observability-acceptance.json",
+    "docs/development/v0.3.5-observability-implementation.md",
+    "docs/development/v0.3.5-observability-manifest.json"
+  ],
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "03e68151d0ce263a926796fe2ef3993e3169bb45419dd1ee34619766342724d4"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "282a94419ed605919e02daef5e1c672da8451cbc7cabad8e91d9a70d92f983b1"
+    },
+    {
+      "path": "apps/api/app/alerts/api.py",
+      "sha256": "0a5037319b04e155710e20a61c6ede53a0965fe4e9054a9cf9394280e03b7eb9"
+    },
+    {
+      "path": "apps/api/app/alerts/domain.py",
+      "sha256": "82de7d75f082e427f87aa3ebbb3293c5c945020d4bd379f79ff17c27fe48c5c4"
+    },
+    {
+      "path": "apps/api/app/alerts/manager.py",
+      "sha256": "7352407121a23309a39be6ba981bd95fa520b94bf97df9b08225190d679c5978"
+    },
+    {
+      "path": "apps/api/app/alerts/observability.py",
+      "sha256": "412562889d31f06cbea27d5f6e85b27991363eb91356b7bba4d25c5f0ae1dd92"
+    },
+    {
+      "path": "apps/api/app/alerts/rules.py",
+      "sha256": "865ce585954b7a755ae67431597c0dd3dd4998f380dfdbb8c937a13eb7c2f930"
+    },
+    {
+      "path": "apps/api/app/api/observability.py",
+      "sha256": "1ebc9db47f878cd22a2e08ce320383e0b09e26732733f7ccafe865c9f907042e"
+    },
+    {
+      "path": "apps/api/app/core/config.py",
+      "sha256": "04322dab3c77ff95682c11c2a41cb6ad57e3e355114e4fc2ff661d30f804cf55"
+    },
+    {
+      "path": "apps/api/app/main.py",
+      "sha256": "3af12b70d8ba96084524f258d43da1907953e1c82136e305b1591b6b40f31265"
+    },
+    {
+      "path": "apps/api/app/models/entities.py",
+      "sha256": "6eac74df83cbdb4f1e385eaf6c0c73c2b16ceac02c2ba91d005ed4b9233402b7"
+    },
+    {
+      "path": "apps/api/app/schemas/observability.py",
+      "sha256": "603f722fc46db0e1ef48056ed963d0630ba71e2502a1303dd081cb8dee6497fd"
+    },
+    {
+      "path": "apps/api/app/services/destinations/adapter.py",
+      "sha256": "b18bd8cde3dbd589f891c351686b831c662894f319a3bb0f4a56d0d1f6edf722"
+    },
+    {
+      "path": "apps/api/app/services/observability.py",
+      "sha256": "0ae0f26baa30b8c68b21928f5bbd3d5e7d3608ac29f13b32eba2bd42fc7d2773"
+    },
+    {
+      "path": "apps/api/app/services/observability_analysis.py",
+      "sha256": "07ed3dbb8f9d9a2fea6a0f0046c6aae39e60ab95ae125e045d8ce0fb41c78281"
+    },
+    {
+      "path": "apps/api/app/services/observability_prometheus.py",
+      "sha256": "de740e0fd708de18c456a674e72029f91ea7dc8026b6717af940f2df1d92f5b2"
+    },
+    {
+      "path": "apps/api/app/services/observability_providers.py",
+      "sha256": "91d0ece404eb7072edd93f1a0b02b2a1b1e816159400ea00bd344005df2a6ea9"
+    },
+    {
+      "path": "apps/api/app/services/pipeline.py",
+      "sha256": "88442c3f3fead68237394ccb882b86d92a48bddaab1841af60f5dc2b850d551c"
+    },
+    {
+      "path": "apps/api/app/services/pipeline_tables.py",
+      "sha256": "a2715e42d5116dbb59f559f9373ec8eb2a0036280efff497ba405dbae58450c2"
+    },
+    {
+      "path": "apps/api/app/services/snapshot_evidence.py",
+      "sha256": "caf288af75de2da0dad2236c5becf6cf3a7187e312b0c9bd6bbaf7cf81ee065e"
+    },
+    {
+      "path": "apps/api/app/worker.py",
+      "sha256": "f6a59fcf1acaea54338ca2f03f72601142262b4f8a7ecca46c052915704717ed"
+    },
+    {
+      "path": "apps/api/app/workers/observability.py",
+      "sha256": "bd397efaf854b6365a848744eae6058f036d8f92bbb45d4eebb65121d03d4a7e"
+    },
+    {
+      "path": "apps/api/migrations/versions/0016_observability.py",
+      "sha256": "6665a444984738ab03d35690a3b5c47abe6f1ab6e958f77cdf8897a47f7a3474"
+    },
+    {
+      "path": "apps/api/tests/test_destinations.py",
+      "sha256": "1c66dc2c13c164348155c5caa673fa4deeb019fc965cc517638811e6dcae0b6e"
+    },
+    {
+      "path": "apps/api/tests/test_observability.py",
+      "sha256": "472a2fbe564c38406d8f2cc9c35f263f85a67a6a84bf1fa2d95064bd1c4cf801"
+    },
+    {
+      "path": "apps/web/src/app/globals.css",
+      "sha256": "08263a8e71e557a195cda6fa810d1d7d4a74482d96e3270a3f90dcd98c7bfb1c"
+    },
+    {
+      "path": "apps/web/src/components/monitoring.tsx",
+      "sha256": "5e56a47dc0c424bc3dc6420c2cad20b8211da0e88b8c71d308d570d63b271a16"
+    },
+    {
+      "path": "apps/web/src/components/observability.tsx",
+      "sha256": "a13ef709e6dbdc44c98b22030fc1e5286286bd3650bdcb6767b61248ae366434"
+    },
+    {
+      "path": "apps/web/src/features/pipelines/components/pipeline-detail.tsx",
+      "sha256": "465d1905fa349ecfddc3063cce15ccab15c335f99ec6bfffe15c874cb0d23715"
+    },
+    {
+      "path": "apps/web/src/lib/observability.ts",
+      "sha256": "4ea7ae3177ad6e5f5902b49589951649a84c0f0ed2044573ee8b3757f7e413a7"
+    },
+    {
+      "path": "apps/web/tests/e2e/observability.spec.ts",
+      "sha256": "1396651ba73c6376faeda7b671676bf55e72f1470fb4ba8925df706912aabe9b"
+    },
+    {
+      "path": "apps/web/tests/observability.test.tsx",
+      "sha256": "50b16e9381bdd8112558cad6f58386824e41d6c21084b8e6735df3803d7e3cb9"
+    },
+    {
+      "path": "compose.yaml",
+      "sha256": "3be869658f675222263572aa086a5674f6457586502dc5b63ca2bae416ff80a7"
+    },
+    {
+      "path": "docs/features.md",
+      "sha256": "77bf6de426fd9c8a0b25390f2a7703b18efb9a673c0ea88f324b2bd17b2472f1"
+    },
+    {
+      "path": "docs/operations/monitoring.md",
+      "sha256": "67b7e06517763f5cc5bb40b0a475be2f4fecf87eeb1894baefe8a4490f9b473d"
+    },
+    {
+      "path": "infrastructure/docker/observability-connect.Dockerfile",
+      "sha256": "e87c35624f489fb3f8976cbf8965f10ab22171748f338e945feeec120f2a2ab9"
+    },
+    {
+      "path": "infrastructure/observability/compose.yaml",
+      "sha256": "f4bdb46478a559d677d1d789eb832b6728876999e77d1ca47066ba83e975b4e2"
+    },
+    {
+      "path": "infrastructure/observability/jmx-exporter.yaml",
+      "sha256": "451133e9d41bb72bea9016ee77af834f819b0e9c9905c35cf438859409a4ec75"
+    },
+    {
+      "path": "scripts/metadata_upgrade.py",
+      "sha256": "8f7943592e85f5312228e22b50545cd105a6418808b267c620a6ed37954933c5"
+    },
+    {
+      "path": "scripts/observability_acceptance.py",
+      "sha256": "6e025f8b286afe3047a5dddf7f70a9f3494933bfc41442b7b0250b9dec04cc4f"
+    },
+    {
+      "path": "scripts/observability_api_probe.py",
+      "sha256": "7dce3db0f3ccf22b2d04cbe9d525991ded09cf4f2a68a524d687adf7dbc8e55c"
+    },
+    {
+      "path": "scripts/observability_cross_provider.py",
+      "sha256": "89546e888395714ad6e4126f58d78feecfb71203b4108d5b36bd843da7cb6983"
+    },
+    {
+      "path": "scripts/observability_destination_probe.py",
+      "sha256": "27f22dcf79c4ef5bf833e5057e78a8d1eec9c32a04c1752b4b0de662216c251c"
+    },
+    {
+      "path": "scripts/observability_fixture.py",
+      "sha256": "b7e354db2fc800f1c95d3c16369c53227d5384c045b3cafb60ab58462482c61f"
+    },
+    {
+      "path": "scripts/observability_kafka_probe.py",
+      "sha256": "a93e4ea0434cff45a792e2409007cb83b47a14206ba689c64b8e9d0d422c6cef"
+    },
+    {
+      "path": "scripts/observability_live_verify.py",
+      "sha256": "cbe977c8e1b49a39f77c10f4e501618680e7c50a41ed9b7c96f04553b036d5ce"
+    },
+    {
+      "path": "scripts/observability_migrations.py",
+      "sha256": "1b286a181e5906c525d07d233b09be70764556b5e6288072c21624257933124f"
+    },
+    {
+      "path": "scripts/observability_resources.py",
+      "sha256": "f6156483c2f2a283f8e504cdd94d38626031359263e1cc783f14bdd5e9f13d66"
+    },
+    {
+      "path": "scripts/observability_snapshot_probe.py",
+      "sha256": "e4bcfaffe84c386081bddb03c5e27ae4d938302cb326a021ef4b1416ec71f2e6"
+    }
+  ],
+  "committed": false
+}

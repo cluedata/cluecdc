@@ -54,6 +54,8 @@ class AlertManager:
             active.status = "resolved"
             active.last_seen_at = observed_at
             active.resolved_at = observed_at
+            if event.details.get("observability_rule_id"):
+                active.details = event.details
             await self._enqueue(active, event, recovery=True)
             await self._refresh_active_metric(active.event_type, active.severity)
             log.info("alert_resolved", alert_id=str(active.id), event_type=active.event_type)

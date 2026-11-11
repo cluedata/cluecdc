@@ -735,6 +735,20 @@ tbody tr:hover {
   padding: 20px;
   min-width: 0;
 }
+.observability-details {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+.observability-details .panel-heading {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.observability-details details {
+  max-height: 360px;
+  overflow: auto;
+}
 .dashboard-grid,
 .detail-grid {
   display: grid;

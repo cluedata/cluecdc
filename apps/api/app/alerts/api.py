@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,15 @@ class RuleInput(BaseModel):
         "notify_every_occurrence", "notify_after_cooldown", "notify_first_occurrence_only"
     ] = "notify_after_cooldown"
     send_recovery: bool = True
+    config_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_observability_thresholds(self):
+        from app.alerts.observability import Thresholds
+
+        if "observability" in self.config_json:
+            Thresholds.model_validate(self.config_json["observability"])
+        return self
 
 
 class SilenceInput(BaseModel):
@@ -344,6 +353,8 @@ async def update_rule(
     rule = await get(db, AlertRule, identifier)
     before = serialize(rule)
     for key, value in data.model_dump(exclude={"channel_ids"}).items():
+        if key == "config_json" and key not in data.model_fields_set:
+            continue
         setattr(rule, key, value)
     await _replace_rule_channels(db, rule.id, data.channel_ids)
     audit(db, user.actor, "alert_rule.updated", rule, before)

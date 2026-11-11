@@ -70,6 +70,17 @@ class Settings(BaseSettings):
     reconcile_interval_seconds: int = 10
     infrastructure_health_interval_seconds: int = Field(default=30, ge=5, le=3600)
     worker_concurrency: int = Field(default=4, ge=1, le=32)
+    observability_enabled: bool = True
+    observability_interval_seconds: int = Field(default=60, ge=30, le=300)
+    observability_stale_seconds: int = Field(default=180, ge=60, le=3600)
+    observability_provider_timeout_seconds: float = Field(default=10, ge=1, le=10)
+    observability_budget_seconds: float = Field(default=25, ge=5, le=25)
+    observability_concurrency: int = Field(default=4, ge=1, le=4)
+    observability_retention_days: int = Field(default=7, ge=1, le=7)
+    # Administrator-owned mapping: Connect cluster UUID -> exhaustive worker exporter URLs.
+    # Never populated from request data. No URLs or labels are returned by observability APIs.
+    observability_exporters: dict[str, dict[str, str]] = Field(default_factory=dict)
+    observability_exporter_token: SecretStr | None = None
     job_lease_seconds: int = Field(default=300, ge=30, le=3600)
     job_max_attempts: int = Field(default=3, ge=1, le=20)
     job_retry_base_seconds: float = Field(default=2, ge=0.1, le=300)
@@ -89,6 +100,21 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":
+        for workers in self.observability_exporters.values():
+            if not workers or len(workers) > 32:
+                raise ValueError("Observability requires 1–32 explicitly trusted workers")
+            for endpoint in workers.values():
+                parsed = urlsplit(endpoint)
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or parsed.username
+                    or parsed.password
+                    or parsed.query
+                    or parsed.fragment
+                    or parsed.path != "/metrics"
+                ):
+                    raise ValueError("Invalid trusted observability exporter endpoint")
         if self.job_retry_max_seconds < self.job_retry_base_seconds:
             raise ValueError("JOB_RETRY_MAX_SECONDS must be at least JOB_RETRY_BASE_SECONDS")
         if self.auto_recovery_max_delay_seconds < self.auto_recovery_base_delay_seconds:

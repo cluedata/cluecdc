@@ -165,6 +165,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: docker compose --env-file .env.example config --quiet
       - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml config --quiet
+      - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml -f infrastructure/observability/compose.yaml config --quiet
       - run: docker compose -f infrastructure/tests/data-quality.compose.yaml config --quiet
 
   deployment:
@@ -233,7 +234,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+        if: matrix.component != 'observability-connect'
+      # The optional image inherits the repository's local Connect image. Use the
+      # same Docker builder for both so a clean runner needs no registry artifact.
+      - name: Build Connect base for observability
+        if: matrix.component == 'observability-connect'
+        run: docker build --builder default -f infrastructure/docker/connect.Dockerfile -t cluecdc-kafka-connect:latest .
+      - name: Build observability Connect image
+        if: matrix.component == 'observability-connect'
+        run: docker build --builder default -f infrastructure/docker/observability-connect.Dockerfile -t cluecdc-ci-observability-connect:check .
       - uses: docker/build-push-action@v7
+        if: matrix.component != 'observability-connect'
         with:
           context: .
           file: ${{ matrix.dockerfile }}

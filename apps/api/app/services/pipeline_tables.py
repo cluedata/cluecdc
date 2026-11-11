@@ -1012,9 +1012,18 @@ async def sync_snapshot_operations(session: AsyncSession) -> int:
             continue
         matching = [record for record in records if record.get("id") == signal_id]
         for record in matching:
+            from app.services.snapshot_evidence import accept_notification
+
+            at = accept_notification(table, record, str(operation.id))
+            if at is None:
+                continue
             event = record.get("type")
             details = record.get("additional_data") or {}
-            table.snapshot_last_activity_at = now()
+            table.snapshot_last_activity_at = at
+            operation.metadata_json = {
+                **operation.metadata_json,
+                "observability_notification": table.snapshot_observation_json,
+            }
             if event == "IN_PROGRESS":
                 table.snapshot_current_chunk = details.get("last_processed_key")
             elif event == "TABLE_SCAN_COMPLETED":

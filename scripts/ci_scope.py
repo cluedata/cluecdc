@@ -98,20 +98,27 @@ def classify(paths: list[str]) -> dict:
         elif path == "Dockerfile":
             images.add("web")
         elif path.startswith("infrastructure/connect/"):
-            images.add("connect")
+            images.update(("connect", "observability-connect"))
+        elif path == "infrastructure/observability/jmx-exporter.yaml":
+            images.add("observability-connect")
         elif path.startswith("infrastructure/docker/"):
             image = {
                 "api.Dockerfile": "api",
                 "connect.Dockerfile": "connect",
+                "observability-connect.Dockerfile": "observability-connect",
                 "minio-test.Dockerfile": "minio",
                 "commerce-generator.Dockerfile": "workload",
             }.get(name)
             if image:
                 images.add(image)
+                if image == "connect":
+                    images.add("observability-connect")
             else:
                 unknown.append(path)
         elif path == ".dockerignore":
-            images.update(("api", "web", "connect"))
+            images.update(("api", "web", "connect", "observability-connect"))
+        elif path == "infrastructure/observability/compose.yaml":
+            result["compose"] = True
         elif path.startswith(
             ("compose.", ".env", "infrastructure/tests/", ".github/compose.")
         ):
@@ -216,6 +223,7 @@ def main() -> None:
         "api": "infrastructure/docker/api.Dockerfile",
         "web": "Dockerfile",
         "connect": "infrastructure/docker/connect.Dockerfile",
+        "observability-connect": "infrastructure/docker/observability-connect.Dockerfile",
         "minio": "infrastructure/docker/minio-test.Dockerfile",
         "workload": "infrastructure/docker/commerce-generator.Dockerfile",
     }

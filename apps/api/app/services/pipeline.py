@@ -20,7 +20,6 @@ from app.models.entities import (
     PipelineTable,
     Source,
     SourceTable,
-    now,
 )
 from app.providers import get_provider
 from app.providers.server_ids import assign_mysql_connector_server_id
@@ -548,22 +547,40 @@ def _apply_initial_snapshot_notifications(
             current = details.get("current_collection_in_progress")
             for table in tables:
                 if not current or current.endswith(f"{table.schema_name}.{table.table_name}"):
+                    from app.services.snapshot_evidence import accept_notification
+
+                    at = accept_notification(table, record)
+                    if at is None:
+                        continue
                     table.snapshot_status = "RUNNING"
-                    table.snapshot_last_activity_at = now()
+                    table.snapshot_last_activity_at = at
+                    table.snapshot_started_at = table.snapshot_started_at or at
         elif event == "TABLE_SCAN_COMPLETED" and scanned:
             for table in tables:
                 if scanned.endswith(f"{table.schema_name}.{table.table_name}"):
+                    from app.services.snapshot_evidence import accept_notification
+
+                    at = accept_notification(table, record)
+                    if at is None:
+                        continue
                     table.snapshot_status = (
                         "COMPLETED" if details.get("status") in {"SUCCEEDED", "EMPTY"} else "FAILED"
                     )
                     rows = details.get("total_rows_scanned")
                     table.snapshot_rows_processed = int(str(rows)) if str(rows).isdigit() else None
-                    table.snapshot_finished_at = now()
+                    table.snapshot_finished_at = at
+                    table.snapshot_last_activity_at = at
         elif event == "COMPLETED":
             for table in tables:
                 if table.snapshot_status in {"PENDING", "RUNNING"}:
+                    from app.services.snapshot_evidence import accept_notification
+
+                    at = accept_notification(table, record)
+                    if at is None:
+                        continue
                     table.snapshot_status = "COMPLETED"
-                    table.snapshot_finished_at = now()
+                    table.snapshot_finished_at = at
+                    table.snapshot_last_activity_at = at
         elif event == "SKIPPED":
             # Debezium emits SKIPPED after finding an existing offset that
             # records a completed initial snapshot. This is the only reliable
@@ -571,8 +588,14 @@ def _apply_initial_snapshot_notifications(
             # before ClueCDC persisted per-table snapshot state.
             for table in tables:
                 if table.snapshot_status == "PENDING":
+                    from app.services.snapshot_evidence import accept_notification
+
+                    at = accept_notification(table, record)
+                    if at is None:
+                        continue
                     table.snapshot_status = "COMPLETED"
-                    table.snapshot_finished_at = now()
+                    table.snapshot_finished_at = at
+                    table.snapshot_last_activity_at = at
 
 
 async def operate(

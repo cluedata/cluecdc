@@ -5,6 +5,7 @@ import signal
 from app.core.database import engine
 from app.core.logging import configure_logging
 from app.worker_health import HEARTBEAT
+from app.workers.observability import collector_loop
 from app.workers.worker import worker_loop
 
 
@@ -23,9 +24,15 @@ async def main() -> None:
 
     task = asyncio.create_task(worker_loop())
     health = asyncio.create_task(heartbeat())
+    observations = asyncio.create_task(collector_loop())
     stopping = asyncio.create_task(stop.wait())
     try:
-        done, _ = await asyncio.wait((task, health, stopping), return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait(
+            (task, health, observations, stopping), return_when=asyncio.FIRST_COMPLETED
+        )
+        if observations in done:
+            await observations
+            raise RuntimeError("Observability scheduler stopped unexpectedly")
         if task in done:
             await task
             raise RuntimeError("Worker loop stopped unexpectedly")
@@ -35,8 +42,9 @@ async def main() -> None:
     finally:
         task.cancel()
         health.cancel()
+        observations.cancel()
         stopping.cancel()
-        await asyncio.gather(task, health, stopping, return_exceptions=True)
+        await asyncio.gather(task, health, observations, stopping, return_exceptions=True)
         HEARTBEAT.unlink(missing_ok=True)
         await engine.dispose()
 
