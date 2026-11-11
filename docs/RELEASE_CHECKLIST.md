@@ -9,9 +9,10 @@ manual checks separately; an API PASS does not establish UI or real CDC behavior
 
 - [ ] Candidate commit is reviewed and the working tree is clean
 - [ ] **CI checks** passes for the selected components; release API tests include PostgreSQL worker coverage
-- [ ] `release:plan` matches package, changelog, release notes and deployment images
+- [ ] `release:plan` matches package/lockfile, changelog, release notes and deployment images
 - [ ] Release notes are finalized and the changelog date is `YYYY-MM-DD`
 - [ ] `check-release-version.py --require-final` passes
+- [ ] `release.py plan --require-final` passes with all configured acceptance gates and a clean checkout
 - [ ] Release candidate workflow passes for the exact approved commit
 - [ ] Candidate source archive, metadata, checksums and API test report are reviewed
 - [ ] Version is unused locally, on GitHub and in GHCR; no existing tag is moved
@@ -20,8 +21,9 @@ manual checks separately; an API PASS does not establish UI or real CDC behavior
 
 ## Optional manual validation
 
-Select these workflows explicitly when relevant to a deployment. They do not
-block the API CI job or image/release publisher.
+Select these workflows explicitly when relevant to a deployment. They are not
+automatically executed by API CI or publication. Outcomes declared as mandatory
+in the release acceptance configuration still block publication until PASS.
 
 - [ ] Extended validation: frontend tests/build, lint/types, dependency/secret scans,
       Compose rendering and native image/runtime checks

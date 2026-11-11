@@ -92,7 +92,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        metadata = validate_metadata(tag=args.tag, require_final=True)
+        metadata = validate_metadata(
+            tag=args.tag, require_final=True, require_acceptance=True
+        )
         verify_available(
             os.environ.get("GITHUB_REPOSITORY", ""),
             metadata["tag"],

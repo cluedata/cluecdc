@@ -1,71 +1,73 @@
 # Releases
 
-ClueCDC follows Semantic Versioning. The `0.x` line may contain documented breaking changes in minor releases; patch releases should remain compatible.
+The canonical procedure is [RELEASES.md](https://github.com/cluedata/cluecdc/blob/main/RELEASES.md)
+and the [release checklist](../RELEASE_CHECKLIST.md).
 
-Release preparation updates versions and the changelog and validates the candidate
-with backend/API tests and release metadata checks. Live CDC, browser, migration,
-deployment and security acceptance remain optional manual validation. Maintainers
-create a signed annotated tag only from the reviewed default branch.
+## One validation path
 
-The process is in `RELEASES.md`; the authoritative verification checklist is
-[`docs/RELEASE_CHECKLIST.md`](../RELEASE_CHECKLIST.md). Pushing an approved
-`v*` tag runs `.github/workflows/release.yml`; preparation never creates the tag.
+Both the manual candidate and tag publisher call `release-validation.yml`.
+It has one validation job, with a disposable PostgreSQL service, instead of
+calling the general CI selector and creating unrelated skipped component jobs.
 
-## Candidate-first validation
+```text
+Candidate: validate → source/metadata/checksum artifacts (no publication)
+Tag:       validate → images (web, API/worker, Connect) → GitHub Release
+```
 
-Run `npm run release:plan` to inspect the package version, matching changelog,
-release notes, pinned deployment images, SHA and local tag conflicts. It does
-not fetch remote state or change files/tags. Use `python scripts/release.py plan
---json` for machine-readable output, or add `-- --require-new-tag` to the npm
-command to fail on a local tag conflict.
+Validation checks metadata and configured mandatory acceptance first. Publication
+also checks default-branch ancestry and authenticated GitHub/GHCR availability
+before installing test dependencies. API tests then run once and source artifacts
+are generated only after they pass. The service container initializes before
+steps; invalid metadata does not install dependencies or run tests/builds.
 
-The manual **Release candidate** workflow and tag-triggered publisher both use
-`release-validation.yml`. It calls the scoped CI workflow with `scope=api`,
-checks version/notes/changelog/image references, and archives the exact source SHA
-with metadata and checksums. Candidate runs have read-only repository permissions
-and no publishing jobs. Review `api-tests` and `release-artifacts` for that SHA.
+```bash
+python scripts/release.py plan
+python scripts/release.py plan --require-final
+```
 
-Browser, real Data Quality/CDC and Kubernetes hardening are optional manual
-workflows, not candidate or publication prerequisites. The former broad CI is
-available as **Extended validation (manual)**. No scheduled heavy suites run.
-Ordinary PR/push CI selects tests by changed folders. Release API success does
-not establish UI, end-to-end CDC or deployment behavior. Run
-additional suites explicitly when that evidence is needed for a deployment.
+The first command is preparation: it reports drafts, blocked acceptance, dirty
+state and tag conflicts. The second is the publication gate: metadata must be
+final, configured gates must all PASS and the checkout must be clean. Neither
+command fetches, edits files, creates tags or publishes. Add `--json` for structured
+results, including a BLOCKED error report when validation fails.
 
-Publication requires finalized notes/date, default-branch ancestry and a
-preflight that rejects existing releases/version images. The publisher does not
-edit releases or clobber assets. Prereleases are marked explicitly and do not
-advance stable aliases. Authentication failures block the preflight.
+`check-release-version.py --require-final` checks only version metadata. A dated
+changelog and prepared notes can pass while G13 remains BLOCKED. Publication
+always enforces configured acceptance, including during per-image retry preflight.
+Matrix records must contain each required gate exactly once; missing, duplicated,
+unknown or non-PASS results cannot publish. PASS records require evidence references.
+A record checker does not replace review of actual receipts/artifacts or final-SHA
+coverage. The current 0.3.5 notification gate is not marked PASS by this refactor.
 
-## Local live checks
+## Evidence and permissions
 
-Activate the prepared Python environment and install dependencies as described
-in `RELEASES.md`. Set `WORKER_TEST_DATABASE_URL` to an isolated PostgreSQL test
-database; the gate refuses to silently omit PostgreSQL coverage.
+Candidate validation is read-only and has no publishing jobs. Download `api-tests`
+and `release-artifacts` for the exact SHA. Metadata reports acceptance and warnings;
+a green candidate run is not publication approval. Live CDC, real Data Quality,
+browser and Kubernetes suites remain manual, with unavailable scenarios reported
+separately. Required acceptance evidence is not made optional by leaving those
+heavy suites outside the default workflow.
+
+The publisher adds package read permission only to validation, package write only
+to image jobs and repository write only to Release creation. Called workflows
+inherit caller permissions rather than elevating them. This follows
+[GitHub's reusable-workflow permission model](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+
+Existing immutable-release protections remain: remote errors fail closed,
+per-image attempts recheck availability, downloaded assets must match the tag/SHA
+and checksums, and publication does not overwrite existing Releases or assets.
+The signed-tag/maintainer approval step remains outside automation.
+
+## Local extended checks
+
+Use a disposable PostgreSQL database for `WORKER_TEST_DATABASE_URL`, never the
+application database. Optional broad checks remain available:
 
 ```bash
 npm run release:quality -- --allow-dirty
 python scripts/release-check.py --preparation --allow-dirty --browser --live-env-file <disposable-dotenv>
 ```
 
-Preparation works on any named branch, not one version-specific branch.
-The optional quality-only profile also works on a detached checkout. The second
-command builds local images and runs the isolated live core and
-browser gate; browser fixtures need an explicitly prepared disposable dotenv.
-Never supply production credentials. Docker/Compose must be usable.
-
-For a fast edit cycle only, `--skip-live --skip-docker` omits live gates and
-release image builds; Compose configuration still needs the Docker CLI.
-All skipping/dirty-tree flags require `--preparation`. Output identifies omitted
-checks and never claims release approval. Local checks do not replace live
-Kubernetes acceptance or target-environment rollout/network/operator review.
-
-Do not move an existing tag to include a fix. Select an unused version after
-maintainer review, rerun candidate checks, and approve that exact commit.
-Partial publication requires manual investigation, not an automatic rebuild.
-
-## Implementation references
-
-Workflow reuse follows [GitHub's reusable workflow model](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
-Registry existence checks use the [Distribution manifest HEAD API](https://distribution.github.io/distribution/spec/api/#existing-manifests),
-with [GHCR workflow authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Skipping checks requires preparation mode and never grants release approval.
+Do not modify a running installation to validate the release. The existing manual
+hardening, CDC, Data Quality and experimental-provider workflows remain available.

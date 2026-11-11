@@ -6,7 +6,7 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.3.5] - Unreleased
+## [0.3.5] - 2026-11-11
 
 ### Added
 
@@ -16,7 +16,7 @@ All notable changes to ClueCDC are documented here. The format follows
 - Added Monitoring and Pipeline Observability views with independent delivery,
   snapshot, freshness and missing-data states. Migration 0016 preserves legacy metrics.
 - Added disposable observability fixtures and upgrade/rollback evidence tooling.
-  v0.3.5 remains an unreleased candidate; consult the implementation report for gates.
+  Consult the readiness report for acceptance status and provider limitations.
 
 ### Fixed
 

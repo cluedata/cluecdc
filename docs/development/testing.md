@@ -32,9 +32,10 @@ implicit full-CI fallback.
 
 Manual **CI ? Run workflow** defaults to `scope=changes`, comparing the selected
 commit with its first parent, including merge commits. An operator may instead
-choose one component explicitly. Release candidates and release tags explicitly
-choose `scope=api`, preserving their API test gate and metadata/source artifacts
-without activating other scopes.
+choose one component explicitly. Release candidates and release tags share one
+dedicated validation job with metadata/acceptance checks, direct API tests and
+disposable PostgreSQL. They do not invoke the general CI selector or activate
+unrelated scopes. Publication requires all configured acceptance gates to PASS.
 
 API tests cover endpoint behavior, validation, authentication, RBAC and backend
 service/worker contracts. Real Data Quality providers remain opt-in. Browser,
@@ -53,9 +54,11 @@ PR/push or scheduled triggers:
 | Experimental source CDC acceptance | Optional MariaDB, SQL Server and MongoDB fixtures |
 | Documentation | Build and publish GitHub Pages on request |
 
-These workflows are not dependencies of the release publisher. Their scripts and
-local commands remain available. Workflow dispatches and publishing still require
-an explicit operator action; changing CI does not run them.
+These workflows are not automatically executed by the release publisher. Their
+scripts and local commands remain available. Configured mandatory acceptance
+outcomes are checked by `release.py plan --require-final` before publication;
+skipping a manual run does not turn a missing gate into PASS. Workflow dispatches
+and publishing still require an explicit operator action; changing CI does not run them.
 
 ## Fast checks
 
