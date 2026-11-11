@@ -31,8 +31,33 @@ from scripts import ci_scope
         (["scripts/commerce-workload/generate.py"], {"workload"}, []),
         (["infrastructure/docker/api.Dockerfile"], set(), ["api"]),
         (["Dockerfile"], set(), ["web"]),
-        (["infrastructure/connect/ClueDeliveryTransform.java"], set(), ["connect"]),
-        ([".dockerignore"], set(), ["api", "connect", "web"]),
+        (
+            ["infrastructure/connect/ClueDeliveryTransform.java"],
+            set(),
+            ["connect", "observability-connect"],
+        ),
+        (
+            ["infrastructure/docker/connect.Dockerfile"],
+            set(),
+            ["connect", "observability-connect"],
+        ),
+        (
+            ["infrastructure/docker/observability-connect.Dockerfile"],
+            set(),
+            ["observability-connect"],
+        ),
+        (["infrastructure/observability/jmx-exporter.yaml"], set(), ["observability-connect"]),
+        (["infrastructure/observability/compose.yaml"], {"compose"}, []),
+        (
+            [
+                "infrastructure/docker/observability-connect.Dockerfile",
+                "infrastructure/observability/compose.yaml",
+                "infrastructure/observability/jmx-exporter.yaml",
+            ],
+            {"compose"},
+            ["observability-connect"],
+        ),
+        ([".dockerignore"], set(), ["api", "connect", "observability-connect", "web"]),
         (["LICENSE", ".gitignore"], set(), []),
         (["apps/api/app/main.py", "apps/web/src/app/page.tsx"], {"api", "web"}, []),
         (["docs/index.md", ".github/workflows/docs.yml"], {"docs", "tooling", "workflows"}, []),
@@ -135,7 +160,16 @@ def test_manual_merge_commit_selects_merged_feature_without_unrelated_base_chang
     assert {name for name in ci_scope.SCOPES if result[name]} == {"web"}
 
 
-def test_workflow_outputs_encode_only_affected_image_targets(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "path,component",
+    [
+        ("Dockerfile", "web"),
+        ("infrastructure/docker/observability-connect.Dockerfile", "observability-connect"),
+    ],
+)
+def test_workflow_outputs_encode_only_affected_image_targets(
+    tmp_path, monkeypatch, path, component
+):
     event = tmp_path / "event.json"
     event.write_text("{}")
     output = tmp_path / "output"
@@ -147,12 +181,12 @@ def test_workflow_outputs_encode_only_affected_image_targets(tmp_path, monkeypat
         "GITHUB_STEP_SUMMARY": str(summary),
     }.items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setattr(ci_scope, "select", lambda *args: ci_scope.classify(["Dockerfile"]))
+    monkeypatch.setattr(ci_scope, "select", lambda *args: ci_scope.classify([path]))
     ci_scope.main()
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert values["api"] == values["web"] == "false"
     assert values["images"] == "true"
     assert json.loads(values["image_matrix"]) == {
-        "include": [{"component": "web", "dockerfile": "Dockerfile"}]
+        "include": [{"component": component, "dockerfile": path}]
     }
     assert "Selected CI scopes" in summary.read_text()
