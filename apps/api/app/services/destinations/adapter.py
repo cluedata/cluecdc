@@ -15,6 +15,15 @@ class DestinationAdapter(Protocol):
     async def drop_table(self, schema_name: str, table_name: str) -> None: ...
 
 
+def column_ddl_type(column: dict) -> str:
+    """Use the validated target mapping; older metadata has only a native type."""
+    if "destination_type" not in column:
+        return str(column["type"])
+    if not column["destination_type"]:
+        raise DomainError("DELIVERY_TYPE_UNSUPPORTED", "Column has no safe destination type", 422)
+    return str(column["destination_type"])
+
+
 def supported_type(value: str) -> bool:
     """Backward-compatible PostgreSQL check backed by the logical type registry."""
     return destination_type(parse_type("postgresql", value), "postgresql").compatibility != (
@@ -172,7 +181,7 @@ class PostgresDestinationAdapter:
                             await connection.execute(
                                 f"ALTER TABLE {self._quote(mapping.schema_name)}."
                                 f"{self._quote(mapping.table_name)} ADD COLUMN IF NOT EXISTS "
-                                f"{self._quote(column['name'])} {column['type']}"
+                                f"{self._quote(column['name'])} {column_ddl_type(column)}"
                             )
                 return
             # The JDBC plugin combines create/evolve. For create-only, provision once using
@@ -181,7 +190,7 @@ class PostgresDestinationAdapter:
                 for mapping in data.mappings:
                     table = metadata[mapping.topic]
                     fields = [
-                        f"{self._quote(column['name'])} {column['type']}"
+                        f"{self._quote(column['name'])} {column_ddl_type(column)}"
                         + (" NOT NULL" if not column["nullable"] else "")
                         for column in table["columns"]
                     ]
@@ -332,13 +341,13 @@ class MySQLDestinationAdapter:
                             if column["name"] not in existing:
                                 await cursor.execute(
                                     f"ALTER TABLE {qualified} ADD COLUMN "
-                                    f"{self.quote(column['name'])} {column['type']} NULL"
+                                    f"{self.quote(column['name'])} {column_ddl_type(column)} NULL"
                                 )
                     return
                 for mapping in data.mappings:
                     table = metadata[mapping.topic]
                     fields = [
-                        f"{self.quote(column['name'])} {column['type']}"
+                        f"{self.quote(column['name'])} {column_ddl_type(column)}"
                         + (" NOT NULL" if not column["nullable"] else "")
                         for column in table["columns"]
                     ]

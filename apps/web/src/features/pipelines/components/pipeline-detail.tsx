@@ -12,6 +12,7 @@ import {
 } from "@/components/common";
 import { DataFlow } from "@/components/data-flow";
 import { MetricCard } from "@/components/operational";
+import { PipelineObservability } from "@/components/observability";
 import { EventsExplorer } from "@/components/stream";
 import { derivePipelineHealth } from "@/domain/data-flow";
 import { api, date, number, post } from "@/lib/api";
@@ -356,6 +357,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
       <Tabs
         tabs={[
           "Overview",
+          "Observability",
           "Deliveries",
           "Tables",
           "Topics",
@@ -371,6 +373,7 @@ export function PipelineDetailPage({ id }: { id: string }) {
         active={tab}
         onChange={setTab}
       />
+      {tab === "Observability" && <PipelineObservability id={id} />}
       {tab === "Overview" && (
         <>
           <DataFlow

@@ -1,0 +1,53 @@
+# Debezium 3.3.2.Final / bundled Kafka Connect 4.1.0. Keep labels allowlisted.
+startDelaySeconds: 0
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+includeObjectNames:
+  - "debezium.postgres:type=connector-metrics,*"
+  - "debezium.mysql:type=connector-metrics,*"
+  - "kafka.connect:type=sink-task-metrics,*"
+rules:
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=streaming, server=([^,>]+)><>Connected(?=:)'
+    name: cluecdc_source_connected
+    type: GAUGE
+    labels: {provider: "$1", context: "streaming", server: "$2"}
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=streaming, server=([^,>]+)><>MilliSecondsSinceLastEvent(?=:)'
+    name: cluecdc_capture_event_age_ms
+    type: GAUGE
+    labels: {provider: "$1", context: "streaming", server: "$2"}
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=(streaming|snapshot), server=([^,>]+)><>MilliSecondsBehindSource(?=:)'
+    name: cluecdc_capture_lag_ms
+    type: GAUGE
+    labels: {provider: "$1", context: "$2", server: "$3"}
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=(streaming|snapshot), server=([^,>]+)><>TotalNumberOfEventsSeen(?=:)'
+    name: cluecdc_capture_events_total
+    type: COUNTER
+    labels: {provider: "$1", context: "$2", server: "$3"}
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=snapshot, server=([^,>]+)><>SnapshotRunning(?=:)'
+    name: cluecdc_snapshot_running
+    type: GAUGE
+    labels: {provider: "$1", context: "snapshot", server: "$2"}
+  - pattern: 'debezium\.(postgres|mysql)<type=connector-metrics, context=snapshot, server=([^,>]+)><>SnapshotPaused(?=:)'
+    name: cluecdc_snapshot_paused
+    type: GAUGE
+    labels: {provider: "$1", context: "snapshot", server: "$2"}
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,>]+), task=([0-9]+)><>sink-record-active-count(?=:)'
+    name: cluecdc_sink_active_count
+    type: GAUGE
+    labels: {connector: "$1", task: "$2"}
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,>]+), task=([0-9]+)><>sink-record-lag-max(?=:)'
+    name: cluecdc_sink_lag_max
+    type: GAUGE
+    labels: {connector: "$1", task: "$2"}
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,>]+), task=([0-9]+)><>sink-record-read-rate(?=:)'
+    name: cluecdc_sink_read_rate
+    type: GAUGE
+    labels: {connector: "$1", task: "$2"}
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,>]+), task=([0-9]+)><>sink-record-send-rate(?=:)'
+    name: cluecdc_sink_send_rate
+    type: GAUGE
+    labels: {connector: "$1", task: "$2"}
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,>]+), task=([0-9]+)><>offset-commit-completion-rate(?=:)'
+    name: cluecdc_sink_offset_commit_completion_rate
+    type: GAUGE
+    labels: {connector: "$1", task: "$2"}

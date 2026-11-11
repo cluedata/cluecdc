@@ -23,6 +23,7 @@ from app.api.auth import router as auth_router
 from app.api.connections import router as connection_router
 from app.api.data_quality import router as data_quality_router
 from app.api.destinations import router as destination_router
+from app.api.observability import router as observability_router
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.database import Session, engine, session_dependency
@@ -61,6 +62,7 @@ app.add_middleware(
     expose_headers=["X-Correlation-ID"],
 )
 app.include_router(router)
+app.include_router(observability_router)
 app.include_router(destination_router)
 app.include_router(connection_router)
 app.include_router(data_quality_router)
@@ -253,6 +255,8 @@ async def readiness():
 
 
 @app.get("/metrics", include_in_schema=False)
-async def metrics():
+async def metrics(db: Annotated[AsyncSession, Depends(session_dependency)]):
     # Metrics are on the private API port; no stream metrics are fabricated.
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    from app.services.observability_prometheus import render
+
+    return Response(generate_latest() + await render(db), media_type=CONTENT_TYPE_LATEST)

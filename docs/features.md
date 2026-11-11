@@ -22,6 +22,16 @@ implemented functionality.
 
 ## Pipelines and snapshots
 
+- [x] Cached, authenticated CDC evidence and seven-day bounded history APIs.
+- [x] Monitoring and Pipeline Observability views with independent delivery metrics,
+      partition coverage, provenance, confidence and explicit unavailable/stale states.
+- [x] Opt-in trusted PostgreSQL/MySQL Debezium and Connect JMX metrics; read-only
+      verified delivery group sampling. See [observability setup](operations/monitoring.md).
+- [x] Fenced collector leases, bucket idempotency, advisory diagnostics and explicit CDC alert rules.
+- [ ] Universally verified JDBC destination apply latency (no durable marker is available).
+- [ ] v0.3.5 production release approval; mandatory acceptance evidence is tracked in the
+      [implementation report](development/v0.3.5-observability-implementation.md).
+
 - [x] Pipeline creation across a selected source, Kafka cluster, and Connect cluster.
 - [x] Capture validation, topic preparation, and Debezium connector deployment.
 - [x] Pause, resume, connector restart, task restart, and explicit deletion.

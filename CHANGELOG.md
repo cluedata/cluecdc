@@ -6,6 +6,23 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Added cached CDC observations, typed evidence and bounded history APIs, targeted
+  read-only delivery backlog sampling, trusted Debezium/Connect JMX exporters,
+  fenced collection leases, advisory diagnostics and explicitly configured CDC alerts.
+- Added Monitoring and Pipeline Observability views with independent delivery,
+  snapshot, freshness and missing-data states. Migration 0016 preserves legacy metrics.
+- Added disposable observability fixtures and upgrade/rollback evidence tooling.
+  v0.3.5 remains an unreleased candidate; consult the implementation report for gates.
+
+### Fixed
+
+- Use mapped destination column types when preparing cross-provider PostgreSQL to
+  MySQL deliveries; preserve the native-type fallback for legacy column metadata.
+- Preserve configured CDC alert thresholds when older clients omit `config_json`
+  during rule updates, and evaluate capture intent independently of sink failures.
+
 ## [0.3.4] - 2026-11-03
 
 ### Added

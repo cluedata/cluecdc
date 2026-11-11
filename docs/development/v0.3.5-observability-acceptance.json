@@ -1,0 +1,256 @@
+[
+  {
+    "gate_id": "G01",
+    "scenario": "PostgreSQL to PostgreSQL CDC",
+    "expected_behavior": "Real snapshot/CRUD, attributable capture metrics and complete backlog",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/summary.json",
+      "artifacts/observability/final-live/observations.json",
+      "artifacts/observability/final-live/real-jmx.prom"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G02",
+    "scenario": "MySQL to MySQL CDC",
+    "expected_behavior": "Real snapshot/CRUD with independent source/sink attribution",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/summary.json",
+      "artifacts/observability/final-live/observations.json",
+      "artifacts/observability/final-live/real-jmx.prom"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G03",
+    "scenario": "PostgreSQL to MySQL CDC",
+    "expected_behavior": "Mapped destination DDL, exact CDC behavior and source/sink evidence",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/cross-provider/summary.json",
+      "artifacts/observability/final-live/cross-provider/observation.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G04",
+    "scenario": "Multiple independent deliveries",
+    "expected_behavior": "Distinct verified consumer groups, tasks and isolated evidence",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/observations.json",
+      "artifacts/observability/final-live/destination-outage.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G05",
+    "scenario": "Source outage and recovery",
+    "expected_behavior": "Unavailable/degraded evidence and explicit safe recovery",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/faults.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G06",
+    "scenario": "Kafka outage and recovery",
+    "expected_behavior": "No fabricated zero backlog or healthy signal",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/faults.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G07",
+    "scenario": "Independent destination outage",
+    "expected_behavior": "Failed task/degraded sink, healthy independent capture/deliveries, no false applied claim",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/destination-outage.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G08",
+    "scenario": "Idle source",
+    "expected_behavior": "At least five minutes and three samples without false stalled incident",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/idle.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G09",
+    "scenario": "Interrupted initial and incremental snapshots",
+    "expected_behavior": "Real progress/restart/durable completion and exact destination count/key digest",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/snapshots/initial/summary.json",
+      "artifacts/observability/final-live/snapshots/summary.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G10",
+    "scenario": "Exporter missing/unreachable",
+    "expected_behavior": "Capture unavailable, independent Kafka/metadata usable",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/exporter-missing.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G11",
+    "scenario": "Consumer rebalance/missing offsets/retained-prefix recovery",
+    "expected_behavior": "Safe incomplete/reset classification; no telemetry offset mutation or unknown-topic creation",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/kafka-probe.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G12",
+    "scenario": "Multiple collector workers",
+    "expected_behavior": "No duplicate buckets; database fencing, expiry and global concurrency ceiling",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/resources.json",
+      "artifacts/observability/final-live/postgres-tests.txt",
+      "artifacts/observability/checks/backend.xml"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G13",
+    "scenario": "Alerts: firing, deduplication, channel cooldown, loss and recovery",
+    "expected_behavior": "Three-sample firing, two-sample recovery, incident held during unknown telemetry and real eligible-channel delivery/cooldown",
+    "status": "BLOCKED",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/alerts.json",
+      "artifacts/observability/checks/backend.xml"
+    ],
+    "failure_reason": "Core incident lifecycle passed. Real notification delivery and cooldown NOT_RUN: no eligible public HTTPS test channel endpoint supplied; existing SSRF restrictions preserved.",
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G14",
+    "scenario": "Viewer/Ops/Admin authentication and redaction",
+    "expected_behavior": "Authorized reads, anonymous 401, non-Admin configuration 403, no credentials",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/rbac.json",
+      "artifacts/observability/checks/backend.xml"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G15",
+    "scenario": "Nonempty 0015 upgrade/rollback/reupgrade",
+    "expected_behavior": "All preexisting seeded hashes preserved and no Alembic drift",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/migrations.json"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G16",
+    "scenario": "CDC, Effective Row Key, recovery and all DQ regressions",
+    "expected_behavior": "Real CDC/key/restart behavior and all Data Quality rules pass",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/summary.json",
+      "artifacts/observability/final-live/cross-provider/summary.json",
+      "artifacts/observability/final-live/effective-key.json",
+      "artifacts/observability/final-live/recovery-tests.json",
+      "artifacts/observability/checks/backend.xml"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G17",
+    "scenario": "Real browser API/history/snapshot/unavailable states",
+    "expected_behavior": "Correct real persisted values, explicit gaps/missing states, light/dark/mobile without overflow",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/checks/browser-final.txt",
+      "artifacts/observability/browser/observability-light.png",
+      "artifacts/observability/browser/observability-dark.png",
+      "artifacts/observability/browser/observability-mobile.png"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  },
+  {
+    "gate_id": "G18",
+    "scenario": "Resources, bounds, timeout and cleanup",
+    "expected_behavior": "At most four leases, bounded history/retention, no poll jobs/audits and partial timeout safety",
+    "status": "PASS",
+    "execution_environment": "Owned Docker project cluecdc-reliability-9856fb80e8b0; Windows/Python 3.14; API/worker Python 3.12; G16 also owned cluecdc-obs-dq-9856fb80e8b0; G17 Chromium/Next production build",
+    "evidence_path": [
+      "artifacts/observability/final-live/resources.json",
+      "artifacts/observability/final-live/collector.prom",
+      "artifacts/observability/checks/backend.xml"
+    ],
+    "failure_reason": null,
+    "commit_sha": "d4a4abe69e3a00af1674da56661693012b22d6b7",
+    "working_tree_sha256": "5e5d343f5b84d6f3131fd2afecd78835024ab2e7b067e7c880a463f1560e92e6"
+  }
+]

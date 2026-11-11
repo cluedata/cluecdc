@@ -176,6 +176,7 @@ class PipelineTable(Entity, Base):
     snapshot_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     snapshot_last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     snapshot_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot_observation_json: Mapped[dict | None] = mapped_column(JSON)
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -392,8 +393,27 @@ class PipelineEvent(Entity, Base):
 
 class PipelineMetric(Entity, Base):
     __tablename__ = "pipeline_metrics"
+    __table_args__ = (
+        Index("ix_pipeline_metrics_history", "pipeline_id", "created_at"),
+        UniqueConstraint("pipeline_id", "sample_bucket", name="uq_observability_bucket"),
+    )
     pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id", ondelete="CASCADE"))
+    sample_bucket: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     values_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class ObservabilityCollectionState(Base):
+    __tablename__ = "observability_collection_state"
+    pipeline_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("pipelines.id", ondelete="CASCADE"), primary_key=True
+    )
+    next_due: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(100))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    latest_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    analysis_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class AlertRule(Entity, Base):

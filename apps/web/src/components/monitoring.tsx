@@ -18,6 +18,7 @@ import { api, number } from "@/lib/api";
 import { DataTable, ErrorPanel, Loading, PageHeader, Status } from "./common";
 import { MetricCard, Panel, QuietState } from "./operational";
 import { MetricsHistory } from "./overview";
+import { ObservabilityOverview } from "./observability";
 
 function failedTasks(c: Connector) {
   const runtime = c.runtime_json;
@@ -101,6 +102,7 @@ export function MonitoringPage() {
           />
         </div>
       )}
+      <ObservabilityOverview />
       <div className="dashboard-primary monitoring-panels">
         <Panel title="Capture health">
           {p.isPending ? (

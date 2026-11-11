@@ -1,0 +1,15 @@
+# Optional overlay. Bind metrics to loopback only; trusted internal workers use port 9404.
+# docker compose -f compose.yaml -f compose.test.yaml -f infrastructure/observability/compose.yaml ...
+services:
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/observability-connect.Dockerfile
+    ports:
+      - "127.0.0.1:${CLUECDC_EXPORTER_PORT:-9404}:9404"
+  cluecdc-api:
+    environment:
+      OBSERVABILITY_EXPORTERS: ${OBSERVABILITY_EXPORTERS:-{}}
+  cluecdc-worker:
+    environment:
+      OBSERVABILITY_EXPORTERS: ${OBSERVABILITY_EXPORTERS:-{}}
