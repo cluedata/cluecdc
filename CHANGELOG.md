@@ -6,6 +6,8 @@ All notable changes to ClueCDC are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.5] - Unreleased
+
 ### Added
 
 - Added cached CDC observations, typed evidence and bounded history APIs, targeted
