@@ -1,7 +1,26 @@
 # Release pipeline review
 
-Prepared on 2026-11-11. The source refactor is on `refactor/release-pipeline`.
-It does not publish or retag an existing release. v0.3.5 remains **BLOCKED on G13**.
+Prepared on 2026-11-11; policy updated on 2026-11-12 after the maintainer requested
+removing the G13 publication blocker. The refactor was merged through PR #21.
+No tag or publication is changed by this follow-up.
+
+## G13 advisory policy update
+
+The release declaration now requires 17 gates and lists G13 under
+`advisory_acceptance_gates`. Strict planning and all publication preflights enforce
+the required gates. The original G13 BLOCKED record and evidence remain unchanged:
+real external HTTPS delivery/cooldown has not been verified. CLI output, metadata,
+the workflow summary and release notes retain that limitation without stopping
+publication. Required failures and malformed/missing advisory records still fail.
+SSRF restrictions and remote publication protections are unchanged.
+
+Follow-up validation: 240 release/CI tests passed, including blocked advisory
+preflight, unchanged evidence and required failures remaining blocking. Ruff,
+actionlint, repository safety, offline lock validation and strict docs also passed.
+These are local checks, not a claim of successful remote publication.
+
+The following findings and validation results describe the original refactor,
+before this explicit policy update.
 
 ## Findings and changes
 
@@ -38,7 +57,8 @@ the final source; this parser does not certify that a referenced test ran.
 The declaration lives under `[tool.cluecdc.release]`. It remains configured across
 version bumps; gates are not silently removed by choosing another version.
 Historical releases without a declaration retain the metadata validator's legacy
-behavior. The current declaration requires all G01–G18; no recorded result changed.
+behavior. The original declaration required all G01–G18; the update above makes
+G13 advisory without changing any recorded result.
 
 ## Metadata finalization versus publication
 

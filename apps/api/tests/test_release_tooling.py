@@ -114,11 +114,16 @@ def test_draft_metadata_is_allowed_only_for_preparation(metadata, release_tree, 
         metadata.validate_metadata(release_tree, require_final=True)
 
 
-def configured_acceptance(root, status="PASS"):
+def configured_acceptance(root, status="PASS", *, advisory=False):
     project = root / "apps/api/pyproject.toml"
     project.write_text(
         project.read_text() + "\n[tool.cluecdc.release]\n"
-        'acceptance_matrix = "acceptance.json"\nrequired_acceptance_gates = ["G01", "G13"]\n'
+        'acceptance_matrix = "acceptance.json"\n'
+        + (
+            'required_acceptance_gates = ["G01"]\nadvisory_acceptance_gates = ["G13"]\n'
+            if advisory
+            else 'required_acceptance_gates = ["G01", "G13"]\n'
+        )
     )
     records = [
         {"gate_id": "G01", "status": "PASS", "evidence_path": ["evidence/cdc.json"]},
@@ -159,6 +164,49 @@ def test_complete_acceptance_can_pass_without_rewriting_evidence(metadata, relea
 def test_no_nonpassing_acceptance_state_can_publish(metadata, release_tree, status):
     configured_acceptance(release_tree, status)
     with pytest.raises(ValueError, match=f"G13: {status}"):
+        metadata.validate_metadata(release_tree, require_acceptance=True)
+
+
+@pytest.mark.parametrize("status", ["PASS", "FAIL", "BLOCKED", "NOT_RUN"])
+def test_advisory_acceptance_is_reported_without_blocking(metadata, release_tree, status):
+    configured_acceptance(release_tree, status, advisory=True)
+    matrix = release_tree / "acceptance.json"
+    before = matrix.read_bytes()
+    result = metadata.validate_metadata(release_tree, require_final=True, require_acceptance=True)
+    acceptance = result["acceptance"]
+    assert acceptance["status"] == "PASS" and acceptance["blockers"] == []
+    assert acceptance["gates"] == [{"gate_id": "G01", "status": "PASS"}]
+    assert acceptance["advisory"][0]["gate_id"] == "G13"
+    assert acceptance["advisory"][0]["status"] == status
+    assert matrix.read_bytes() == before
+
+
+def test_advisory_exception_does_not_disable_required_acceptance(metadata, release_tree):
+    records = configured_acceptance(release_tree, "BLOCKED", advisory=True)
+    records[0]["status"] = "FAIL"
+    (release_tree / "acceptance.json").write_text(json.dumps(records))
+    with pytest.raises(ValueError, match="G01: FAIL"):
+        metadata.validate_metadata(release_tree, require_acceptance=True)
+
+
+@pytest.mark.parametrize("advisory", [None, "G13", [""], [13], ["G13", "G13"], ["G01"]])
+def test_invalid_advisory_configuration_is_rejected(metadata, release_tree, advisory):
+    configured_acceptance(release_tree, "BLOCKED", advisory=True)
+    with pytest.raises(ValueError, match="Advisory acceptance gates"):
+        metadata.acceptance_status(
+            release_tree,
+            {
+                "acceptance_matrix": "acceptance.json",
+                "required_acceptance_gates": ["G01"],
+                "advisory_acceptance_gates": advisory,
+            },
+        )
+
+
+def test_advisory_record_must_still_exist(metadata, release_tree):
+    records = configured_acceptance(release_tree, "BLOCKED", advisory=True)
+    (release_tree / "acceptance.json").write_text(json.dumps(records[:1]))
+    with pytest.raises(ValueError, match="missing=\\['G13'\\]"):
         metadata.validate_metadata(release_tree, require_acceptance=True)
 
 
@@ -226,6 +274,22 @@ def test_publication_rechecks_acceptance_before_network(publication, release_tre
     with pytest.raises(SystemExit) as error:
         publication.main()
     assert error.value.code == 1
+
+
+def test_publication_preflight_proceeds_with_blocked_advisory(
+    metadata, publication, release_tree, monkeypatch
+):
+    configured_acceptance(release_tree, "BLOCKED", advisory=True)
+    monkeypatch.setattr(
+        publication,
+        "validate_metadata",
+        lambda **kwargs: metadata.validate_metadata(release_tree, **kwargs),
+    )
+    calls = []
+    monkeypatch.setattr(publication, "verify_available", lambda *args: calls.append(args))
+    monkeypatch.setattr(sys, "argv", ["check_release_publication.py", "--tag", "v1.2.3"])
+    assert publication.main() == 0
+    assert len(calls) == 1 and calls[0][1:3] == ("v1.2.3", "1.2.3")
 
 
 def test_strict_plan_reports_json_blocker_before_git_access(
@@ -329,12 +393,20 @@ def test_current_tag_is_expected_in_publication_validation(metadata, release_tre
     assert result["new_local_tag_available"] is False
 
 
-def test_repository_release_configuration_keeps_all_observability_gates():
+def test_repository_release_configuration_reports_g13_as_advisory(metadata):
     project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text())
     settings = project["tool"]["cluecdc"]["release"]
-    assert settings["required_acceptance_gates"] == [f"G{i:02d}" for i in range(1, 19)]
+    assert settings["required_acceptance_gates"] == [f"G{i:02d}" for i in range(1, 19) if i != 13]
+    assert settings["advisory_acceptance_gates"] == ["G13"]
     matrix = json.loads((ROOT / settings["acceptance_matrix"]).read_text())
-    assert {row["gate_id"] for row in matrix} == set(settings["required_acceptance_gates"])
+    assert {row["gate_id"] for row in matrix} == set(settings["required_acceptance_gates"]) | {
+        "G13"
+    }
+    result = metadata.validate_metadata(
+        ROOT, tag="v0.3.5", require_final=True, require_acceptance=True
+    )
+    assert result["acceptance"]["status"] == "PASS"
+    assert result["acceptance"]["advisory"][0]["status"] == "BLOCKED"
 
 
 @pytest.mark.parametrize(

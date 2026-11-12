@@ -27,15 +27,18 @@ python scripts/release.py plan --require-final
 
 The first command is preparation: it reports drafts, blocked acceptance, dirty
 state and tag conflicts. The second is the publication gate: metadata must be
-final, configured gates must all PASS and the checkout must be clean. Neither
+final, required gates must all PASS and the checkout must be clean. Neither
 command fetches, edits files, creates tags or publishes. Add `--json` for structured
 results, including a BLOCKED error report when validation fails.
 
 `check-release-version.py --require-final` checks only version metadata. A dated
 changelog and prepared notes can pass while G13 remains BLOCKED. Publication
-always enforces configured acceptance, including during per-image retry preflight.
-Matrix records must contain each required gate exactly once; missing, duplicated,
-unknown or non-PASS results cannot publish. PASS records require evidence references.
+enforces required acceptance, including during per-image retry preflight. For
+v0.3.5 the maintainer explicitly made G13 advisory: its actual BLOCKED status is
+reported in metadata, CLI output and the workflow summary without stopping release.
+Matrix records must contain each required and advisory gate exactly once; missing,
+duplicated or unknown records fail validation. Required non-PASS results cannot
+publish. PASS records require evidence references.
 A record checker does not replace review of actual receipts/artifacts or final-SHA
 coverage. The current 0.3.5 notification gate is not marked PASS by this refactor.
 

@@ -33,9 +33,13 @@ command; it is not the complete publication gate.
 
 Mandatory acceptance is declared under `[tool.cluecdc.release]` in the package
 metadata. A configured matrix must include every required gate exactly once, with
-valid statuses and evidence references for PASS records. Every non-PASS state
-blocks publication. Do not remove a required gate or change its result without
-actual execution evidence. Bumping the version does not remove this declaration.
+valid statuses and evidence references for PASS records. Every required non-PASS
+state blocks publication. Explicitly declared `advisory_acceptance_gates` remain
+visible in metadata and summaries without blocking publication. For v0.3.5, G13
+is advisory at the maintainer's request: real HTTPS notification delivery/cooldown
+remains unverified. Keep that limitation in the release notes; never mark the
+record PASS without actual execution evidence. Bumping the version does not
+remove this declaration.
 The checker validates records; maintainers still review the evidence and its
 relationship to the final candidate SHA.
 

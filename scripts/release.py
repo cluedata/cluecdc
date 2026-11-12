@@ -44,6 +44,10 @@ def main() -> int:
         print(f"Acceptance: {candidate['acceptance']['status']}")
         for blocker in candidate["acceptance"]["blockers"]:
             print(f"BLOCKED: {blocker}")
+        for gate in candidate["acceptance"].get("advisory", []):
+            print(
+                f"ADVISORY: {gate['gate_id']}: {gate['status']} - {gate['reason'] or ''}"
+            )
         for image in candidate["images"]:
             print(f"Planned image (not published): {image}")
         for warning in candidate["warnings"]:
