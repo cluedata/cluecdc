@@ -15,22 +15,3 @@ concurrency:
 jobs:
   validate:
     uses: ./.github/workflows/release-validation.yml
-
-  summary:
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Summarize candidate evidence, not release approval
-        env:
-          VERSION: ${{ needs.validate.outputs.version }}
-          CANDIDATE_SHA: ${{ needs.validate.outputs.git-sha }}
-        run: |
-          {
-            echo "## Candidate v${VERSION} validated"
-            echo "Commit: ${CANDIDATE_SHA}"
-            echo "Backend/API tests and release metadata validation passed."
-            echo "Download release-artifacts and api-tests from this run. Extended validation is manual."
-            echo "Draft metadata or an existing version tag still blocks promotion; review release-metadata.json."
-            echo "Browser, CDC and Kubernetes acceptance were not run by this workflow. Maintainer approval is still required."
-            echo "No tag, container image or GitHub Release was published."
-          } >> "$GITHUB_STEP_SUMMARY"

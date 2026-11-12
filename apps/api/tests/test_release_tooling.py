@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
@@ -25,6 +26,7 @@ def metadata(monkeypatch):
 def release_tree(tmp_path):
     files = {
         "apps/api/pyproject.toml": '[project]\nversion = "1.2.3"\n',
+        "apps/api/uv.lock": '[[package]]\nname = "cluecdc-api"\nversion = "1.2.3"\n',
         "CHANGELOG.md": "# Changelog\n\n## [1.2.3] - 2026-10-15\n",
         "docs/releases/v1.2.3.md": "# ClueCDC v1.2.3\n\nReviewed release notes.\n",
     }
@@ -81,6 +83,7 @@ def test_metadata_accepts_release_name_suffix(metadata, release_tree):
     [
         ("CHANGELOG.md", "Text mentioning ## [1.2.3] - 2026-10-15\n"),
         ("CHANGELOG.md", "## [1.2.3] - 2026-10-15\n## [1.2.3] - Unreleased\n"),
+        ("apps/api/uv.lock", '[[package]]\nname = "cluecdc-api"\nversion = "1.2.2"\n'),
         ("docs/releases/v1.2.3.md", "# ClueCDC v1.2.4\n"),
         ("deploy/kubernetes/worker.yaml", "image: ghcr.io/cluedata/cluecdc-api:1.2.2\n"),
         (
@@ -109,6 +112,149 @@ def test_draft_metadata_is_allowed_only_for_preparation(metadata, release_tree, 
     assert len(metadata.validate_metadata(release_tree)["warnings"]) == 2
     with pytest.raises(ValueError, match="not final"):
         metadata.validate_metadata(release_tree, require_final=True)
+
+
+def configured_acceptance(root, status="PASS"):
+    project = root / "apps/api/pyproject.toml"
+    project.write_text(
+        project.read_text() + "\n[tool.cluecdc.release]\n"
+        'acceptance_matrix = "acceptance.json"\nrequired_acceptance_gates = ["G01", "G13"]\n'
+    )
+    records = [
+        {"gate_id": "G01", "status": "PASS", "evidence_path": ["evidence/cdc.json"]},
+        {
+            "gate_id": "G13",
+            "status": status,
+            "evidence_path": ["evidence/notification.json"],
+            "failure_reason": "Real authorized HTTPS delivery receipts missing"
+            if status != "PASS"
+            else None,
+        },
+    ]
+    (root / "acceptance.json").write_text(json.dumps(records))
+    return records
+
+
+def test_finalized_metadata_and_completed_acceptance_are_distinct(metadata, release_tree):
+    configured_acceptance(release_tree, "BLOCKED")
+    result = metadata.validate_metadata(release_tree, require_final=True)
+    assert result["metadata_final"] and result["warnings"] == []
+    assert result["acceptance"]["status"] == "BLOCKED"
+    with pytest.raises(ValueError, match="G13: BLOCKED.*receipts missing"):
+        metadata.validate_metadata(release_tree, require_final=True, require_acceptance=True)
+    with pytest.raises(ValueError, match="G13: BLOCKED"):
+        metadata.inspect_candidate(release_tree, require_final=True)
+
+
+def test_complete_acceptance_can_pass_without_rewriting_evidence(metadata, release_tree):
+    configured_acceptance(release_tree)
+    before = (release_tree / "acceptance.json").read_bytes()
+    result = metadata.validate_metadata(release_tree, require_final=True, require_acceptance=True)
+    assert result["acceptance"]["status"] == "PASS"
+    assert result["acceptance"]["blockers"] == []
+    assert (release_tree / "acceptance.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("status", ["FAIL", "BLOCKED", "NOT_RUN"])
+def test_no_nonpassing_acceptance_state_can_publish(metadata, release_tree, status):
+    configured_acceptance(release_tree, status)
+    with pytest.raises(ValueError, match=f"G13: {status}"):
+        metadata.validate_metadata(release_tree, require_acceptance=True)
+
+
+@pytest.mark.parametrize(
+    "problem",
+    ["missing", "duplicate", "unexpected", "unknown_status", "no_evidence", "invalid_list"],
+)
+def test_malformed_or_incomplete_acceptance_is_rejected(metadata, release_tree, problem):
+    records = configured_acceptance(release_tree)
+    if problem == "missing":
+        records.pop()
+    elif problem == "duplicate":
+        records.append(records[0])
+    elif problem == "unexpected":
+        records.append({**records[0], "gate_id": "G99"})
+    elif problem == "unknown_status":
+        records[1]["status"] = "SKIPPED"
+    elif problem == "no_evidence":
+        records[1]["evidence_path"] = []
+    else:
+        records = {"G13": "PASS"}
+    (release_tree / "acceptance.json").write_text(json.dumps(records))
+    with pytest.raises(ValueError):
+        metadata.validate_metadata(release_tree)
+
+
+def test_configured_matrix_cannot_disappear_or_escape_repository(metadata, release_tree):
+    configured_acceptance(release_tree)
+    (release_tree / "acceptance.json").unlink()
+    with pytest.raises(FileNotFoundError):
+        metadata.validate_metadata(release_tree)
+    with pytest.raises(ValueError, match="inside the repository"):
+        metadata.acceptance_status(
+            release_tree,
+            {"acceptance_matrix": "../outside.json", "required_acceptance_gates": ["G13"]},
+        )
+
+
+def test_legacy_releases_without_configured_gates_remain_valid(metadata, release_tree):
+    result = metadata.validate_metadata(release_tree, require_final=True, require_acceptance=True)
+    assert result["acceptance"]["status"] == "NOT_REQUIRED"
+
+
+@pytest.mark.parametrize("configuration", [False, "", [], None])
+def test_invalid_configuration_cannot_disable_acceptance(metadata, release_tree, configuration):
+    with pytest.raises(ValueError, match="must be a table"):
+        metadata.acceptance_status(release_tree, configuration)
+
+
+def test_publication_rechecks_acceptance_before_network(publication, release_tree, monkeypatch):
+    configured_acceptance(release_tree, "BLOCKED")
+    monkeypatch.setattr(
+        publication,
+        "validate_metadata",
+        lambda **kwargs: importlib.import_module("release_metadata").validate_metadata(
+            release_tree, **kwargs
+        ),
+    )
+    monkeypatch.setattr(
+        publication,
+        "verify_available",
+        lambda *args: pytest.fail("No registry request while G13 is blocked"),
+    )
+    monkeypatch.setattr(sys, "argv", ["check_release_publication.py", "--tag", "v1.2.3"])
+    with pytest.raises(SystemExit) as error:
+        publication.main()
+    assert error.value.code == 1
+
+
+def test_strict_plan_reports_json_blocker_before_git_access(
+    metadata, release_tree, monkeypatch, capsys
+):
+    configured_acceptance(release_tree, "BLOCKED")
+    spec = importlib.util.spec_from_file_location(
+        "strict_release_plan_test", ROOT / "scripts/release.py"
+    )
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    monkeypatch.setattr(
+        cli,
+        "inspect_candidate",
+        lambda **kwargs: metadata.inspect_candidate(release_tree, **kwargs),
+    )
+    monkeypatch.setattr(
+        metadata,
+        "git_output",
+        lambda *args: pytest.fail("Acceptance must fail before Git inspection"),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["release.py", "plan", "--tag", "v1.2.3", "--require-final", "--json"]
+    )
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "BLOCKED" and "G13: BLOCKED" in result["error"]
 
 
 @pytest.mark.parametrize("tag_exists,dirty", [(False, False), (True, False), (True, True)])
@@ -151,6 +297,46 @@ def test_git_failure_is_not_treated_as_an_available_tag(metadata, release_tree, 
         metadata.inspect_candidate(release_tree)
 
 
+def test_strict_plan_refuses_dirty_source_after_acceptance_passes(
+    metadata, release_tree, monkeypatch
+):
+    configured_acceptance(release_tree)
+    monkeypatch.setattr(
+        metadata.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1)
+    )
+    monkeypatch.setattr(
+        metadata,
+        "git_output",
+        lambda root, *args: " M changed.py" if args[0] == "status" else "fixture-sha",
+    )
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        metadata.inspect_candidate(release_tree, require_final=True)
+
+
+def test_current_tag_is_expected_in_publication_validation(metadata, release_tree, monkeypatch):
+    configured_acceptance(release_tree)
+    monkeypatch.setattr(
+        metadata.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0)
+    )
+    monkeypatch.setattr(
+        metadata,
+        "git_output",
+        lambda root, *args: "" if args[0] in {"status", "branch"} else "fixture-sha",
+    )
+    result = metadata.inspect_candidate(release_tree, tag="v1.2.3", require_final=True)
+    assert result["warnings"] == []
+    assert result["local_tag_target"] == result["git_sha"]
+    assert result["new_local_tag_available"] is False
+
+
+def test_repository_release_configuration_keeps_all_observability_gates():
+    project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text())
+    settings = project["tool"]["cluecdc"]["release"]
+    assert settings["required_acceptance_gates"] == [f"G{i:02d}" for i in range(1, 19)]
+    matrix = json.loads((ROOT / settings["acceptance_matrix"]).read_text())
+    assert {row["gate_id"] for row in matrix} == set(settings["required_acceptance_gates"])
+
+
 @pytest.mark.parametrize(
     "require_new,available,exit_code", [(False, False, 0), (True, False, 1), (True, True, 0)]
 )
@@ -161,7 +347,7 @@ def test_plan_json_and_strict_tag_availability_exit_code(
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)
     candidate = {"new_local_tag_available": available, "git_sha": "fixture-sha"}
-    monkeypatch.setattr(cli, "inspect_candidate", lambda: candidate)
+    monkeypatch.setattr(cli, "inspect_candidate", lambda **kwargs: candidate)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -383,8 +569,11 @@ def test_publication_requires_api_validation_and_preflight_without_overwriting_a
     release = workflow("release.yml")
     assert set(release["on"]) == {"push"}
     assert release["on"]["push"]["tags"] == ["v*"]
+    assert set(release["jobs"]) == {"validate", "containers", "github-release"}
+    assert release["jobs"]["containers"]["needs"] == "validate"
+    assert set(release["jobs"]["github-release"]["needs"]) == {"validate", "containers"}
+    assert release["jobs"]["validate"]["permissions"] == {"contents": "read", "packages": "read"}
     for name in ("containers", "github-release"):
-        assert {"validate", "publication-preflight"} <= set(release["jobs"][name]["needs"])
         assert "if" not in release["jobs"][name]
     commands = "\n".join(step.get("run", "") for step in release["jobs"]["github-release"]["steps"])
     assert "gh release create" in commands and "--verify-tag" in commands
@@ -398,7 +587,7 @@ def test_publication_requires_api_validation_and_preflight_without_overwriting_a
 
 def test_data_quality_stays_available_manually_without_blocking_candidates():
     candidate = workflow("release-candidate.yml")
-    assert candidate["jobs"]["summary"]["needs"] == "validate"
+    assert set(candidate["jobs"]) == {"validate"}
     data_quality = workflow("data-quality.yml")
     assert set(data_quality["on"]) == {"workflow_call", "workflow_dispatch"}
     assert data_quality["permissions"] == {"contents": "read"}
@@ -420,17 +609,31 @@ def test_data_quality_stays_available_manually_without_blocking_candidates():
 
 def test_shared_validation_requires_api_tests_and_preserves_source_artifact_identity():
     shared = workflow("release-validation.yml")["jobs"]
-    assert shared["api"]["uses"] == "./.github/workflows/ci.yml"
-    assert shared["api"]["with"]["scope"] == "api"
+    assert set(shared) == {"quality"}  # No nested CI selector or skipped component jobs.
     validation = shared["quality"]
-    assert validation["needs"] == "api"
+    assert validation["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
+    assert validation["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
+    steps = validation["steps"]
+    names = [step.get("name") for step in steps]
+    metadata = names.index("Validate metadata and acceptance before installing test dependencies")
+    preflight = names.index("Publication preflight before tests or builds")
+    install = names.index("Install API test dependencies")
+    tests = names.index("Test backend APIs, migrations and native PostgreSQL worker contracts")
+    assert metadata < preflight < install < tests
+    assert steps[preflight]["if"] == "inputs.require-final"
+    assert "git merge-base --is-ancestor" in steps[preflight]["run"]
+    assert "check_release_publication.py" in steps[preflight]["run"]
+    assert "pytest apps/api/tests" in steps[tests]["run"]
+    assert "--junitxml=artifacts/api-tests.xml" in steps[tests]["run"]
     commands = "\n".join(step.get("run", "") for step in validation["steps"])
-    assert "scripts/check-release-version.py" in commands
+    assert commands.count("python scripts/release.py") == 1
     assert "--require-final" in commands
     assert "scripts/check-repository.py" in commands
     assert "release-check.py" not in commands and "docker" not in commands
     assert "git archive" in commands and "SHA256SUMS" in commands
     assert "release-metadata.json" in commands
+    reports = [s for s in steps if s.get("with", {}).get("name") == "api-tests"]
+    assert len(reports) == 1 and reports[0]["if"] == "always()"
     assert not any("setup-node" in step.get("uses", "") for step in validation["steps"])
     hardening = workflow("hardening.yml")["jobs"]
     assert {"live-hardening", "kubernetes-hardening"} <= set(hardening)

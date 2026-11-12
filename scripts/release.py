@@ -11,6 +11,12 @@ from release_metadata import inspect_candidate
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["plan"])
+    parser.add_argument("--tag", help="Expected tag; empty for an untagged candidate")
+    parser.add_argument(
+        "--require-final",
+        action="store_true",
+        help="Require finalized metadata, all configured acceptance gates and a clean checkout",
+    )
     parser.add_argument(
         "--json", action="store_true", help="Print machine-readable evidence"
     )
@@ -21,8 +27,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        candidate = inspect_candidate()
+        candidate = inspect_candidate(tag=args.tag, require_final=args.require_final)
     except (ValueError, OSError, RuntimeError) as error:
+        if args.json:
+            print(json.dumps({"status": "BLOCKED", "error": str(error)}, indent=2))
         parser.exit(1, f"{error}\n")
     if args.json:
         print(json.dumps(candidate, indent=2))
@@ -32,6 +40,10 @@ def main() -> int:
             f"Branch: {candidate['branch'] or '(detached)'}; dirty: {candidate['dirty']}"
         )
         print(f"Notes: {candidate['notes']}")
+        print(f"Metadata: {'FINAL' if candidate['metadata_final'] else 'DRAFT'}")
+        print(f"Acceptance: {candidate['acceptance']['status']}")
+        for blocker in candidate["acceptance"]["blockers"]:
+            print(f"BLOCKED: {blocker}")
         for image in candidate["images"]:
             print(f"Planned image (not published): {image}")
         for warning in candidate["warnings"]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from datetime import date
@@ -24,17 +25,102 @@ IMAGE_FILES = {
 }
 
 
+def acceptance_status(root: Path, configuration: dict) -> dict:
+    """Read explicitly configured gates; never manufacture or rewrite evidence."""
+    if not isinstance(configuration, dict):
+        raise ValueError("Release acceptance configuration must be a table")
+    if not configuration:
+        return {"path": None, "status": "NOT_REQUIRED", "gates": [], "blockers": []}
+    matrix = configuration.get("acceptance_matrix")
+    required = configuration.get("required_acceptance_gates")
+    if (
+        not isinstance(matrix, str)
+        or not matrix
+        or not isinstance(required, list)
+        or not required
+        or any(not isinstance(gate, str) or not gate for gate in required)
+        or len(set(required)) != len(required)
+    ):
+        raise ValueError(
+            "Release acceptance requires a matrix path and unique required gates"
+        )
+    path = (root / matrix).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise ValueError("Release acceptance matrix must be inside the repository")
+    records = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(records, list):
+        raise ValueError(
+            "Release acceptance matrix must contain a list of gate records"
+        )
+    gates = {}
+    for record in records:
+        if not isinstance(record, dict) or not isinstance(record.get("gate_id"), str):
+            raise ValueError("Invalid release acceptance gate record")
+        identifier = record["gate_id"]
+        if identifier in gates:
+            raise ValueError(f"Duplicate release acceptance gate: {identifier}")
+        if record.get("status") not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN"}:
+            raise ValueError(f"Invalid release acceptance status: {identifier}")
+        if record["status"] == "PASS":
+            evidence = record.get("evidence_path")
+            references = [evidence] if isinstance(evidence, str) else evidence
+            if (
+                not isinstance(references, list)
+                or not references
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in references
+                )
+            ):
+                raise ValueError(
+                    f"Passing release gate requires evidence references: {identifier}"
+                )
+        gates[identifier] = record
+    missing = sorted(set(required) - gates.keys())
+    unexpected = sorted(gates.keys() - set(required))
+    if missing or unexpected:
+        raise ValueError(
+            f"Release acceptance gates do not match configuration; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    blockers = [
+        f"{identifier}: {gates[identifier]['status']} - "
+        f"{gates[identifier].get('failure_reason') or 'No passing execution evidence'}"
+        for identifier in required
+        if gates[identifier]["status"] != "PASS"
+    ]
+    return {
+        "path": matrix,
+        "status": "BLOCKED" if blockers else "PASS",
+        "gates": [
+            {"gate_id": identifier, "status": gates[identifier]["status"]}
+            for identifier in required
+        ],
+        "blockers": blockers,
+    }
+
+
 def validate_metadata(
-    root: Path = ROOT, *, tag: str | None = None, require_final: bool = False
+    root: Path = ROOT,
+    *,
+    tag: str | None = None,
+    require_final: bool = False,
+    require_acceptance: bool = False,
 ) -> dict:
-    version = tomllib.loads(
+    project = tomllib.loads(
         (root / "apps/api/pyproject.toml").read_text(encoding="utf-8")
-    )["project"]["version"]
+    )
+    version = project["project"]["version"]
     if not SEMVER.fullmatch(version):
         raise ValueError(f"Invalid project version: {version}")
     expected_tag = f"v{version}"
     if tag and tag != expected_tag:
         raise ValueError(f"Tag {tag!r} does not match project version {expected_tag}")
+    lock = tomllib.loads((root / "apps/api/uv.lock").read_text(encoding="utf-8"))
+    packages = [
+        item for item in lock.get("package", []) if item.get("name") == "cluecdc-api"
+    ]
+    if len(packages) != 1 or packages[0].get("version") != version:
+        raise ValueError(f"apps/api/uv.lock must pin cluecdc-api to {version}")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = re.findall(
         rf"^## \[{re.escape(version)}\] - (.+)$", changelog, re.MULTILINE
@@ -75,12 +161,22 @@ def validate_metadata(
             )
     if require_final and warnings:
         raise ValueError("Release metadata is not final: " + " ".join(warnings))
+    acceptance = acceptance_status(
+        root, project.get("tool", {}).get("cluecdc", {}).get("release", {})
+    )
+    if require_acceptance and acceptance["blockers"]:
+        raise ValueError(
+            "Mandatory release acceptance is incomplete:\n- "
+            + "\n- ".join(acceptance["blockers"])
+        )
     return {
         "version": version,
         "tag": expected_tag,
         "notes": notes_path.as_posix(),
         "images": [f"ghcr.io/cluedata/cluecdc-{name}:{version}" for name in COMPONENTS],
         "warnings": warnings,
+        "metadata_final": not warnings,
+        "acceptance": acceptance,
     }
 
 
@@ -90,8 +186,12 @@ def git_output(root: Path, *arguments: str) -> str:
     ).strip()
 
 
-def inspect_candidate(root: Path = ROOT) -> dict:
-    result = validate_metadata(root)
+def inspect_candidate(
+    root: Path = ROOT, *, tag: str | None = None, require_final: bool = False
+) -> dict:
+    result = validate_metadata(
+        root, tag=tag, require_final=require_final, require_acceptance=require_final
+    )
     sha = git_output(root, "rev-parse", "HEAD")
     tag = result["tag"]
     # Distinguish a missing local tag (1) from an actual Git failure.
@@ -109,7 +209,11 @@ def inspect_candidate(root: Path = ROOT) -> dict:
         else None
     )
     dirty = bool(git_output(root, "status", "--porcelain"))
-    if target:
+    if require_final and dirty:
+        raise ValueError(
+            "Release candidate has uncommitted changes; commit and revalidate the exact SHA"
+        )
+    if target and target != sha:
         result["warnings"].append(
             f"Local tag {tag} already exists at {target}; never move or reuse a release tag."
         )

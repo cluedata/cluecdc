@@ -15,35 +15,15 @@ concurrency:
 jobs:
   validate:
     uses: ./.github/workflows/release-validation.yml
+    permissions:
+      contents: read
+      packages: read
     with:
       tag: ${{ github.ref_name }}
       require-final: true
 
-  publication-preflight:
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Require the tagged commit to be on the default branch
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: git merge-base --is-ancestor HEAD "origin/${DEFAULT_BRANCH}"
-      - name: Refuse existing releases and immutable image versions
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/check_release_publication.py --tag "$GITHUB_REF_NAME"
-
   containers:
-    needs: [validate, publication-preflight]
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -111,7 +91,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   github-release:
-    needs: [validate, publication-preflight, containers]
+    needs: [validate, containers]
     runs-on: ubuntu-latest
     permissions:
       contents: write
