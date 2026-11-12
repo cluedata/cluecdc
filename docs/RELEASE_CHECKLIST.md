@@ -12,7 +12,8 @@ manual checks separately; an API PASS does not establish UI or real CDC behavior
 - [ ] `release:plan` matches package/lockfile, changelog, release notes and deployment images
 - [ ] Release notes are finalized and the changelog date is `YYYY-MM-DD`
 - [ ] `check-release-version.py --require-final` passes
-- [ ] `release.py plan --require-final` passes with all configured acceptance gates and a clean checkout
+- [ ] `release.py plan --require-final` passes with all required acceptance gates and a clean checkout
+- [ ] Advisory limitations are recorded in the release notes; v0.3.5 G13 real HTTPS delivery/cooldown remains unverified
 - [ ] Release candidate workflow passes for the exact approved commit
 - [ ] Candidate source archive, metadata, checksums and API test report are reviewed
 - [ ] Version is unused locally, on GitHub and in GHCR; no existing tag is moved

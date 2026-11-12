@@ -75,7 +75,9 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write(f"## Candidate {metadata['tag']}\nCommit: {metadata['git_sha']}\n\n")
               summary.write(f"Metadata final: {metadata['metadata_final']}\n\n")
-              summary.write(f"Acceptance: {metadata['acceptance']['status']}\n\n")
+              summary.write(f"Required acceptance: {metadata['acceptance']['status']}\n\n")
+              for gate in metadata['acceptance'].get('advisory', []):
+                  summary.write(f"- Advisory {gate['gate_id']}: {gate['status']} - {gate['reason'] or ''}\n")
               for message in metadata['warnings'] + metadata['acceptance']['blockers']:
                   summary.write(f"- {message}\n")
               summary.write("\nThis check does not grant maintainer publication approval.\n")

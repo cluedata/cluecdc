@@ -33,6 +33,7 @@ def acceptance_status(root: Path, configuration: dict) -> dict:
         return {"path": None, "status": "NOT_REQUIRED", "gates": [], "blockers": []}
     matrix = configuration.get("acceptance_matrix")
     required = configuration.get("required_acceptance_gates")
+    advisory = configuration.get("advisory_acceptance_gates", [])
     if (
         not isinstance(matrix, str)
         or not matrix
@@ -43,6 +44,15 @@ def acceptance_status(root: Path, configuration: dict) -> dict:
     ):
         raise ValueError(
             "Release acceptance requires a matrix path and unique required gates"
+        )
+    if (
+        not isinstance(advisory, list)
+        or any(not isinstance(gate, str) or not gate for gate in advisory)
+        or len(set(advisory)) != len(advisory)
+        or set(required) & set(advisory)
+    ):
+        raise ValueError(
+            "Advisory acceptance gates must be unique and separate from required gates"
         )
     path = (root / matrix).resolve()
     if not path.is_relative_to(root.resolve()):
@@ -75,8 +85,9 @@ def acceptance_status(root: Path, configuration: dict) -> dict:
                     f"Passing release gate requires evidence references: {identifier}"
                 )
         gates[identifier] = record
-    missing = sorted(set(required) - gates.keys())
-    unexpected = sorted(gates.keys() - set(required))
+    configured = set(required) | set(advisory)
+    missing = sorted(configured - gates.keys())
+    unexpected = sorted(gates.keys() - configured)
     if missing or unexpected:
         raise ValueError(
             f"Release acceptance gates do not match configuration; "
@@ -96,6 +107,14 @@ def acceptance_status(root: Path, configuration: dict) -> dict:
             for identifier in required
         ],
         "blockers": blockers,
+        "advisory": [
+            {
+                "gate_id": identifier,
+                "status": gates[identifier]["status"],
+                "reason": gates[identifier].get("failure_reason"),
+            }
+            for identifier in advisory
+        ],
     }
 
 
