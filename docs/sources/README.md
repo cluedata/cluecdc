@@ -127,27 +127,26 @@ ingress, so no additional egress rule is necessary. Environments with separate
 egress controls must permit source ports (3306/1433/27017/1521), SRV DNS and
 configured TLS endpoints. Keep secret-service traffic private and authenticated.
 
-`compose.sources.yaml` is a standalone **optional** fixture file. It adds no
-default startup dependency and uses loopback-only host ports. SQL Server's
+`docker-compose.demo.yml` extends the local topology with optional source profiles
+and loopback-only host ports. SQL Server's
 profile explicitly accepts its Developer EULA for local testing. Oracle must
 be supplied by an operator with appropriate licensing.
 
 ```sh
-docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile sources-mariadb up -d
-docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile sources-sqlserver up -d
-docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile sources-mongodb up -d
+docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile sources-mariadb up -d
+docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile sources-sqlserver up -d
+docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile sources-mongodb up -d
 ```
 
-The live runner uses an existing **development test** Kafka/Connect/MinIO stack
-on the `cluecdc_default` network. Attach each disposable source to that network:
+Use the same disposable demo project for sources, Kafka/Connect, and MinIO.
+Enable `object-storage` when starting that project. Services share its network
+automatically; do not attach a test source to a developer's persistent project.
+For a project named `cluecdc-test-sources`, run:
 
 ```sh
-docker network connect cluecdc_default cluecdc-source-fixtures-mariadb-source-1
-docker network connect cluecdc_default cluecdc-source-fixtures-sqlserver-source-1
-docker network connect cluecdc_default cluecdc-source-fixtures-mongodb-source-1
-python scripts/source_e2e.py --source mariadb --stateful-postgres --outage-container cluecdc-source-fixtures-mariadb-source-1 --report artifacts/source-e2e/mariadb.json
-python scripts/source_e2e.py --source sqlserver --outage-container cluecdc-source-fixtures-sqlserver-source-1 --report artifacts/source-e2e/sqlserver.json
-python scripts/source_e2e.py --source mongodb --outage-container cluecdc-source-fixtures-mongodb-source-1 --report artifacts/source-e2e/mongodb.json
+python scripts/source_e2e.py --fixture-project cluecdc-test-sources --source mariadb --stateful-postgres --outage-container cluecdc-test-sources-mariadb-source-1 --report artifacts/source-e2e/mariadb.json
+python scripts/source_e2e.py --fixture-project cluecdc-test-sources --source sqlserver --outage-container cluecdc-test-sources-sqlserver-source-1 --report artifacts/source-e2e/sqlserver.json
+python scripts/source_e2e.py --fixture-project cluecdc-test-sources --source mongodb --outage-container cluecdc-test-sources-mongodb-source-1 --report artifacts/source-e2e/mongodb.json
 ```
 
 The runner explicitly initializes fixture CDC/replication and creates unique

@@ -18,7 +18,7 @@ unrelated jobs are skipped before dependency installation or services start.
 | Compose/environment files, `infrastructure/tests/**` | Render Compose configurations; no stack startup |
 | CI/release scripts and their contract tests | Targeted tooling tests |
 | `.github/workflows/**`, `.github/actions/**` | actionlint and targeted workflow/tooling contracts |
-| `scripts/commerce-workload/**` | Workload tests with a separate PostgreSQL fixture |
+| `scripts/commerce-workload/**` | Workload tests using demo PostgreSQL |
 | Individual Dockerfiles / `infrastructure/connect/**` | Build only the affected image; no push or runtime stack |
 | `.dockerignore` | Build API, web and Connect images, whose shared context rules changed |
 | License/ignore files | Repository safety only |
@@ -80,7 +80,8 @@ API unit tests use temporary SQLite and mocked external clients where isolation 
 
 `WORKER_TEST_DATABASE_URL` enables a real PostgreSQL concurrency test: two
 workers race for one job and only one claim succeeds. Each test creates and
-removes its own UUID-named schema. Every selected API job provides a dedicated PostgreSQL service.
+removes its own UUID-named schema. Every selected API job starts metadata PostgreSQL
+from the shared demo configuration in a disposable project.
 Lease recovery, classified transient/permanent failures, capped exponential
 backoff with jitter, terminal failure, manual retry with retained history,
 result persistence and cancellation also have unit coverage. Collection tests
@@ -98,48 +99,67 @@ checking, and idempotency must all pass before the fixture database is removed.
 
 ## Live integration
 
-Start the integration stack with
-`docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait`, run
-`scripts/cdc-integrity.py`, `scripts/demo-object-storage.py`, and then
-Playwright. The older focused demo scripts remain useful for manual UI smoke
-testing. These
-checks use the real source, Debezium, Kafka, Connect, destination, API proxy,
-and browser path. Test artifacts are ignored and must be sanitized before
-sharing.
+Demo, integration, Playwright, and Data Quality share `docker-compose.yml` plus
+`docker-compose.demo.yml`. Test code remains separate. Use a dedicated Compose
+project and unused ports so tests cannot modify persistent developer demo data.
+These checks use real databases, Debezium, Kafka, Connect, API, and browser paths.
 
-For an isolated stack that does not depend on a repository `.env` file:
+The Bash example below uses the root `.env` and an isolated project. Choose a
+unique `cluecdc-test-*` project name for concurrent runs. Stop any earlier test
+run on these ports, or choose unused port overrides before startup:
 
 ```bash
-docker compose --env-file .env.example --env-file .env.test.example \
-  -p cluecdc-acceptance -f compose.yaml -f compose.test.yaml \
+python scripts/bootstrap.py
+export COMPOSE_PROJECT_NAME=cluecdc-test-local
+export COMPOSE_FILE=docker-compose.yml:docker-compose.demo.yml
+export COMPOSE_PROFILES=object-storage
+export PLAYWRIGHT_BASE_URL=http://localhost:3000
+docker compose --env-file .env \
+  -p cluecdc-test-local -f docker-compose.yml -f docker-compose.demo.yml \
   up -d --build --wait --wait-timeout 300
+python scripts/demo.py --api-url http://localhost:3000/api/v1
+python scripts/demo-destination.py --skip-capture-demo
 python scripts/cdc-integrity.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
+  --compose-project cluecdc-test-local \
+  --env-file .env
 python scripts/cdc-recovery.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
+  --compose-project cluecdc-test-local \
+  --env-file .env
 python scripts/cdc-schema-safety.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
+  --compose-project cluecdc-test-local \
+  --env-file .env
 python scripts/cdc-retention-safety.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
+  --compose-project cluecdc-test-local \
+  --env-file .env
 python scripts/cdc-failure-recovery.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
+  --compose-project cluecdc-test-local \
+  --env-file .env
 python scripts/demo-object-storage.py \
   --api-url http://localhost:3000/api/v1 \
-  --compose-project cluecdc-acceptance \
-  --env-file .env.example --env-file .env.test.example
-docker compose --env-file .env.example --env-file .env.test.example \
-  -p cluecdc-acceptance -f compose.yaml -f compose.test.yaml down
+  --compose-project cluecdc-test-local \
+  --env-file .env
+npm run test:e2e -w @cluecdc/web
+python scripts/verify-secrets.py --compose-project cluecdc-test-local --env-file .env
+docker compose --env-file .env \
+  -p cluecdc-test-local -f docker-compose.yml -f docker-compose.demo.yml down
 ```
+
+PowerShell: set each variable with `$env:NAME='value'`; `COMPOSE_FILE` uses `;`
+instead of `:` on Windows. Explicit `-f` arguments work on all platforms.
+When choosing other ports, update API URLs, `PLAYWRIGHT_BASE_URL`, `PUBLIC_URL`,
+`CORS_ORIGINS`, and `KAFKA_TEST_BOOTSTRAP` to match. Keep the same project/environment
+for every command. `down` preserves volumes; remove only resources verified to
+belong to your disposable test project when no longer needed.
+
+Data Quality creates additional `dq_*` databases in these same services; see
+[reproduction](../operations/data-quality.md#disposable-reproduction).
+Existing reliability/hardening harnesses also render this demo topology into
+owned disposable projects with unused ports and guarded cleanup.
 
 The integrity matrix creates run-scoped tables and tests PostgreSQL and MySQL
 sources against both JDBC destinations. It reconciles the initial snapshot and

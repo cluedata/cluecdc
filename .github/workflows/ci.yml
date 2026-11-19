@@ -63,19 +63,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://cluecdc:worker-test-only@localhost:5433/cluecdc
+      CLUECDC_LOCAL_PASSWORD: worker-test-only
+      COMPOSE_PROJECT_NAME: cluecdc-test-api-${{ github.run_id }}
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
       DQ_LIVE_TESTS: "0"
-    services:
-      worker-test-postgres:
-        image: postgres:17.9
-        env:
-          POSTGRES_DB: worker_test
-          POSTGRES_USER: worker_test
-          POSTGRES_PASSWORD: worker-test-only
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U worker_test -d worker_test"
-          --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -88,8 +80,16 @@ jobs:
       - run: python -m pip install -e "apps/api[dev]"
       - name: Check repository safety
         run: python scripts/check-repository.py
+      - name: Start owned metadata using the demo topology
+        run: |
+          python scripts/bootstrap.py
+          docker compose up -d --wait metadata-db
       - name: Test backend APIs, permissions and worker contracts
         run: python -m pytest apps/api/tests -q --junitxml=artifacts/api-tests.xml
+      - name: Stop only owned metadata fixtures
+        if: always()
+        run: docker compose down --volumes
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -163,10 +163,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - run: docker compose --env-file .env.example config --quiet
-      - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml config --quiet
-      - run: docker compose --env-file .env.example --env-file .env.test.example -f compose.yaml -f compose.test.yaml -f infrastructure/observability/compose.yaml config --quiet
-      - run: docker compose -f infrastructure/tests/data-quality.compose.yaml config --quiet
+      - run: python scripts/bootstrap.py
+      - run: docker compose config --quiet
+      - run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.demo.yml config --quiet
+      - run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.demo.yml -f infrastructure/observability/compose.yaml config --quiet
 
   deployment:
     needs: changes
@@ -200,28 +200,24 @@ jobs:
     timeout-minutes: 10
     env:
       PGHOST: localhost
-      PGPORT: "5432"
-      PGDATABASE: workload_test
-      PGUSER: workload_test
+      PGPORT: "5434"
+      PGDATABASE: cluecdc_source
+      PGUSER: source_user
       PGPASSWORD: workload-test-only
-    services:
-      postgres:
-        image: postgres:17.9
-        env:
-          POSTGRES_DB: workload_test
-          POSTGRES_USER: workload_test
-          POSTGRES_PASSWORD: workload-test-only
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U workload_test -d workload_test"
-          --health-interval 5s --health-timeout 3s --health-retries 20
+      CLUECDC_LOCAL_PASSWORD: workload-test-only
+      COMPOSE_PROJECT_NAME: cluecdc-test-workload-${{ github.run_id }}
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python -m pip install -r scripts/commerce-workload/requirements.txt
+      - run: python scripts/bootstrap.py
+      - run: docker compose up -d --wait postgres-demo
       - run: python -m unittest discover -s scripts/commerce-workload -p 'test_*.py'
+      - if: always()
+        run: docker compose down --volumes
 
   images:
     needs: changes

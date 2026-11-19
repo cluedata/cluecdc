@@ -27,19 +27,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://cluecdc:worker-test-only@localhost:5433/cluecdc
+      CLUECDC_LOCAL_PASSWORD: worker-test-only
+      COMPOSE_PROJECT_NAME: cluecdc-test-release-${{ github.run_id }}
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
       DQ_LIVE_TESTS: "0"
-    services:
-      worker-test-postgres:
-        image: postgres:17.9
-        env:
-          POSTGRES_DB: worker_test
-          POSTGRES_USER: worker_test
-          POSTGRES_PASSWORD: worker-test-only
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U worker_test -d worker_test"
-          --health-interval 5s --health-timeout 3s --health-retries 20
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       git-sha: ${{ steps.metadata.outputs.git-sha }}
@@ -95,8 +87,16 @@ jobs:
         run: python scripts/check-repository.py
       - name: Install API test dependencies
         run: python -m pip install -e "apps/api[dev]"
+      - name: Start owned metadata using the demo topology
+        run: |
+          python scripts/bootstrap.py
+          docker compose up -d --wait metadata-db
       - name: Test backend APIs, migrations and native PostgreSQL worker contracts
         run: python -m pytest apps/api/tests -q --junitxml=artifacts/api-tests.xml
+      - name: Stop only owned metadata fixtures
+        if: always()
+        run: docker compose down --volumes
+
       - name: Build source artifact and checksums for this SHA
         env:
           VERSION: ${{ steps.metadata.outputs.version }}

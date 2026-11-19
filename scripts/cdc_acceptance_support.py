@@ -39,7 +39,7 @@ def load_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            values[key.strip()] = value.strip()
+            values[key.strip()] = value.strip().strip("\"'")
     values.update({key: value for key, value in os.environ.items() if key in values})
     return values
 
@@ -47,7 +47,29 @@ def load_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
 def load_fixture_environment(paths: Sequence[pathlib.Path]) -> dict[str, str]:
     """Use Compose fixture defaults unless dotenv files or the shell override them."""
 
-    return load_environment([ROOT / ".env.test.example", *paths])
+    override = os.environ.get("CLUECDC_ENV_FILE")
+    paths = [
+        pathlib.Path(override) if override and path == ROOT / ".env" else path
+        for path in paths
+    ]
+    values = load_environment([ROOT / ".env.example", *paths])
+    defaults = {
+        "METADATA_PASSWORD": "cluecdc-metadata-local-only",
+        "POSTGRES_DEMO_ADMIN_PASSWORD": "postgres123",
+        "POSTGRES_DEMO_SOURCE_PASSWORD": "source123",
+        "POSTGRES_DEMO_DESTINATION_PASSWORD": "destination123",
+        "MYSQL_DEMO_ADMIN_PASSWORD": "mysql123",
+        "MYSQL_DEMO_SOURCE_PASSWORD": "source123",
+        "MYSQL_DEMO_DESTINATION_PASSWORD": "destination123",
+        "MINIO_SECRET_KEY": "minioadmin",
+        "CLICKHOUSE_TEST_PASSWORD": "clickhouse123",
+    }
+    shared = os.environ.get("CLUECDC_LOCAL_PASSWORD") or values.get(
+        "CLUECDC_LOCAL_PASSWORD"
+    )
+    for key, legacy in defaults.items():
+        values[key] = os.environ.get(key) or values.get(key) or shared or legacy
+    return values
 
 
 class ApiClient:
@@ -129,9 +151,9 @@ class Compose:
                 "-p",
                 project,
                 "-f",
-                "compose.yaml",
+                "docker-compose.yml",
                 "-f",
-                "compose.test.yaml",
+                "docker-compose.demo.yml",
             ]
         )
 

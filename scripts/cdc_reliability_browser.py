@@ -26,6 +26,7 @@ def browser_acceptance(stack, evidence, image):
     environment = {
         **stack.env,
         "COMPOSE_PROJECT_NAME": stack.project,
+        "CLUECDC_ENV_FILE": str(stack.directory / ".env"),
         "PLAYWRIGHT_BASE_URL": base,
         "KAFKA_TEST_BOOTSTRAP": stack.url("kafka", 9092).removeprefix("http://"),
         "CLUECDC_UI_EMAIL": stack.defaults["DEFAULT_ADMIN_EMAIL"],
@@ -41,9 +42,9 @@ def browser_acceptance(stack, evidence, image):
             "docker",
             "compose",
             "-f",
-            "compose.yaml",
+            "docker-compose.yml",
             "-f",
-            "compose.test.yaml",
+            "docker-compose.demo.yml",
             "config",
             "--format",
             "json",
@@ -161,7 +162,7 @@ def browser_acceptance(stack, evidence, image):
                 "--env-file",
                 ".env.example",
                 "--env-file",
-                ".env.test.example",
+                str(stack.directory / ".env"),
             ],
         )
         # Copy this run's key evidence before restoring any pre-existing artifact.

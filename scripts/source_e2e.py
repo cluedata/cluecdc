@@ -108,7 +108,7 @@ async def mongo_setup(table):
                         "_id": 0,
                         "host": os.getenv(
                             "SOURCE_E2E_MONGO_MEMBER",
-                            "cluecdc-source-fixtures-mongodb-source-1:27017",
+                            "mongodb-source:27017",
                         ),
                     }
                 ],
@@ -360,7 +360,7 @@ def main():
         )
     host = args.source_host or (
         {"postgresql": "postgres-demo", "mysql": "mysql-demo"}.get(args.source)
-        or f"cluecdc-source-fixtures-{args.source}-source-1"
+        or f"{args.source}-source"
     )
     schema = {
         "postgresql": "public",
@@ -699,7 +699,10 @@ def main():
                 assert (
                     labels.get("com.docker.compose.service") == args.source + "-source"
                 )
-                if args.fixture_project != "cluecdc-source-fixtures":
+                if (
+                    args.fixture_project != "cluecdc-source-fixtures"
+                    and not args.fixture_project.startswith("cluecdc-test-")
+                ):
                     assert args.fixture_project.startswith("cluecdc-reliability-")
                     assert (
                         labels.get("io.cluecdc.reliability.owner")

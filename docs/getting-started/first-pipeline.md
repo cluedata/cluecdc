@@ -1,10 +1,11 @@
 # First CDC pipeline
 
-This tutorial uses the PostgreSQL source and destination fixtures from the test
-Compose override. Start them first:
+This tutorial uses PostgreSQL source and destination fixtures from the demo
+Compose extension. Run bootstrap and start them first:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+python scripts/bootstrap.py
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build --wait
 ```
 
 This exercises the real Debezium, Kafka, and JDBC sink path.
@@ -32,7 +33,7 @@ Open **Connections → Sources → Create Source** and use:
 | Host / port | `postgres-demo` / `5432`       |
 | Database    | `cluecdc_source`               |
 | User        | `source_user`                  |
-| Password    | `source123` unless overridden  |
+| Password    | `CLUECDC_LOCAL_PASSWORD` in `.env`, unless a per-role override is retained |
 
 Test the connection, save it, run discovery, and review CDC readiness. Select `public.customers` and `public.orders`; both have stable keys and local logical-replication configuration.
 
@@ -45,7 +46,7 @@ Open **Connections → Destinations → Create Destination** and register Postgr
 | Host / port | `postgres-demo` / `5432`            |
 | Database    | `cluecdc_destination`              |
 | User        | `destination_user`                 |
-| Password    | `destination123` unless overridden |
+| Password    | `CLUECDC_LOCAL_PASSWORD` in `.env`, unless a per-role override is retained |
 
 Test and save the destination. Registration stores a reusable endpoint; it does
 not start a sink connector or move data.
@@ -74,7 +75,7 @@ a delivery retry. Wait until both connector tasks report **RUNNING**.
 Insert a source record:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
+docker compose -f docker-compose.yml -f docker-compose.demo.yml exec -T postgres-demo \
   psql -U postgres -d cluecdc_source -c \
   "INSERT INTO public.customers (email, name) VALUES ('ada-new@example.test', 'Ada Lovelace');"
 ```
@@ -82,7 +83,7 @@ docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
 Inspect topic metadata and connector state, then query the destination directly:
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml exec -T postgres-demo \
+docker compose -f docker-compose.yml -f docker-compose.demo.yml exec -T postgres-demo \
   psql -U postgres -d cluecdc_destination -c \
   "SELECT * FROM public.customers WHERE email = 'ada-new@example.test';"
 ```

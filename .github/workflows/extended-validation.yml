@@ -91,19 +91,21 @@ jobs:
         run: |
           import shutil
           import subprocess
+          import sys
+          subprocess.run([sys.executable, "scripts/bootstrap.py"], check=True)
           cli = ["docker", "compose"] if shutil.which("docker") else ["compose"]
-          base = [*cli, "--env-file", ".env.example"]
+          base = [*cli, "--env-file", ".env"]
           configurations = [
               [],
-              ["-f", "compose.yaml", "-f", ".github/compose.ci.yaml"],
-              ["--env-file", ".env.test.example", "-f", "compose.yaml",
-               "-f", "compose.test.yaml", "--profile", "tools"],
-              ["--env-file", ".env.test.example", "-f", "compose.yaml",
-               "-f", "compose.test.yaml", "-f", ".github/compose.ci.yaml",
-               "-f", ".github/compose.test.ci.yaml", "--profile", "tools"],
-              ["--env-file", ".env.test.example", "-f", "compose.yaml",
-               "-f", "compose.test.yaml", "-f", ".github/compose.ci.yaml",
-               "-f", ".github/compose.test.ci.yaml", "--profile", "object-storage"],
+              ["-f", "docker-compose.yml", "-f", ".github/compose.ci.yaml"],
+              ["--env-file", ".env", "-f", "docker-compose.yml",
+               "-f", "docker-compose.demo.yml", "--profile", "tools"],
+              ["--env-file", ".env", "-f", "docker-compose.yml",
+               "-f", "docker-compose.demo.yml", "-f", ".github/compose.ci.yaml",
+               "-f", ".github/compose.demo.ci.yaml", "--profile", "tools"],
+              ["--env-file", ".env", "-f", "docker-compose.yml",
+               "-f", "docker-compose.demo.yml", "-f", ".github/compose.ci.yaml",
+               "-f", ".github/compose.demo.ci.yaml", "--profile", "object-storage"],
           ]
           for configuration in configurations:
               subprocess.run([*base, *configuration, "config", "--quiet"], check=True)
@@ -132,18 +134,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://worker_test:worker-test-only@localhost:5432/worker_test
-    services:
-      worker-test-postgres:
-        image: postgres:17.9
-        env:
-          POSTGRES_DB: worker_test
-          POSTGRES_USER: worker_test
-          POSTGRES_PASSWORD: worker-test-only
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U worker_test -d worker_test"
-          --health-interval 5s --health-timeout 3s --health-retries 20
+      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://cluecdc:worker-test-only@localhost:5433/cluecdc
+      CLUECDC_LOCAL_PASSWORD: worker-test-only
+      COMPOSE_PROJECT_NAME: cluecdc-test-api-${{ github.run_id }}
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -155,7 +149,14 @@ jobs:
       - run: python -m ruff check apps/api scripts
       - run: python -m ruff format --check apps/api scripts
       - run: python -m mypy --config-file apps/api/pyproject.toml apps/api/app
+      - name: Start owned metadata using the demo topology
+        run: |
+          python scripts/bootstrap.py
+          docker compose up -d --wait metadata-db
       - run: python -m pytest apps/api/tests -q
+      - name: Stop only owned metadata fixtures
+        if: always()
+        run: docker compose down --volumes
 
   documentation:
     needs: changes
@@ -163,6 +164,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -229,7 +231,8 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       DOCKER_BUILD_RECORD_UPLOAD: "false"
-      COMPOSE_FILE: compose.yaml:.github/compose.ci.yaml
+      COMPOSE_PROJECT_NAME: cluecdc-test-${{ github.run_id }}-${{ matrix.arch }}
+      COMPOSE_FILE: docker-compose.yml:.github/compose.ci.yaml
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -239,7 +242,6 @@ jobs:
           cache-dependency-path: apps/api/pyproject.toml
       - name: Prepare the core-only CI environment
         run: |
-          cp .env.example .env
           python scripts/bootstrap.py
       - uses: docker/setup-buildx-action@v4
       - name: Reuse the final native Connect image
@@ -255,10 +257,10 @@ jobs:
         uses: docker/bake-action@v7
         with:
           files: |
-            compose.yaml
-            compose.test.yaml
+            docker-compose.yml
+            docker-compose.demo.yml
             .github/compose.ci.yaml
-            .github/compose.test.ci.yaml
+            .github/compose.demo.ci.yaml
           targets: ${{ steps.connect-image.outputs.cache-hit == 'true' && 'cluecdc-api,cluecdc-web' || 'cluecdc-api,cluecdc-web,kafka-connect' }}
           load: true
           set: |
@@ -299,8 +301,7 @@ jobs:
       - name: Add integration fixtures to the running core stack
         if: matrix.arch == 'amd64' && needs.changes.outputs.integration == 'true'
         run: |
-          cat .env.test.example >> .env
-          export COMPOSE_FILE=compose.yaml:compose.test.yaml:.github/compose.ci.yaml:.github/compose.test.ci.yaml
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.demo.yml:.github/compose.ci.yaml:.github/compose.demo.ci.yaml
           echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
           if [[ "$BROWSER_INTEGRATION_CHECKS" == "true" ]]; then
             # Browser authorization coverage needs real per-user sessions. The
@@ -377,10 +378,10 @@ jobs:
         uses: docker/bake-action@v7
         with:
           files: |
-            compose.yaml
-            compose.test.yaml
+            docker-compose.yml
+            docker-compose.demo.yml
             .github/compose.ci.yaml
-            .github/compose.test.ci.yaml
+            .github/compose.demo.ci.yaml
           targets: commerce-generator
           load: true
           set: |

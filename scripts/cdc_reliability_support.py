@@ -22,6 +22,22 @@ FIXTURE_IMAGES = json.loads(
 STATUSES = {"PASS", "FAIL", "PARTIAL", "BLOCKED", "NOT RUN", "NOT SUPPORTED"}
 
 
+def isolated_environment(defaults):
+    environment = dict(os.environ)
+    variables = {"DATABASE_URL", "CLUECDC_TOKEN", "CLUECDC_ENV_FILE"}
+    for filename in ("docker-compose.yml", "docker-compose.demo.yml"):
+        variables.update(
+            re.findall(
+                r"\$\{([A-Z][A-Z0-9_]*)", (ROOT / filename).read_text(encoding="utf-8")
+            )
+        )
+    for key in list(environment):
+        if key in variables or key.startswith("COMPOSE_"):
+            environment.pop(key)
+    environment.update(defaults)
+    return environment
+
+
 def fixture_port():
     # An explicit ephemeral-range port stays stable across container stop/start.
     # Docker published=0 may allocate a different port after every restart.
@@ -176,30 +192,40 @@ class DisposableStack:
         self.retain = retain
         self.directory = Path(tempfile.mkdtemp(prefix=self.project + "-"))
         self.path = self.directory / "compose.json"
-        self.env = dict(os.environ)
-        self.defaults = {}
-        # Deliberately never read .env or inherit its production/service overrides.
-        for filename in (".env.example", ".env.test.example"):
-            for line in (ROOT / filename).read_text(encoding="utf-8").splitlines():
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    self.defaults[key] = value
-        # The generic integration example uses developer mode. Reliability must
-        # exercise actual sign-in, sessions and RBAC, including the browser suite.
-        self.defaults["AUTH_MODE"] = "session"
-        self.env.update(self.defaults)
+        from bootstrap import bootstrap, read_values
+
+        environment_file = self.directory / ".env"
+        bootstrap(environment_file)
+        self.defaults = read_values(environment_file.read_text(encoding="utf-8"))
+        for key in (
+            "METADATA_PASSWORD",
+            "POSTGRES_DEMO_ADMIN_PASSWORD",
+            "POSTGRES_DEMO_SOURCE_PASSWORD",
+            "POSTGRES_DEMO_DESTINATION_PASSWORD",
+            "MYSQL_DEMO_ADMIN_PASSWORD",
+            "MYSQL_DEMO_SOURCE_PASSWORD",
+            "MYSQL_DEMO_DESTINATION_PASSWORD",
+            "MINIO_SECRET_KEY",
+            "CLICKHOUSE_TEST_PASSWORD",
+        ):
+            self.defaults[key] = self.defaults["CLUECDC_LOCAL_PASSWORD"]
+        self.defaults.update(AUTH_MODE="session", ENVIRONMENT="development")
+        # Never inherit operator credentials or local .env values.
+        self.env = isolated_environment(self.defaults)
         rendered = self.command(
             [
                 "docker",
                 "compose",
                 "--env-file",
-                str(ROOT / ".env.example"),
-                "--env-file",
-                str(ROOT / ".env.test.example"),
+                str(environment_file),
                 "-f",
-                "compose.yaml",
+                "docker-compose.yml",
                 "-f",
-                "compose.test.yaml",
+                "docker-compose.demo.yml",
+                "--profile",
+                "object-storage",
+                "--profile",
+                "clickhouse",
                 "config",
                 "--format",
                 "json",
@@ -226,6 +252,7 @@ class DisposableStack:
             if inspected.returncode == 0:
                 images[name] = inspected.stdout.strip()
         for name, service in config["services"].items():
+            service.pop("profiles", None)
             service.pop("build", None)
             service.pop("container_name", None)
             service["restart"] = "no"
@@ -252,24 +279,6 @@ class DisposableStack:
         config["services"]["kafka"]["environment"]["KAFKA_ADVERTISED_LISTENERS"] = (
             "INTERNAL://kafka:29092,EXTERNAL://127.0.0.1:" + external
         )
-        config["services"]["clickhouse"] = {
-            "image": FIXTURE_IMAGES["clickhouse/clickhouse-server:26.8.20.9-alpine"],
-            "environment": {
-                "CLICKHOUSE_USER": "cdc_test",
-                "CLICKHOUSE_PASSWORD": "isolated-cdc-only",
-                "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1",
-            },
-            "ports": [
-                {"target": 8123, "published": fixture_port(), "host_ip": "127.0.0.1"}
-            ],
-            "labels": {"io.cluecdc.reliability.owner": self.run_id},
-            "healthcheck": {
-                "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"],
-                "interval": "5s",
-                "timeout": "3s",
-                "retries": 30,
-            },
-        }
         for category in ("networks", "volumes"):
             for name, definition in config.get(category, {}).items():
                 definition["name"] = self.project + "_" + name
@@ -333,7 +342,11 @@ class DisposableStack:
                     "docker",
                     "compose",
                     "-f",
-                    "compose.sources.yaml",
+                    "docker-compose.yml",
+                    "-f",
+                    "docker-compose.demo.yml",
+                    "--env-file",
+                    str(self.directory / ".env"),
                     "--profile",
                     "sources-" + source,
                     "config",

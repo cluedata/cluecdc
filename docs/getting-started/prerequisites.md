@@ -10,10 +10,9 @@
 - Core ports 3000, 8000, 8083, and 9092 available, or overridden in `.env`
 - Test fixtures additionally use ports 5434, 3307, and 9000
 
-Host Python and Node.js are not required for the Compose quick start. Copying
-`.env.example` supplies public demo credentials for a loopback-only installation.
-See [configuration](../operations/configuration.md) for optional unique local
-secrets and production requirements.
+Host Python 3.12+ is required for bootstrap, which generates local credentials.
+Host Node.js is needed only for development. See
+[configuration](../operations/configuration.md) for upgrades and production secrets.
 
 ### Host platforms
 
@@ -48,7 +47,7 @@ docker buildx version
 
 On Docker Desktop, start the engine first. With Docker Engine on Linux, ensure
 your user can access the daemon. The core stack uses named volumes rather than
-host filesystem mounts; test fixtures bind-mount a few repository files read-only.
+host filesystem mounts; demo initialization uses inline Compose configs.
 Allow the checkout directory in Docker Desktop's file-sharing settings if needed.
 On Windows, a checkout inside the WSL filesystem generally has faster build I/O.
 

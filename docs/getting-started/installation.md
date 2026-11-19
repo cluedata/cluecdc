@@ -8,20 +8,15 @@ on Docker Desktop for macOS/Windows or Docker Engine on Ubuntu/Linux.
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
-cp .env.example .env
+python scripts/bootstrap.py
 docker compose up -d --build --wait --wait-timeout 240
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env`. The Docker commands
-are identical on all hosts; no host Python or Node.js installation is required.
-
-The copied example includes public demo passwords and cryptographic keys,
-suitable only for the loopback development stack. The commands above do not
-generate unique secrets. See
-[optional unique local secrets](../operations/configuration.md#optional-unique-local-secrets)
-before the first startup if desired. Keep `.env` private after customizing it.
-Existing database volumes retain their original passwords, so changing `.env`
-is not a password-rotation procedure.
+Bootstrap requires Python 3.12+ (`py -3` or `python3` on some hosts); no host
+Node.js is needed. It generates independent technical secrets and one local
+database password without manual editing. Keep `.env` private and backed up.
+Existing installations must retain their credentials and volumes; read the
+[upgrade instructions](../operations/configuration.md#existing-installations).
 
 Open the UI at <http://localhost:3000/login> and sign in with
 `admin@cluecdc.local` / `cluecdc-admin`. This account is only for the
@@ -38,11 +33,13 @@ curl http://localhost:3000
 
 All default services should be healthy. If a service is not ready, inspect `docker compose logs --tail 100 SERVICE` before retrying.
 
-## Optional test fixtures
+## Demo and tests
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build --wait
 ```
 
-The test override adds PostgreSQL/MySQL source and destination fixtures and
-MinIO for integration and E2E checks. It is not required for the default runtime.
+The demo extension adds PostgreSQL/MySQL source and destination fixtures.
+MinIO is available through the `object-storage` profile. Integration/E2E tests
+reuse this topology; see [Compose](docker-compose.md) and
+[testing](../development/testing.md) for isolated commands.

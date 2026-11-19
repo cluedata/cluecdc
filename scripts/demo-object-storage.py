@@ -23,7 +23,9 @@ parser.add_argument("--env-file", action="append", type=pathlib.Path)
 args = parser.parse_args()
 env_files = args.env_file or [ROOT / ".env"]
 env = load_fixture_environment(env_files)
-compose = Compose(args.compose_project or "cluecdc", env_files)
+compose = Compose(
+    args.compose_project or os.getenv("COMPOSE_PROJECT_NAME", "cluecdc"), env_files
+)
 access_key = os.getenv("MINIO_ACCESS_KEY", env.get("MINIO_ACCESS_KEY", "minioadmin"))
 secret_key = os.getenv("MINIO_SECRET_KEY", env.get("MINIO_SECRET_KEY", "minioadmin"))
 source_password = env["POSTGRES_DEMO_SOURCE_PASSWORD"]

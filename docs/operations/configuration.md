@@ -1,38 +1,61 @@
 # Configuration reference
 
-Copy `.env.example` to `.env` for Compose. The API uses one Pydantic settings
+Run `python scripts/bootstrap.py` before starting Compose. The root `.env.example`
+is the only template. Keep the generated `.env` private. The API uses one Pydantic settings
 schema and fails at startup when required or security-sensitive values are
 invalid. The web server validates its private API origin at request time.
 
-## Local demo defaults
+<a id="optional-unique-local-secrets"></a>
 
-The Compose quick start needs only Git and Docker with Compose: copy
-`.env.example` to `.env` and run `docker compose up -d --build --wait`.
-Python and Node.js run inside the images and need not be installed on the host.
-The example contains public demo passwords, a session secret, an encryption key,
-and a Connect token. Copying it does not generate unique values. Use this
-configuration only on the default loopback bindings in `ENVIRONMENT=development`.
-The API entrypoint applies migrations and creates the demo Admin automatically.
+## Local credentials
 
-## Optional unique local secrets
-
-Before the first startup of a new local installation, you can optionally run:
+Before the first startup run:
 
 ```bash
 python scripts/bootstrap.py
 ```
 
-This helper requires host Python 3.12+ (`python3` on some macOS/Linux systems,
-or `py -3` with the Windows launcher). It replaces missing or recognized example
-values for `METADATA_PASSWORD`, `SESSION_SECRET`, `SECRET_ENCRYPTION_KEY`, and
-`CONNECT_SECRET_TOKEN`, preserving custom values and the public demo Admin.
-CI uses it to give disposable test environments unique secrets; it is not a
-required installation step.
+This requires host Python 3.12+ (`python3` or `py -3` on some hosts).
+Bootstrap generates `CLUECDC_LOCAL_PASSWORD` and independent cryptographic
+`SESSION_SECRET`, `SECRET_ENCRYPTION_KEY`, and `CONNECT_SECRET_TOKEN` values.
+It fills missing settings without printing secrets or changing nonempty values.
+The public development Admin remains `admin@cluecdc.local` / `cluecdc-admin`.
 
-Do not run the helper as a rotation procedure for an initialized stack. Database
-volumes retain their original passwords, and stored connection secrets depend
-on the original encryption key. Existing installations must preserve those
-values or follow a coordinated rotation and data-migration plan.
+Fresh metadata, PostgreSQL/MySQL demo roles, MinIO, and ClickHouse use the shared
+local password. Roles and permissions remain separate. Existing per-service
+overrides take precedence: `METADATA_PASSWORD`, `POSTGRES_DEMO_ADMIN_PASSWORD`,
+`POSTGRES_DEMO_SOURCE_PASSWORD`, `POSTGRES_DEMO_DESTINATION_PASSWORD`, the matching
+`MYSQL_DEMO_*` variables, `MINIO_SECRET_KEY`, and `CLICKHOUSE_TEST_PASSWORD`.
+Shell values take precedence over `.env`. Optional experimental sources retain
+their established fixture credentials. Never reuse the database password for
+encryption, sessions, or service tokens.
+
+## Existing installations
+
+1. Back up `.env`, metadata, and the encryption key using the
+   [backup procedure](backup-restore.md). Record the current Compose project name.
+2. Keep the existing `.env`. Transfer established credential overrides from
+   any previous private test env file or shell configuration before bootstrap.
+3. Run bootstrap. If no shared password exists, historical absent demo defaults
+   are pinned as explicit overrides. Custom credentials and all established keys,
+   including public example encryption keys, remain unchanged.
+4. Start with the same project name (default `cluecdc`) and the new filenames.
+   Metadata/Kafka/demo volume keys, service DNS, Connect group, and internal topic
+   names are unchanged. No volume cleanup is needed.
+5. Check readiness, login, saved connections, and connector state. Recover a
+   missing encryption key from backup if stored encrypted credentials exist;
+   a newly generated key cannot decrypt them.
+
+Changing `.env` does **not** rotate passwords in initialized database volumes.
+To adopt the shared password deliberately change each database role password
+through a SQL client, update the environment override and saved ClueCDC Connection
+credentials together, then verify. Keep the old values until migration completes.
+Do not rotate keys or remove volumes as part of this upgrade.
+
+For a fresh installation let bootstrap create `.env` directly. An existing file
+without a shared password is conservatively treated as a legacy installation.
+
+## Production
 
 For production, provision independent secrets through your secret manager,
 disable `BOOTSTRAP_DEFAULT_ADMIN`, configure HTTPS/session authentication, and
@@ -75,14 +98,25 @@ production validation continues to reject known example values.
 | `INFRASTRUCTURE_HEALTH_INTERVAL_SECONDS` | No | Kafka and Kafka Connect health interval (default 30s) |
 | `INTEGRATION_TIMEOUT_SECONDS` | No             | External request timeout                               |
 | `ALLOW_INSECURE_KAFKA`        | No             | Permit non-TLS Kafka in production after explicit review |
+| `OBSERVABILITY_ENABLED`      | No             | Enable cached read-only collection (default true) |
+| `OBSERVABILITY_INTERVAL_SECONDS` | No          | Collection interval, 30–300 seconds (default 60) |
+| `OBSERVABILITY_EXPORTERS`    | No             | Explicit trusted worker-to-exporter mappings; see monitoring |
+| `OBSERVABILITY_EXPORTER_TOKEN` | No           | Optional independent exporter bearer credential |
+| `AZURE_MANAGED_IDENTITY_ENABLED` | No          | Enable Azure identity capability only on configured Azure hosts |
 | `API_INTERNAL_URL`            | Web production | Private origin of the ClueCDC API                      |
 
-Compose port variables and demo database credentials are documented inline in
-`.env.example`. They configure development infrastructure, not the ClueCDC domain
+Core/demo ports use `CLUECDC_WEB_PORT`, `CLUECDC_API_PORT`, `KAFKA_PORT`,
+`KAFKA_CONNECT_PORT`, `METADATA_PORT` (demo only), `POSTGRES_DEMO_PORT`,
+`MYSQL_DEMO_PORT`, and `MINIO_PORT`. They configure development infrastructure, not the ClueCDC domain
 model. Kafka and Kafka Connect endpoints are registered resources because one
 installation can manage user-selected infrastructure.
 
-`CLICKHOUSE_TEST_PORT` and `CLICKHOUSE_TEST_PASSWORD` in `.env.test.example`
+For all advanced defaults and bounds consult `apps/api/app/core/config.py`.
+The [monitoring guide](monitoring.md) describes exporter trust. Settings absent
+from Compose's environment mapping can be supplied using an explicit deployment
+override or Kubernetes environment configuration.
+
+`CLICKHOUSE_TEST_PORT` and `CLICKHOUSE_TEST_PASSWORD` overrides in `.env`
 belong only to the optional ClickHouse integration fixture. BigQuery service
 account JSON, Redshift/AWS credentials, and Synapse SQL/storage credentials are
 Connection secrets entered through ClueCDC and encrypted in metadata; they are

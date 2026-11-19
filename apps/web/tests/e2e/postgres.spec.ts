@@ -1,3 +1,4 @@
+import { fixtureEnv } from "./environment";
 import { test, expect } from "@playwright/test";
 import { readFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -11,22 +12,8 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
   page,
   request,
 }) => {
-  const fileEnv = Object.fromEntries(
-    [".env.test.example", ".env"]
-      .map((filename) => readFileSync(resolve(root, filename), "utf8"))
-      .join("\n")
-      .split(/\r?\n/)
-      .filter((l) => l.includes("="))
-      .map((l) => {
-        const i = l.indexOf("=");
-        return [l.slice(0, i), l.slice(i + 1)];
-      }),
-  );
   const env = {
-    ...fileEnv,
-    POSTGRES_DEMO_SOURCE_PASSWORD:
-      process.env.POSTGRES_DEMO_SOURCE_PASSWORD ??
-      fileEnv.POSTGRES_DEMO_SOURCE_PASSWORD,
+    POSTGRES_DEMO_SOURCE_PASSWORD: fixtureEnv("POSTGRES_DEMO_SOURCE_PASSWORD"),
   };
   const name = `Browser capture ${Date.now()}`;
   const sourceName = `Browser source ${Date.now()}`;
@@ -137,9 +124,9 @@ test("real PostgreSQL source -> wizard -> Debezium -> Kafka events and lifecycle
       [
         "compose",
         "-f",
-        "compose.yaml",
+        "docker-compose.yml",
         "-f",
-        "compose.test.yaml",
+        "docker-compose.demo.yml",
         "exec",
         "-T",
         "postgres-demo",

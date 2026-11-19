@@ -8,6 +8,8 @@ from pathlib import Path
 import aiomysql
 import asyncpg
 import pytest
+from scripts.data_quality_environment import mysql as mysql_parameters
+from scripts.data_quality_environment import postgres, provision
 from sqlalchemy import select
 
 from app.models.entities import Connection, DataQualityRuleResult, DataQualityRun
@@ -16,7 +18,7 @@ from app.services import data_quality as service
 from app.services.data_quality_measurements import Reader, reader
 from app.services.secrets import secret_provider
 from app.workers import worker
-from tests.test_data_quality_live import PASSWORD, SCENARIOS, setup_table
+from tests.test_data_quality_live import SCENARIOS, setup_table
 
 pytestmark = pytest.mark.skipif(
     os.getenv("DQ_LIVE_TESTS") != "1", reason="DQ_LIVE_TESTS=1 required"
@@ -25,13 +27,15 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 async def cross_pair(db_factory):
+    await provision()
     datasets, endpoints = [], []
     async with db_factory() as db:
         for side, provider, port, schema in (
-            ("source", "POSTGRESQL", 55436, "public"),
-            ("destination", "MYSQL", 33309, "dq"),
+            ("source", "POSTGRESQL", "source", "public"),
+            ("destination", "MYSQL", "destination", "dq_destination"),
         ):
-            reference = await secret_provider(db).put_secret({"password": PASSWORD})
+            args = postgres(side) if provider == "POSTGRESQL" else mysql_parameters(side)
+            reference = await secret_provider(db).put_secret({"password": args["password"]})
             endpoint = Connection(
                 name=f"cross-{side}",
                 category="DATABASE",
@@ -40,9 +44,9 @@ async def cross_pair(db_factory):
                 secret_ref=reference,
                 config_json={
                     "host": "127.0.0.1",
-                    "port": port,
-                    "database_name": "dq",
-                    "username": "dq",
+                    "port": args["port"],
+                    "database_name": "dq_" + side,
+                    "username": args["user"],
                 },
             )
             db.add(endpoint)
@@ -51,7 +55,7 @@ async def cross_pair(db_factory):
             datasets.append(
                 {
                     "connection_id": str(endpoint.id),
-                    "database": "dq",
+                    "database": "dq_" + side,
                     "schema_name": schema,
                     "table": "dq_items",
                     "current_state_confirmed": True,
@@ -109,14 +113,14 @@ async def test_cross_provider_values(
     datasets, _ = cross_pair
     source_version = await setup_table(
         "POSTGRESQL",
-        55436,
+        "source",
         count=0 if scenario in {"empty_both", "zero_source"} else 2,
         age=900 if scenario == "idle" else 1,
         kind="null" if scenario == "source_null" else "normal",
     )
     destination_version = await setup_table(
         "MYSQL",
-        33309,
+        "destination",
         count=dest_count,
         age=dest_age,
         kind="null" if scenario == "null" else "normal",
@@ -158,14 +162,10 @@ async def test_cross_provider_values(
 )
 async def test_cross_provider_schema(cross_pair, db_factory, monkeypatch, scenario, expected):
     datasets, _ = cross_pair
-    await setup_table("POSTGRESQL", 55436)
-    await setup_table("MYSQL", 33309)
-    pg = await asyncpg.connect(
-        host="127.0.0.1", port=55436, user="dq", password=PASSWORD, database="dq"
-    )
-    mysql = await aiomysql.connect(
-        host="127.0.0.1", port=33309, user="dq", password=PASSWORD, db="dq", autocommit=True
-    )
+    await setup_table("POSTGRESQL", "source")
+    await setup_table("MYSQL", "destination")
+    pg = await asyncpg.connect(**postgres("source"))
+    mysql = await aiomysql.connect(**mysql_parameters("destination"))
     try:
         await pg.execute("ALTER TABLE public.dq_items DROP COLUMN amount, DROP COLUMN updated_at")
         async with mysql.cursor() as cursor:
@@ -191,12 +191,10 @@ async def test_cross_provider_utc_window_reuse_readonly_and_api(
     cross_pair, client, db_factory, monkeypatch
 ):
     datasets, endpoints = cross_pair
-    await setup_table("POSTGRESQL", 55436)
-    await setup_table("MYSQL", 33309)
+    await setup_table("POSTGRESQL", "source")
+    await setup_table("MYSQL", "destination")
     stamp = datetime.now(UTC).replace(microsecond=123000) - timedelta(seconds=10)
-    pg = await asyncpg.connect(
-        host="127.0.0.1", port=55436, user="dq", password=PASSWORD, database="dq"
-    )
+    pg = await asyncpg.connect(**postgres("source"))
     try:
         await pg.execute(
             "UPDATE public.dq_items SET updated_at=$1",
@@ -204,9 +202,7 @@ async def test_cross_provider_utc_window_reuse_readonly_and_api(
         )
     finally:
         await pg.close()
-    mysql = await aiomysql.connect(
-        host="127.0.0.1", port=33309, user="dq", password=PASSWORD, db="dq", autocommit=True
-    )
+    mysql = await aiomysql.connect(**mysql_parameters("destination"))
     try:
         async with mysql.cursor() as cursor:
             await cursor.execute("SET time_zone='+00:00'")

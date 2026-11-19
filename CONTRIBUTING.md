@@ -14,15 +14,14 @@ Ubuntu/Linux, and Windows/WSL 2.
 ```bash
 git clone <repository-url>
 cd cluecdc
-cp .env.example .env
+python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
 
-The Compose-only setup uses the public, loopback-only demo values from
-`.env.example` and does not require host Python or Node.js. Those tools are
-needed for host-based development and tests. See
+Bootstrap requires host Python and generates unique technical secrets and one
+local database password. Node.js is needed for host development/tests. See
 [local development](docs/development/setup.md) and
-[optional unique local secrets](docs/operations/configuration.md#optional-unique-local-secrets).
+[local credentials](docs/operations/configuration.md#local-credentials).
 
 ## Architecture
 

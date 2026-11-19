@@ -684,7 +684,8 @@ def test_shared_validation_requires_api_tests_and_preserves_source_artifact_iden
     assert set(shared) == {"quality"}  # No nested CI selector or skipped component jobs.
     validation = shared["quality"]
     assert validation["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
-    assert validation["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
+    assert "services" not in validation
+    assert validation["env"]["COMPOSE_FILE"] == "docker-compose.yml:docker-compose.demo.yml"
     steps = validation["steps"]
     names = [step.get("name") for step in steps]
     metadata = names.index("Validate metadata and acceptance before installing test dependencies")
@@ -701,7 +702,8 @@ def test_shared_validation_requires_api_tests_and_preserves_source_artifact_iden
     assert commands.count("python scripts/release.py") == 1
     assert "--require-final" in commands
     assert "scripts/check-repository.py" in commands
-    assert "release-check.py" not in commands and "docker" not in commands
+    assert "release-check.py" not in commands
+    assert "docker compose up -d --wait metadata-db" in commands
     assert "git archive" in commands and "SHA256SUMS" in commands
     assert "release-metadata.json" in commands
     reports = [s for s in steps if s.get("with", {}).get("name") == "api-tests"]

@@ -49,21 +49,22 @@ does not mean a message was delivered.
 
 ## Disposable reproduction
 
-Use existing development dependencies, pytest and Playwright. The fixed loopback
-ports/project below are reserved for disposable tests; never substitute the shared
-operator Compose project.
+Use the disposable demo project from [testing](../development/testing.md#live-integration),
+keeping its project and port environment in every terminal. No separate deployment
+is needed. Scripts check ownership and refuse project names outside `cluecdc-test-*`.
 
 ```sh
-docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml up -d --wait
-DQ_LIVE_TESTS=1 DQ_EVIDENCE_DIR=artifacts/data-quality WORKER_TEST_DATABASE_URL=postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq python -m pytest apps/api/tests -q --junitxml=artifacts/data-quality/api.xml
 python scripts/data_quality_fixture.py
+DQ_LIVE_TESTS=1 DQ_EVIDENCE_DIR=artifacts/data-quality python -m pytest apps/api/tests/test_data_quality_live.py -q
+python scripts/data_quality_migrations.py
 ```
 
 PowerShell: set `$env:DQ_LIVE_TESTS='1'` and other variables separately before the
-pytest command. The script never loads operator credentials. It seeds only
-`dq_browser` metadata on 55435 and named datasets on PostgreSQL 55436/55437; live
-MySQL scenarios use independent 33308/33309. Browser measurements use a SELECT-only
-role; channels are public test fixtures and never production transports.
+pytest command. Fixtures use `dq_source` / `dq_destination` databases on demo
+PostgreSQL/MySQL, and `dq_browser`, `dq_worker`, and `dq_migration` on metadata
+PostgreSQL. Loopback ports are read from owned containers; passwords follow root
+environment overrides. Browser measurements use a SELECT-only role. Channels are
+public test fixtures and never production transports.
 
 Start isolated processes in separate terminals:
 
@@ -77,7 +78,7 @@ Then:
 
 ```sh
 DQ_BROWSER_TESTS=1 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3014 npm --workspace apps/web run test:e2e -- tests/e2e/data-quality.spec.ts
-docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml down
+docker compose down
 ```
 
 The dedicated CI workflow runs the same real-database and Admin/Ops/Viewer browser

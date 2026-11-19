@@ -43,7 +43,7 @@ place; no separate pipeline engine or destination rewrite was introduced.
 * API dependencies add pinned pymongo/oracledb and a matching lockfile. The
   existing mssql-python driver is reused. Connect's secret-provider allowlist
   adds only `connection_uri`. Debezium remains 3.3.2.Final.
-* Optional `compose.sources.yaml` profiles and a manually dispatched source CDC
+* Optional `docker-compose.demo.yml` profiles and a manually dispatched source CDC
   CI workflow are added. Default Compose dependencies and Kubernetes service,
   scaling and worker settings are unchanged. CI was added but not run remotely.
 
@@ -256,7 +256,7 @@ download or unreported production-readiness promotion.
 - `apps/web/src/lib/validation.ts`
 - `apps/web/tests/e2e/connection-testing.spec.ts`
 - `apps/web/tests/extended-sources.test.tsx`
-- `compose.sources.yaml`
+- `docker-compose.demo.yml`
 - `docs/index.md`
 - `docs/sources-extension-audit.md`
 - `docs/sources-extension-report.md`

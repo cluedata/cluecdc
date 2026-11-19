@@ -58,13 +58,13 @@ No exactly-once export guarantee is claimed.
 
 ## Local acceptance
 
-MinIO exists only in `compose.test.yaml`. Its image builds a pinned,
+MinIO exists only in `docker-compose.demo.yml`. Its image builds a pinned,
 checksum-verified source release because former official image tags are
 unavailable. It retains AGPLv3 and is an optional test fixture, not part of
 ClueCDC runtime images. Bootstrap creates the bucket with fixture-only credentials.
 
 ```bash
-docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile object-storage up -d --build --wait
 python scripts/demo-object-storage.py
 ```
 

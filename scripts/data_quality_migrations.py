@@ -11,9 +11,16 @@ from uuid import NAMESPACE_URL, uuid5
 import asyncpg
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.data_quality_environment import (  # noqa: E402
+    metadata_url,
+    postgres,
+    provision as provision_demo,
+)  # noqa: E402
+
 ENV = {
     **os.environ,
-    "DATABASE_URL": "postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq_migration",
+    "DATABASE_URL": metadata_url("dq_migration"),
     "ENVIRONMENT": "test",
     "AUTH_MODE": "session",
     "BOOTSTRAP_DEFAULT_ADMIN": "false",
@@ -23,25 +30,16 @@ ENV = {
 
 
 async def provision():
-    conn = await asyncpg.connect(
-        host="127.0.0.1", port=55435, user="dq", password="dq-test-only", database="dq"
-    )
-    try:
-        if not await conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname='dq_migration'"
-        ):
-            await conn.execute("CREATE DATABASE dq_migration")
-    finally:
-        await conn.close()
+    await provision_demo()
+
+
+def migration_connection():
+    return {**postgres("metadata"), "database": "dq_migration"}
 
 
 async def snapshot():
     conn = await asyncpg.connect(
-        host="127.0.0.1",
-        port=55435,
-        user="dq",
-        password="dq-test-only",
-        database="dq_migration",
+        **migration_connection(),
     )
     try:
         return {
@@ -65,11 +63,7 @@ async def snapshot():
 
 async def seed_sentinels():
     conn = await asyncpg.connect(
-        host="127.0.0.1",
-        port=55435,
-        user="dq",
-        password="dq-test-only",
-        database="dq_migration",
+        **migration_connection(),
     )
     try:
         secret_id = uuid5(NAMESPACE_URL, "cluecdc-dq-migration-secret")

@@ -8,10 +8,10 @@ import yaml
 from scripts.cdc_acceptance_support import load_fixture_environment
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = yaml.safe_load((ROOT / "compose.test.yaml").read_text(encoding="utf-8"))
+FIXTURES = yaml.safe_load((ROOT / "docker-compose.demo.yml").read_text(encoding="utf-8"))
 ENV = dict(
     line.split("=", 1)
-    for line in (ROOT / ".env.test.example").read_text(encoding="utf-8").splitlines()
+    for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
     if line and not line.startswith("#")
 )
 
@@ -35,9 +35,12 @@ def test_shared_database_fixtures_have_clear_credentials_and_authenticated_healt
     service, source_password, destination_password
 ):
     fixture = FIXTURES["services"][service]
-    assert fixture["environment"][source_password] == f"${{{source_password}:-source123}}"
+    assert (
+        fixture["environment"][source_password]
+        == f"${{{source_password}:-${{CLUECDC_LOCAL_PASSWORD:?Run python scripts/bootstrap.py}}}}"
+    )
     assert fixture["environment"][destination_password] == (
-        f"${{{destination_password}:-destination123}}"
+        f"${{{destination_password}:-${{CLUECDC_LOCAL_PASSWORD:?Run python scripts/bootstrap.py}}}}"
     )
     assert fixture["healthcheck"]["test"][0] == "CMD-SHELL"
     health = fixture["healthcheck"]["test"][1]
@@ -75,7 +78,7 @@ def test_compose_password_defaults_match_example_environment():
         for value in fixture.get("environment", {}).values():
             if isinstance(value, str) and (match := re.fullmatch(r"\$\{(\w+):-([^}]+)}", value)):
                 variable, default = match.groups()
-                assert ENV[variable] == default
+                assert ENV.get(variable, default) == default
 
 
 def test_workload_and_minio_share_fixture_configuration():
@@ -88,16 +91,18 @@ def test_workload_and_minio_share_fixture_configuration():
     bootstrap = services["minio-bootstrap"]
     assert bootstrap["environment"] == services["minio"]["environment"]
     assert bootstrap["configs"][0]["source"] == "minio-init"
-    assert (
-        services["cluecdc-api"]["depends_on"]["minio-bootstrap"]["condition"]
-        == "service_completed_successfully"
-    )
+    assert services["minio"]["profiles"] == ["object-storage"]
+    assert services["cluecdc-api"]["depends_on"]["minio-bootstrap"] == {
+        "condition": "service_completed_successfully",
+        "required": False,
+    }
     compile(FIXTURES["configs"]["minio-init"]["content"], "minio-init", "exec")
 
 
 def test_fixture_scripts_use_defaults_and_allow_file_and_shell_overrides(tmp_path, monkeypatch):
     monkeypatch.delenv("POSTGRES_DEMO_SOURCE_PASSWORD", raising=False)
     monkeypatch.delenv("POSTGRES_DEMO_DESTINATION_PASSWORD", raising=False)
+    monkeypatch.delenv("CLUECDC_LOCAL_PASSWORD", raising=False)
     custom = tmp_path / "fixture.env"
     custom.write_text("POSTGRES_DEMO_SOURCE_PASSWORD=custom-source\n", encoding="utf-8")
     environment = load_fixture_environment([custom])

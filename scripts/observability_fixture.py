@@ -1,11 +1,10 @@
 """Attach exclusively to a fixture created by observability_acceptance.py."""
 
 import json
-import os
 from pathlib import Path
 
 import httpx
-from cdc_reliability_support import ROOT, DisposableStack
+from cdc_reliability_support import DisposableStack, isolated_environment
 
 
 def attach(path: Path):
@@ -15,14 +14,23 @@ def attach(path: Path):
     stack.run_id, stack.project = spec["owner"], spec["project"]
     stack.path = Path(spec["compose_path"])
     stack.directory, stack.retain = stack.path.parent, True
-    stack.defaults = {}
-    for filename in (".env.example", ".env.test.example"):
-        for line in (ROOT / filename).read_text(encoding="utf-8").splitlines():
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                stack.defaults[key] = value
+    from bootstrap import read_values
+
+    stack.defaults = read_values((stack.directory / ".env").read_text(encoding="utf-8"))
+    for key in (
+        "METADATA_PASSWORD",
+        "POSTGRES_DEMO_ADMIN_PASSWORD",
+        "POSTGRES_DEMO_SOURCE_PASSWORD",
+        "POSTGRES_DEMO_DESTINATION_PASSWORD",
+        "MYSQL_DEMO_ADMIN_PASSWORD",
+        "MYSQL_DEMO_SOURCE_PASSWORD",
+        "MYSQL_DEMO_DESTINATION_PASSWORD",
+        "MINIO_SECRET_KEY",
+        "CLICKHOUSE_TEST_PASSWORD",
+    ):
+        stack.defaults[key] = stack.defaults["CLUECDC_LOCAL_PASSWORD"]
     stack.defaults["AUTH_MODE"] = "session"
-    stack.env = {**os.environ, **stack.defaults}
+    stack.env = isolated_environment(stack.defaults)
     for name in json.loads(stack.path.read_text(encoding="utf-8"))["services"]:
         stack.owned_container(
             name

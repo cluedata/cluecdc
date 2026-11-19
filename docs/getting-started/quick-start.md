@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Git
+- Git and Python 3.12+ for bootstrap
 - Docker Engine/Desktop with Linux containers and Compose v2.24+ or v5
 - Approximately 6 GB of Docker memory
 
@@ -12,7 +12,7 @@ See [platform prerequisites](prerequisites.md) for Ubuntu/Linux, macOS
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
-cp .env.example .env
+python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
 
@@ -23,14 +23,10 @@ Email:    admin@cluecdc.local
 Password: cluecdc-admin
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
-Host Python and Node.js are not required for this Compose setup.
-
-The example environment is loopback-only and uses public demo passwords and
-cryptographic keys unchanged; no unique secrets are generated automatically.
-Never expose the demo account or carry its metadata database into production.
-See [optional unique local secrets](../operations/configuration.md#optional-unique-local-secrets)
-if you want to replace the examples before the first startup.
+Use `py -3` or `python3` if required by your host. Bootstrap generates independent
+technical secrets and a shared local database password. Node.js runs in the image.
+Keep `.env` private. Never expose the development account or reuse its metadata
+in production. See [configuration](../operations/configuration.md).
 
 A new installation contains no registered ClueCDC sources, clusters,
 pipelines, or destinations and does not fabricate metrics. As Admin, register
