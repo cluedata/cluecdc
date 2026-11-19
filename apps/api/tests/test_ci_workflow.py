@@ -55,12 +55,13 @@ def test_automatic_ci_only_runs_selected_jobs_and_preserves_required_check():
     assert ci["jobs"]["changes"]["steps"][0]["with"]["fetch-depth"] == "0"
     job = ci["jobs"]["api"]
     assert job["env"]["WORKER_TEST_DATABASE_URL"].startswith("postgresql+asyncpg://")
-    assert job["services"]["worker-test-postgres"]["image"] == "postgres:17.9"
+    assert "services" not in job
+    assert job["env"]["COMPOSE_PROJECT_NAME"].startswith("cluecdc-test-")
     assert job["env"]["DQ_LIVE_TESTS"] == "0"
     commands = "\n".join(step.get("run", "") for step in job["steps"])
     assert "pytest apps/api/tests" in commands
     assert "--junitxml=" in commands
-    assert not any(tool in commands for tool in ("npm", "playwright", "docker", "kubectl"))
+    assert not any(tool in commands for tool in ("npm", "playwright", "kubectl"))
     web_commands = "\n".join(step.get("run", "") for step in ci["jobs"]["web"]["steps"])
     assert "pytest" not in web_commands and "playwright" not in web_commands
     assert "npm run test:web" in web_commands
@@ -70,7 +71,7 @@ def test_observability_ci_validates_overlay_and_builds_its_local_base_before_der
     ci = workflow("ci.yml")
     compose = "\n".join(step.get("run", "") for step in ci["jobs"]["compose"]["steps"])
     overlay = "-f infrastructure/observability/compose.yaml config --quiet"
-    assert "-f compose.yaml -f compose.test.yaml " + overlay in compose
+    assert "-f docker-compose.yml -f docker-compose.demo.yml " + overlay in compose
     steps = ci["jobs"]["images"]["steps"]
     base = next(s for s in steps if s.get("name") == "Build Connect base for observability")
     derived = next(s for s in steps if s.get("name") == "Build observability Connect image")
@@ -168,12 +169,16 @@ def test_final_fixture_cache_includes_architecture_and_immutable_base_images():
 
 
 def test_database_only_profile_keeps_s3_bootstrap_optional_but_waits_for_completion_when_enabled():
-    config = yaml.load((ROOT / ".github/compose.test.ci.yaml").read_text(), Loader=yaml.BaseLoader)
+    config = yaml.load(
+        (ROOT / "docker-compose.demo.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
     services = config["services"]
     assert services["minio"]["profiles"] == ["object-storage"]
     assert services["minio-bootstrap"]["profiles"] == ["object-storage"]
-    dependency = services["cluecdc-api"]["depends_on"]["minio-bootstrap"]
-    assert dependency == {"condition": "service_completed_successfully", "required": "false"}
+    assert services["cluecdc-api"]["depends_on"]["minio-bootstrap"] == {
+        "condition": "service_completed_successfully",
+        "required": "false",
+    }
 
 
 def test_browser_integration_uses_session_auth_before_recreating_services():

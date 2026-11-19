@@ -1,24 +1,12 @@
+import { fixtureEnv } from "./environment";
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { signIn } from "./auth";
 
 test.beforeEach(async ({ page, request }) => {
   await signIn(page, request);
 });
 
-const fileEnv = Object.fromEntries(
-  [".env.example", ".env.test.example", ".env"].flatMap((file) =>
-    readFileSync(resolve(process.cwd(), "../..", file), "utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.includes("=") && !line.startsWith("#"))
-      .map((line) => [
-        line.slice(0, line.indexOf("=")),
-        line.slice(line.indexOf("=") + 1),
-      ]),
-  ),
-);
-const env = (key: string) => process.env[key] ?? fileEnv[key];
+const env = fixtureEnv;
 
 test.beforeEach(async ({ page, request }) => {
   const session = await request.get("/api/v1/session");

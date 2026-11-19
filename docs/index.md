@@ -68,14 +68,14 @@ transport.
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
 cd cluecdc
-cp .env.example .env
+python scripts/bootstrap.py
 docker compose up -d --build --wait
 ```
 
 Open `http://localhost:3000/login` and sign in with
 `admin@cluecdc.local` / `cluecdc-admin`. This public account is only for the
-loopback development stack. The copied environment contains public demo secrets;
-no host Python or Node.js installation is required. The default stack contains
-six runtime services; optional integration fixtures use `compose.test.yaml`.
+loopback development stack. Bootstrap requires host Python and generates independent
+technical secrets; Node.js runs inside the image. The default stack contains
+six runtime services; optional integration fixtures use `docker-compose.demo.yml`.
 
 Next: [create your first pipeline](getting-started/first-pipeline.md).

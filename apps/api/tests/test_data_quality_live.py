@@ -1,8 +1,4 @@
-"""Opt-in real databases from infrastructure/tests/data-quality.compose.yaml.
-
-DQ_LIVE_TESTS=1 is explicit authorization to reset ONLY the disposable dq tables
-on the fixed loopback test ports. No operator connection/environment is consulted.
-"""
+"""Opt-in real rules on isolated Data Quality databases in the demo topology."""
 
 import json
 import os
@@ -13,6 +9,7 @@ from uuid import uuid4
 import aiomysql
 import asyncpg
 import pytest
+from scripts.data_quality_environment import metadata_url, mysql, postgres, provision
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -35,15 +32,19 @@ from app.workers import worker
 pytestmark = pytest.mark.skipif(
     os.getenv("DQ_LIVE_TESTS") != "1", reason="DQ_LIVE_TESTS=1 required"
 )
-PASSWORD = "dq-test-only"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def owned_demo_databases():
+    import asyncio
+
+    asyncio.run(provision())
 
 
 async def setup_table(provider, port, count=2, age=1, kind="normal"):
     timestamp = datetime.now(UTC).replace(microsecond=123456) - timedelta(seconds=age)
     if provider == "POSTGRESQL":
-        conn = await asyncpg.connect(
-            host="127.0.0.1", port=port, user="dq", password=PASSWORD, database="dq"
-        )
+        conn = await asyncpg.connect(**postgres(port))
         try:
             await conn.execute("DROP TABLE IF EXISTS public.dq_items")
             extra = ", extra integer" if kind == "extra" else ""
@@ -68,9 +69,7 @@ async def setup_table(provider, port, count=2, age=1, kind="normal"):
             return await conn.fetchval("SELECT version()")
         finally:
             await conn.close()
-    conn = await aiomysql.connect(
-        host="127.0.0.1", port=port, user="dq", password=PASSWORD, db="dq", autocommit=True
-    )
+    conn = await aiomysql.connect(**mysql(port))
     try:
         async with conn.cursor() as cursor:
             await cursor.execute("DROP TABLE IF EXISTS dq_items")
@@ -100,11 +99,12 @@ async def setup_table(provider, port, count=2, age=1, kind="normal"):
 @pytest.fixture(params=["POSTGRESQL", "MYSQL"])
 async def pair(request, db_factory):
     provider = request.param
-    ports = [55436, 55437] if provider == "POSTGRESQL" else [33308, 33309]
+    ports = ["source", "destination"]
     async with db_factory() as db:
         endpoints = []
         for side, port in zip(["source", "destination"], ports, strict=True):
-            secret = await secret_provider(db).put_secret({"password": PASSWORD})
+            args = postgres(side) if provider == "POSTGRESQL" else mysql(side)
+            secret = await secret_provider(db).put_secret({"password": args["password"]})
             endpoint = Connection(
                 name=f"live-{side}",
                 provider=provider,
@@ -113,26 +113,27 @@ async def pair(request, db_factory):
                 secret_ref=secret,
                 config_json={
                     "host": "127.0.0.1",
-                    "port": port,
-                    "database_name": "dq",
-                    "username": "dq",
+                    "port": args["port"],
+                    "database_name": "dq_" + side,
+                    "username": args["user"],
                 },
             )
             db.add(endpoint)
             await db.flush()
             endpoints.append(endpoint)
         await db.commit()
-    schema = "public" if provider == "POSTGRESQL" else "dq"
-    datasets = [
-        {
-            "connection_id": str(c.id),
-            "database": "dq",
-            "schema_name": schema,
-            "table": "dq_items",
-            "current_state_confirmed": True,
-        }
-        for c in endpoints
-    ]
+        datasets = [
+            {
+                "connection_id": str(c.id),
+                "database": c.config_json["database_name"],
+                "schema_name": "public"
+                if provider == "POSTGRESQL"
+                else c.config_json["database_name"],
+                "table": "dq_items",
+                "current_state_confirmed": True,
+            }
+            for c in endpoints
+        ]
     return provider, ports, datasets, endpoints
 
 
@@ -248,15 +249,11 @@ async def test_real_schema_widening_unknown_types_and_concurrent_observations(pa
     for port in ports:
         await setup_table(provider, port)
     if provider == "POSTGRESQL":
-        conn = await asyncpg.connect(
-            host="127.0.0.1", port=ports[1], user="dq", password=PASSWORD, database="dq"
-        )
+        conn = await asyncpg.connect(**postgres(ports[1]))
         await conn.execute("ALTER TABLE public.dq_items ALTER COLUMN id TYPE bigint")
         await conn.close()
     else:
-        conn = await aiomysql.connect(
-            host="127.0.0.1", port=ports[1], user="dq", password=PASSWORD, db="dq", autocommit=True
-        )
+        conn = await aiomysql.connect(**mysql(ports[1]))
         async with conn.cursor() as cursor:
             await cursor.execute("ALTER TABLE dq_items MODIFY COLUMN id bigint NOT NULL")
         conn.close()
@@ -273,20 +270,11 @@ async def test_real_schema_widening_unknown_types_and_concurrent_observations(pa
         assert results[0]["quality"] == "PASS"
         for side, port in zip(["source", "destination"], ports, strict=True):
             if provider == "POSTGRESQL":
-                conn = await asyncpg.connect(
-                    host="127.0.0.1", port=port, user="dq", password=PASSWORD, database="dq"
-                )
+                conn = await asyncpg.connect(**postgres(port))
                 await conn.execute("ALTER TABLE public.dq_items ADD COLUMN custom interval")
                 await conn.close()
             else:
-                conn = await aiomysql.connect(
-                    host="127.0.0.1",
-                    port=port,
-                    user="dq",
-                    password=PASSWORD,
-                    db="dq",
-                    autocommit=True,
-                )
+                conn = await aiomysql.connect(**mysql(port))
                 async with conn.cursor() as cursor:
                     await cursor.execute("ALTER TABLE dq_items ADD COLUMN custom enum('a','b')")
                 conn.close()
@@ -297,20 +285,11 @@ async def test_real_schema_widening_unknown_types_and_concurrent_observations(pa
             observed = await source.measure(config.source, cols, config.comparison, "source", {})
         # An independent commit after Source observation demonstrates count races explicitly.
         if provider == "POSTGRESQL":
-            conn = await asyncpg.connect(
-                host="127.0.0.1", port=ports[1], user="dq", password=PASSWORD, database="dq"
-            )
+            conn = await asyncpg.connect(**postgres(ports[1]))
             await conn.execute("INSERT INTO public.dq_items(id,amount) VALUES(99,1)")
             await conn.close()
         else:
-            conn = await aiomysql.connect(
-                host="127.0.0.1",
-                port=ports[1],
-                user="dq",
-                password=PASSWORD,
-                db="dq",
-                autocommit=True,
-            )
+            conn = await aiomysql.connect(**mysql(ports[1]))
             async with conn.cursor() as cursor:
                 await cursor.execute("INSERT INTO dq_items(id,amount) VALUES(99,1)")
             conn.close()
@@ -368,7 +347,9 @@ async def test_shared_measurements_filters_windows_discovery_readonly(
         assert all(r["quality"] == "PASS" for r in results)
         assert len(counts) == 2 and window
         async with reader(db, endpoints[0]) as r:
-            assert {"schema_name": schema, "table_name": "dq_items"} in await r.tables("dq")
+            assert {"schema_name": schema, "table_name": "dq_items"} in await r.tables(
+                datasets[0]["database"]
+            )
             with pytest.raises(Exception):
                 await r.rows(f"UPDATE {r.table(config.source)} SET id=id")
 
@@ -396,7 +377,8 @@ async def test_provider_pair_and_timezone_guards(pair, db_factory):
         _, _, cap = await engine.inspect(db, config, now())
         assert cap["status"] == "REQUIRES_CONFIGURATION"
         endpoints[0].provider, endpoints[1].provider = "MYSQL", "POSTGRESQL"
-        config.source.schema_name, config.destination.schema_name = "dq", "public"
+        config.source.schema_name = config.source.database
+        config.destination.schema_name = "public"
         db.add_all(endpoints)
         await db.flush()
         from app.core.errors import DomainError
@@ -410,7 +392,7 @@ async def test_multiworker_due_claim_and_restart(monkeypatch):
     # Real PostgreSQL row locks rather than SQLite's in-process serialization.
     import asyncio
 
-    metadata = create_async_engine("postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq")
+    metadata = create_async_engine(metadata_url("dq_worker"))
     factory = async_sessionmaker(metadata, expire_on_commit=False)
     async with metadata.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -541,15 +523,11 @@ async def test_temporal_column_named_count_does_not_collide_with_count_measureme
     for port in ports:
         await setup_table(provider, port)
         if provider == "POSTGRESQL":
-            conn = await asyncpg.connect(
-                host="127.0.0.1", port=port, user="dq", password=PASSWORD, database="dq"
-            )
+            conn = await asyncpg.connect(**postgres(port))
             await conn.execute('ALTER TABLE public.dq_items RENAME COLUMN updated_at TO "count"')
             await conn.close()
         else:
-            conn = await aiomysql.connect(
-                host="127.0.0.1", port=port, user="dq", password=PASSWORD, db="dq", autocommit=True
-            )
+            conn = await aiomysql.connect(**mysql(port))
             async with conn.cursor() as cursor:
                 await cursor.execute("ALTER TABLE dq_items RENAME COLUMN updated_at TO `count`")
             conn.close()
@@ -585,9 +563,7 @@ async def test_real_timestamp_precision_and_fixed_half_open_windows(pair, db_fac
 
     async def set_stamps(port, start, end, reduce_precision=False):
         if provider == "POSTGRESQL":
-            conn = await asyncpg.connect(
-                host="127.0.0.1", port=port, user="dq", password=PASSWORD, database="dq"
-            )
+            conn = await asyncpg.connect(**postgres(port))
             try:
                 if reduce_precision:
                     await conn.execute(
@@ -603,9 +579,7 @@ async def test_real_timestamp_precision_and_fixed_half_open_windows(pair, db_fac
             finally:
                 await conn.close()
         else:
-            conn = await aiomysql.connect(
-                host="127.0.0.1", port=port, user="dq", password=PASSWORD, db="dq", autocommit=True
-            )
+            conn = await aiomysql.connect(**mysql(port))
             try:
                 async with conn.cursor() as cursor:
                     if reduce_precision:

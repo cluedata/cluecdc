@@ -178,8 +178,8 @@ def test_github_output_contract_uses_boolean_strings(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "path",
     [
-        "compose.yaml",
-        "compose.test.yaml",
+        "docker-compose.yml",
+        "docker-compose.demo.yml",
         ".env.example",
         ".dockerignore",
         "infrastructure/docker/api.Dockerfile",

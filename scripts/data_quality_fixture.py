@@ -1,8 +1,4 @@
-"""Prepare only the fixed disposable Data Quality browser fixture.
-
-Start infrastructure/tests/data-quality.compose.yaml first. This script never
-uses .env credentials, operator Connections, or the shared CDC Compose project.
-"""
+"""Prepare isolated Data Quality data and users on a cluecdc-test-* demo project."""
 
 import asyncio
 import os
@@ -14,10 +10,13 @@ from pathlib import Path
 import asyncpg
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.data_quality_environment import metadata_url, postgres, provision  # noqa: E402
+
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 ENVIRONMENT = {
-    "DATABASE_URL": "postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq_browser",
+    "DATABASE_URL": metadata_url("dq_browser"),
     "ENVIRONMENT": "test",
     "AUTH_MODE": "session",
     "SESSION_SECRET": "data-quality-test-session-secret-only-0001",
@@ -35,28 +34,11 @@ from app.models.entities import Connection, NotificationChannel, User  # noqa: E
 from app.services.secrets import secret_provider  # noqa: E402
 
 
-async def database():
-    conn = await asyncpg.connect(
-        host="127.0.0.1", port=55435, user="dq", password="dq-test-only", database="dq"
-    )
-    try:
-        if not await conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname='dq_browser'"
-        ):
-            await conn.execute("CREATE DATABASE dq_browser")
-    finally:
-        await conn.close()
-
-
 async def seed():
     timestamp = datetime.now(UTC) - timedelta(seconds=10)
-    for port in (55436, 55437):
+    for side in ("source", "destination"):
         conn = await asyncpg.connect(
-            host="127.0.0.1",
-            port=port,
-            user="dq",
-            password="dq-test-only",
-            database="dq",
+            **postgres(side),
         )
         try:
             await conn.execute(
@@ -91,7 +73,7 @@ async def seed():
                         password_hash=PasswordHasher().hash("dq-browser-test-password"),
                     )
                 )
-        for side, port in (("source", 55436), ("destination", 55437)):
+        for side in ("source", "destination"):
             name = "DQ Browser " + side.title()
             if not await db.scalar(select(Connection).where(Connection.name == name)):
                 ref = await secret_provider(db).put_secret(
@@ -106,8 +88,8 @@ async def seed():
                         secret_ref=ref,
                         config_json={
                             "host": "127.0.0.1",
-                            "port": port,
-                            "database_name": "dq",
+                            "port": postgres(side)["port"],
+                            "database_name": "dq_" + side,
                             "username": "dq_reader",
                         },
                     )
@@ -133,7 +115,7 @@ async def seed():
 
 
 def main():
-    asyncio.run(database())
+    asyncio.run(provision())
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=ROOT / "apps" / "api",

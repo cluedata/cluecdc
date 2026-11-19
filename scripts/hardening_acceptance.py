@@ -65,12 +65,9 @@ def main() -> int:
         "--browser", action="store_true", help="Also run demo fixtures and Playwright"
     )
     args = parser.parse_args()
-    env_files = args.env_file or [ROOT / ".env.example", ROOT / ".env.test.example"]
+    env_files = args.env_file or [ROOT / ".env.example", ROOT / ".env"]
     environment = load_environment(env_files)
-    if environment.get("AUTH_MODE") != "developer":
-        parser.error(
-            "Disposable acceptance requires AUTH_MODE=developer in test configuration"
-        )
+    environment["AUTH_MODE"] = "developer"
     if args.browser and (ROOT / ".env").resolve() not in [
         path.resolve() for path in env_files
     ]:
@@ -91,6 +88,7 @@ def main() -> int:
         "POSTGRES_DEMO_PORT",
         "MYSQL_DEMO_PORT",
         "MINIO_PORT",
+        "METADATA_PORT",
     ):
         port = available_port()
         while port in ports.values():
@@ -100,6 +98,7 @@ def main() -> int:
     process_environment.update(environment)
     process_environment.update({key: str(value) for key, value in ports.items()})
     process_environment.update(
+        COMPOSE_PROFILES="object-storage",
         COMPOSE_PROJECT_NAME=project,
         KAFKA_TEST_BOOTSTRAP=f"localhost:{ports['KAFKA_PORT']}",
         PLAYWRIGHT_BASE_URL=f"http://localhost:{ports['CLUECDC_WEB_PORT']}",

@@ -14,7 +14,8 @@ jobs:
     env:
       DQ_LIVE_TESTS: "1"
       DQ_EVIDENCE_DIR: artifacts/data-quality
-      WORKER_TEST_DATABASE_URL: postgresql+asyncpg://dq:dq-test-only@127.0.0.1:55435/dq
+      COMPOSE_PROJECT_NAME: cluecdc-test-dq-${{ github.run_id }}
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
       API_INTERNAL_URL: http://127.0.0.1:8014
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:3014
       DQ_BROWSER_TESTS: "1"
@@ -32,7 +33,16 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: apps/web
       - name: Start isolated real databases
-        run: docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml up -d --wait
+        run: |
+          python scripts/bootstrap.py
+          docker compose up -d --wait metadata-db postgres-demo mysql-demo
+          python scripts/data_quality_fixture.py
+          python - <<'PY'
+          import os
+          from scripts.data_quality_environment import metadata_url
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write("WORKER_TEST_DATABASE_URL=" + metadata_url("dq_worker") + "\n")
+          PY
       - name: API, real rules, worker concurrency and alerts
         run: python -m pytest apps/api/tests -q --junitxml=artifacts/data-quality/api.xml
       - name: Prepare SELECT-only datasets and session users
@@ -71,4 +81,4 @@ jobs:
           retention-days: 14
       - name: Stop only this disposable project
         if: always()
-        run: docker compose -p cluecdc-dq-v034 -f infrastructure/tests/data-quality.compose.yaml down
+        run: docker compose down --volumes

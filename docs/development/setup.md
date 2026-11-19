@@ -5,14 +5,13 @@ Install Node.js 24 and Python 3.12, then:
 ```bash
 npm ci
 python -m pip install -e "apps/api[dev]"
-cp .env.example .env
+python scripts/bootstrap.py
 ```
 
 The core environment is `docker compose up -d --build --wait`. Add database
-fixtures with `docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait`.
-The copied environment uses public demo secrets. Generating unique local
-secrets before first startup is optional; see
-[configuration](../operations/configuration.md#optional-unique-local-secrets).
+fixtures with `docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build --wait`.
+Bootstrap generates independent technical secrets and shared local credentials;
+see [configuration](../operations/configuration.md#local-credentials).
 For frontend iteration, leave the API stack running and use `npm run dev`; set
 `API_INTERNAL_URL` when the API is not at `http://localhost:8000`.
 

@@ -1,21 +1,11 @@
+import { fixtureEnv } from "./environment";
 import { test, expect, type Page } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ConnectionProvider } from "@cluecdc/contracts";
 import { signIn } from "./auth";
 
-const fileEnv = Object.fromEntries(
-  [".env.test.example", ".env"].flatMap((file) =>
-    readFileSync(resolve(process.cwd(), "../..", file), "utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.includes("=") && !line.startsWith("#"))
-      .map((line) => [
-        line.slice(0, line.indexOf("=")),
-        line.slice(line.indexOf("=") + 1),
-      ]),
-  ),
-);
-const env = (key: string) => process.env[key] ?? fileEnv[key];
+const env = fixtureEnv;
 const providers: ConnectionProvider[] = [
   "POSTGRESQL",
   "MYSQL",

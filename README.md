@@ -4,117 +4,37 @@
 
 <h1 align="center">ClueCDC</h1>
 
-[![Release](https://img.shields.io/github/v/release/cluedata/cluecdc?display_name=tag&sort=semver)](https://github.com/cluedata/cluecdc/releases)
 [![CI](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml/badge.svg)](https://github.com/cluedata/cluecdc/actions/workflows/ci.yml)
 [![Documentation](https://github.com/cluedata/cluecdc/actions/workflows/docs.yml/badge.svg)](https://cluedata.github.io/cluecdc/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange.svg)](LICENSE)
 
-**ClueCDC is an open-source control plane for building, managing, and monitoring
-CDC pipelines powered by Debezium, Apache Kafka, and Kafka Connect.**
+ClueCDC is an open-source platform for managing Change Data Capture (CDC)
+pipelines powered by Debezium, Apache Kafka, and Kafka Connect.
 
-It gives operators one UI and API for connections, table discovery, connector
-lifecycle, deliveries, health, alerts, and audit history. ClueCDC configures the
-data plane; CDC records never flow through its API.
-
-The v0.3.4 [Data Quality module](docs/features/data-quality.md) adds six
-read-only rules for comparable PostgreSQL/MySQL current-state tables, independent
-of pipeline ownership. See the [verification report](docs/development/v0.3.4-data-quality-test-report.md)
-for scope, evidence and release-review limitations, and the
-[v0.3.4 release notes](docs/releases/v0.3.4.md) for upgrade instructions.
-
-<p align="center">
-  <img src="docs/assets/homepage.png" alt="ClueCDC pipeline overview" width="1100">
-</p>
-
-## Architecture
-
-```mermaid
-flowchart LR
-  Source[(Source)] --> Debezium[Debezium source connector]
-  Debezium --> Kafka[(Apache Kafka)]
-  Kafka --> Delivery[Kafka Connect delivery connector]
-  Delivery --> Destination[(Destination)]
-  ClueCDC[ClueCDC control plane] -. configures and observes .-> Debezium
-  ClueCDC -. configures and observes .-> Kafka
-  ClueCDC -. configures and observes .-> Delivery
-```
-
-Debezium and delivery connectors run in Kafka Connect. The local stack uses one
-worker; production may isolate or scale worker clusters independently.
+Use the web UI or API to configure connections, deploy pipelines, deliver data,
+and monitor operations. Debezium and Kafka Connect handle data replication.
 
 ## Features
 
-### CDC and pipeline management
+- **CDC pipelines:** PostgreSQL and MySQL discovery, readiness checks, and capture.
+- **Data delivery:** PostgreSQL/MySQL JDBC sinks and AWS S3/MinIO event logs.
+- **Pipeline operations:** snapshots, table selection, pause, resume, and recovery.
+- **Data Quality:** read-only checks for comparable PostgreSQL/MySQL datasets.
+- **Observability:** pipeline health, lag measurements, event samples, and alerts.
+- **Access control:** session authentication, Admin/Ops/Viewer roles, encrypted
+  credentials, and audit history.
 
-- [x] PostgreSQL 13+ and MySQL 8 source capture with Debezium
-- [x] Reusable source, Kafka, Kafka Connect, and destination connections
-- [x] Connection tests, schema/table discovery, CDC readiness, key, and type checks
-- [x] Explicit table selection and initial, streaming-only, never, or always snapshots
-- [x] Five-step UI wizard that validates and deploys capture plus its first delivery
-- [x] Pipeline preview, deploy, pause, resume, restart, task restart, and deletion
-- [x] Add, remove, resnapshot, stop, monitor, and retry per-table operations
-- [x] Desired-state and observed connector/task health tracking
+See the [feature matrix](docs/features.md) for supported capabilities and limits,
+including experimental sources and warehouse integrations.
 
-### Delivery and infrastructure
+<p align="center">
+  <img src="docs/assets/homepage.png" alt="ClueCDC overview" width="1100">
+</p>
 
-- [x] Multiple independently operated deliveries from one capture pipeline
-- [x] PostgreSQL and MySQL JDBC delivery with explicit topic-to-table mappings
-- [x] Insert/upsert modes, delete propagation, table creation, and basic schema evolution
-- [x] AWS S3 and MinIO delivery as gzip or plain JSONL CDC envelopes
-- [x] Delivery preview, deploy, mapping update, pause, resume, restart, task restart, and removal
-- [x] Kafka cluster, topic, partition, offset, and consumer-group metadata inspection
-- [x] Kafka SSL/SASL client settings with encrypted PLAIN/SCRAM credentials
-- [x] Kafka Connect cluster, plugin, connector, and task inventory
+## Quick Start
 
-### Operations, access, and platform
-
-- [x] Overview, monitoring, Error Center, alert lifecycle, and audit trail
-- [x] Alert rules plus Slack, Telegram, and generic webhook notification channels
-- [x] Local email/password login, opaque browser sessions, and expiring single-use invites
-- [x] Built-in Viewer, Ops, and Admin roles with API enforcement and role-aware navigation
-- [x] Admin user management: invite, role change, enable, disable, and guarded deletion
-- [x] Argon2id password hashing with a minimum password length of 8 characters
-- [x] Encrypted connection/channel credentials and Kafka Connect secret references
-- [x] Structured logs, correlation IDs, health endpoints, and Prometheus metrics
-- [x] FastAPI/OpenAPI API, Next.js UI, background worker, and Alembic migrations
-- [x] Docker Compose local stack and a documented Kubernetes deployment baseline
-- [x] Metadata backup/restore, guarded upgrades, and isolated CDC/recovery acceptance gates
-
-ClueCDC deliberately does not relay CDC payloads through its API. Topic screens
-show broker metadata; inspect records directly in Kafka or the configured
-destination. See the [current feature matrix](docs/features.md) for detailed
-capabilities, role access, and known boundaries.
-
-## Supported connectors
-
-| System | Source | Destination | Delivery format |
-| --- | --- | --- | --- |
-| PostgreSQL 13+ | Debezium | JDBC sink | Typed rows/upserts/deletes |
-| MySQL 8 | Debezium | JDBC sink | Typed rows/upserts/deletes |
-| MariaDB 11.4/11.7 | Experimental Debezium | No | Raw event log; conditional JDBC delivery |
-| SQL Server 2017/2019/2022 | Experimental Debezium | No | Raw S3/MinIO event log |
-| MongoDB 6/7/8 replica sets | Experimental Debezium | No | BSON/patch event log |
-| Oracle 19c/21c LogMiner | Experimental; live E2E NOT RUN | No | Raw event log; unverified |
-| AWS S3 / MinIO | No | Aiven S3 sink | Gzip JSONL CDC envelopes |
-| ClickHouse | No | Official ClickHouse sink | Append-only CDC history |
-| Google BigQuery | No | Aiven BigQuery sink | Append-only CDC history |
-| Amazon Redshift | No | ClueCDC staged COPY | Append-only CDC history |
-| Azure Synapse Dedicated SQL Pool | No | ClueCDC staged COPY | Append-only CDC history |
-
-New source setup, compatibility guards and verification limits are documented in the
-[source guide](docs/sources/README.md) and [implementation report](docs/sources-extension-report.md).
-
-The four v0.3.2 warehouse runtimes are not production-ready until their
-real-destination E2E matrices pass. Current-state CDC is disabled; see the
-[warehouse capability matrix](docs/connectors/warehouse-destinations.md).
-
-## Quick start
-
-Requirements: Git, Docker Engine or Docker Desktop with Linux
-containers, and Docker Compose v2.24+ (v5 also works). Ubuntu/Linux, macOS
-(Intel/Apple Silicon), and Windows (Docker Desktop with WSL 2) use the same
-Compose file on x86-64 or ARM64. Allow at least 6 GB of Docker memory for the
-core runtime; 8 GB or more is recommended for builds and integration fixtures.
+Requires Git, Python 3.12+, Docker with Linux containers, and Docker Compose
+v2.24.7+ or v5. Allocate at least 6 GB of Docker memory.
 
 ```bash
 git clone https://github.com/cluedata/cluecdc.git
@@ -123,81 +43,88 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
-On Windows PowerShell, replace `cp` with `Copy-Item`. Host Python and Node.js
-are not required for this Compose quick start. See the
-[platform requirements](docs/getting-started/prerequisites.md).
+For a new installation, `bootstrap.py` creates `.env` with a local database
+password and independent encryption, session, and service secrets. It preserves
+existing values. Keep this file private. Use `python3` or `py -3` if required
+by your system.
 
-Open [http://localhost:3000/login](http://localhost:3000/login). The API reference is at
-[http://localhost:8000/docs](http://localhost:8000/docs).
+Open the [Web UI](http://localhost:3000/login) or
+[API reference](http://localhost:8000/docs).
 
-The development stack creates this public demo account automatically:
+Development login: `admin@cluecdc.local` / `cluecdc-admin`.
+The default account and Compose configuration are for local use.
 
-```text
-Email:    admin@cluecdc.local
-Password: cluecdc-admin
-```
+The local stack includes the web UI, API, background worker, metadata PostgreSQL,
+Kafka, and Kafka Connect. Register `kafka:29092` and `http://kafka-connect:8083`
+in **Infrastructure**, then follow the [first pipeline guide](docs/getting-started/first-pipeline.md).
 
-Do not expose this account to a network or reuse its metadata database in
-production. Production rejects `BOOTSTRAP_DEFAULT_ADMIN=true`; disable it and
-create the first administrator interactively with `python -m app.cli
-create-admin`.
+For an existing installation, keep `.env`, the Compose project name, and
+persistent volumes. Follow the [upgrade instructions](docs/operations/configuration.md#existing-installations).
 
-The copied `.env.example` contains public demo passwords and cryptographic keys;
-the quick start uses them unchanged and does not generate unique secrets.
-For optional unique local secrets before the first startup, see the
-[configuration guide](docs/operations/configuration.md#optional-unique-local-secrets).
+## Demo and Testing
 
-Configuration is documented in [.env.example](.env.example) and the
-[operations guide](docs/operations/configuration.md). Critical secrets are
-required, and production mode rejects non-session authentication and example
-keys. See [authentication](docs/security/authentication.md) and
-[user management](docs/operations/user-management.md).
-
-## Deployment and documentation
-
-The default Compose stack contains only runtime services. PostgreSQL/MySQL/MinIO
-integration fixtures use `compose.test.yaml`. See the [Compose guide](docs/getting-started/docker-compose.md),
-[production considerations](docs/deployment/production.md), and
-[Kubernetes baseline](docs/deployment/kubernetes.md).
-
-Full documentation is at <https://cluedata.github.io/cluecdc/> and in [docs](docs/).
-Start with the [architecture](docs/architecture/overview.md) and
-[first pipeline](docs/getting-started/first-pipeline.md).
-
-## Development
-
-Use Node.js 24 and Python 3.12.
+After the initial setup, add sample PostgreSQL and MySQL source/destination
+databases with the demo extension:
 
 ```bash
-npm ci
-python -m pip install -e "apps/api[dev]"
-npm run verify
-python -m ruff check apps/api scripts
-python -m mypy --config-file apps/api/pyproject.toml apps/api/app
-mkdocs build --strict
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build --wait
 ```
 
-Run `npm run release:plan` to inspect a release candidate without changing Git.
-See [the release process](RELEASES.md) for local prerequisites, shared quality
-checks and the manual **Release candidate** workflow. Preparation never tags,
-publishes or pushes; publication requires separate maintainer approval.
+Run the capture and delivery demonstrations:
+
+```bash
+python scripts/demo.py
+python scripts/demo-destination.py --skip-capture-demo
+```
+
+These scripts register demo resources and verify real data flow. Optional MinIO,
+workload generation, and additional source profiles are described in the
+[Compose guide](docs/getting-started/docker-compose.md).
+
+Integration and browser tests use the same demo topology. Run them in an isolated
+Compose project to protect existing data; see the [testing guide](docs/development/testing.md)
+for commands and cleanup.
+
+## Kubernetes
+
+The repository includes a [Kustomize deployment baseline](deploy/kubernetes/README.md)
+for the web UI, API, and workers. PostgreSQL, Kafka, Kafka Connect, and production
+secrets must be provided separately.
+
+See the [Kubernetes guide](docs/deployment/kubernetes.md) for prerequisites,
+validation, migrations, and rollout instructions.
+
+## Documentation
+
+- [Installation and prerequisites](docs/getting-started/installation.md)
+- [Docker Compose](docs/getting-started/docker-compose.md)
+- [First pipeline](docs/getting-started/first-pipeline.md)
+- [Architecture](docs/architecture/overview.md)
+- [Configuration](docs/operations/configuration.md)
+- [Data Quality](docs/operations/data-quality.md) and [Monitoring](docs/operations/monitoring.md)
+- [Troubleshooting](docs/operations/troubleshooting.md)
+- [Development](docs/development/setup.md) and [Testing](docs/development/testing.md)
+- [Full documentation](https://cluedata.github.io/cluecdc/)
 
 ## Roadmap
 
-Priorities before `v1.0.0` are production identity/SSO, external-secret
-integration, HA deployment guidance, and more connector coverage. Planned work
-is not presented as current functionality.
+See [ROADMAP.md](ROADMAP.md) for planned improvements and project priorities.
 
-## Project policies
+## Project Policies
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Report
-vulnerabilities privately according to [SECURITY.md](SECURITY.md). Releases use
-Semantic Versioning and are recorded in [CHANGELOG.md](CHANGELOG.md).
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
-ClueCDC is licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE)
-for bundled attribution.
+See [CHANGELOG.md](CHANGELOG.md) for release history and
+[RELEASES.md](RELEASES.md) for the release process.
 
 ## Donation
 
-If ClueCDC is useful to you, you can support its continued development at
-[Buy Me a Coffee](https://buymeacoffee.com/khanhvlq).
+For financial support inquiries, contact the maintainers through [Support](SUPPORT.md).
+
+## License
+
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for bundled attribution.

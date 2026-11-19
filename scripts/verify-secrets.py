@@ -111,7 +111,10 @@ checked(base + "/audit?limit=500")
 checked(base + "/connect/connectors")
 logs = subprocess.run(
     [
-        *Compose(args.compose_project or "cluecdc", env_files).command,
+        *Compose(
+            args.compose_project or os.getenv("COMPOSE_PROJECT_NAME", "cluecdc"),
+            env_files,
+        ).command,
         "logs",
         "--no-color",
         "cluecdc-api",

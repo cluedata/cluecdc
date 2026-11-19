@@ -66,7 +66,7 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             continue
         if path.startswith((".github/workflows/", ".github/actions/")) or path in {
             ".github/compose.ci.yaml",
-            ".github/compose.test.ci.yaml",
+            ".github/compose.demo.ci.yaml",
             "scripts/ci_changes.py",
             "scripts/ci_image_key.py",
         }:
@@ -103,7 +103,7 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "apps/api/tests/test_deployment_validation.py",
         }
         compose = path.startswith(
-            ("compose.", ".env", "infrastructure/docker/")
+            ("docker-compose.", "compose.", ".env", "infrastructure/docker/")
         ) or path in {
             "Dockerfile",
             "apps/web/Dockerfile",
@@ -127,7 +127,7 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         acceptance = path.startswith("scripts/") and api
         workload = path.startswith("scripts/commerce-workload/") or path in {
             "infrastructure/docker/commerce-generator.Dockerfile",
-            "compose.test.yaml",
+            "docker-compose.demo.yml",
         }
         runtime = (
             runtime_web
@@ -152,7 +152,7 @@ def classify(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         backend_acceptance = runtime_api or acceptance or compose or fixtures
         if workload:
             # Database-backed generator tests do not require CDC, S3 or a browser.
-            backend_acceptance = path == "compose.test.yaml"
+            backend_acceptance = path == "docker-compose.demo.yml"
             full_browser = False
         storage_only = path in {
             "apps/api/app/services/object_storage.py",

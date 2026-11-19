@@ -24,9 +24,9 @@ Only providers backed by implementation and automated coverage are exposed.
 
 ## Deployment boundary
 
-The default `compose.yaml` starts six core services: metadata PostgreSQL,
+The default `docker-compose.yml` starts six core services: metadata PostgreSQL,
 Kafka, Kafka Connect, API, background worker, and web. PostgreSQL/MySQL source
-and destination fixtures plus MinIO are in `compose.test.yaml`.
+and destination fixtures plus MinIO are in `docker-compose.demo.yml`.
 
 The Kubernetes baseline deploys ClueCDC metadata, API, web, and distributed
 Kafka Connect workers. Kafka is deliberately external. Production still

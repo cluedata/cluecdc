@@ -1,5 +1,6 @@
+import { fixtureEnv } from "./environment";
 import { test, expect } from "@playwright/test";
-import { readFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { signIn } from "./auth";
@@ -7,22 +8,10 @@ const root = resolve(process.cwd(), "../..");
 test.beforeEach(async ({ page, request }) => {
   await signIn(page, request);
 });
-const fileEnv = Object.fromEntries(
-  [".env.test.example", ".env"]
-    .map((filename) => readFileSync(resolve(root, filename), "utf8"))
-    .join("\n")
-    .split(/\r?\n/)
-    .filter((line) => line.includes("="))
-    .map((line) => {
-      const i = line.indexOf("=");
-      return [line.slice(0, i), line.slice(i + 1)];
-    }),
-);
 const env = {
-  ...fileEnv,
-  POSTGRES_DEMO_DESTINATION_PASSWORD:
-    process.env.POSTGRES_DEMO_DESTINATION_PASSWORD ??
-    fileEnv.POSTGRES_DEMO_DESTINATION_PASSWORD,
+  POSTGRES_DEMO_DESTINATION_PASSWORD: fixtureEnv(
+    "POSTGRES_DEMO_DESTINATION_PASSWORD",
+  ),
 };
 function sql(service: string, database: string, statement: string) {
   return execFileSync(
@@ -30,9 +19,9 @@ function sql(service: string, database: string, statement: string) {
     [
       "compose",
       "-f",
-      "compose.yaml",
+      "docker-compose.yml",
       "-f",
-      "compose.test.yaml",
+      "docker-compose.demo.yml",
       "exec",
       "-T",
       service,

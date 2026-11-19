@@ -1,5 +1,5 @@
 # Optional overlay. Bind metrics to loopback only; trusted internal workers use port 9404.
-# docker compose -f compose.yaml -f compose.test.yaml -f infrastructure/observability/compose.yaml ...
+# docker compose -f docker-compose.yml -f docker-compose.demo.yml -f infrastructure/observability/compose.yaml ...
 services:
   kafka-connect:
     build:

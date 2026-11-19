@@ -70,6 +70,25 @@ def test_owned_fixture_auth_does_not_forward_an_inherited_operator_token(support
     assert client.request.call_args.args[0] == "/auth/login"
 
 
+def test_disposable_environment_does_not_inherit_operator_endpoints_or_credentials(
+    support, monkeypatch
+):
+    for key in (
+        "DATABASE_URL",
+        "CLUECDC_TOKEN",
+        "CLUECDC_ENV_FILE",
+        "OBSERVABILITY_EXPORTERS",
+        "METADATA_PASSWORD",
+        "AUTH_TOKENS_JSON",
+        "COMPOSE_FILE",
+        "COMPOSE_PROFILES",
+    ):
+        monkeypatch.setenv(key, "operator-value")
+    environment = support.isolated_environment({"METADATA_PASSWORD": "owned-password"})
+    assert environment["METADATA_PASSWORD"] == "owned-password"
+    assert "operator-value" not in environment.values()
+
+
 def test_unexecuted_matrix_does_not_promote_unit_tests_to_live_success(support, tmp_path):
     runner = importlib.import_module("cdc_reliability")
     evidence = SimpleNamespace(results=[], output=tmp_path)

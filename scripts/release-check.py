@@ -88,18 +88,18 @@ def main() -> int:
     run(sys.executable, "scripts/check-release-version.py")
     run(sys.executable, "scripts/check-repository.py")
     run(sys.executable, "scripts/deployment_validation.py")
-    run("docker", "compose", "--env-file", ".env.example", "config", "--quiet")
+    run("docker", "compose", "--env-file", ".env", "config", "--quiet")
     run(
         "docker",
         "compose",
         "--env-file",
         ".env.example",
         "--env-file",
-        ".env.test.example",
+        ".env",
         "-f",
-        "compose.yaml",
+        "docker-compose.yml",
         "-f",
-        "compose.test.yaml",
+        "docker-compose.demo.yml",
         "config",
         "--quiet",
     )

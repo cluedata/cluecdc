@@ -276,7 +276,7 @@ def extra_source(stack, evidence, source):
         "--minio-url",
         stack.url("minio", 9000),
         "--env-file",
-        str(ROOT / ".env.test.example"),
+        str(ROOT / ".env"),
         "--fixture-project",
         stack.project,
         "--outage-container",
@@ -547,10 +547,10 @@ class Scenario:
                 "host": "clickhouse",
                 "port": 8123,
                 "database_name": "default",
-                "username": "cdc_test",
+                "username": "cluecdc",
                 "ssl_enabled": False,
             }
-            credentials = {"password": "isolated-cdc-only"}
+            credentials = {"password": self.stack.defaults["CLICKHOUSE_TEST_PASSWORD"]}
             schema = "default"
         self.destination_connection = self.api.create(
             "/connections",
@@ -609,7 +609,7 @@ class Scenario:
         if self.destination == "CLICKHOUSE":
             response = httpx.post(
                 self.stack.url("clickhouse", 8123),
-                auth=("cdc_test", "isolated-cdc-only"),
+                auth=("cluecdc", self.stack.defaults["CLICKHOUSE_TEST_PASSWORD"]),
                 content=f"SELECT * FROM default.{self.table} FORMAT JSONEachRow",
                 timeout=10,
             )

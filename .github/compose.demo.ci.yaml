@@ -1,0 +1,8 @@
+# Image aliases only; demo topology and profiles live in docker-compose.demo.yml.
+services:
+  minio:
+    image: cluecdc-ci-minio:ci
+  minio-bootstrap:
+    image: cluecdc-ci-api:ci
+  commerce-generator:
+    image: cluecdc-ci-workload:ci

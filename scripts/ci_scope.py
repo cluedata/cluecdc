@@ -120,7 +120,13 @@ def classify(paths: list[str]) -> dict:
         elif path == "infrastructure/observability/compose.yaml":
             result["compose"] = True
         elif path.startswith(
-            ("compose.", ".env", "infrastructure/tests/", ".github/compose.")
+            (
+                "docker-compose.",
+                "compose.",
+                ".env",
+                "infrastructure/tests/",
+                ".github/compose.",
+            )
         ):
             result["compose"] = True
         elif path in {

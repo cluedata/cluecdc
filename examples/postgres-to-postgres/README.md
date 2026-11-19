@@ -9,8 +9,8 @@ postgres-demo/cluecdc_source -> Debezium -> Kafka -> JDBC sink -> postgres-demo/
 Start the stack and run the reproducible acceptance scripts:
 
 ```bash
-cp .env.example .env
-docker compose -f compose.yaml -f compose.test.yaml up -d --build --wait
+python scripts/bootstrap.py
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build --wait
 python scripts/demo.py --api-url http://localhost:3000/api/v1
 python scripts/demo-destination.py --skip-capture-demo
 ```

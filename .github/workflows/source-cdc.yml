@@ -10,6 +10,9 @@ jobs:
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      COMPOSE_PROJECT_NAME: cluecdc-test-sources
+      COMPOSE_FILE: docker-compose.yml:docker-compose.demo.yml
     strategy:
       fail-fast: false
       matrix:
@@ -25,14 +28,13 @@ jobs:
         run: python -m pip install -e apps/api
       - name: Start disposable development infrastructure
         run: |
-          cat .env.example .env.test.example > .env
-          docker compose -p cluecdc -f compose.yaml -f compose.test.yaml up -d --build --wait kafka-connect minio-bootstrap postgres-demo mysql-demo
+          python scripts/bootstrap.py
+          docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile object-storage up -d --build --wait kafka-connect minio-bootstrap postgres-demo mysql-demo
       - name: Start optional source fixture
         env:
           SOURCE: ${{ matrix.source }}
         run: |
-          docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile "sources-$SOURCE" up -d "$SOURCE-source"
-          docker network connect cluecdc_default "cluecdc-source-fixtures-$SOURCE-source-1"
+          docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile "sources-$SOURCE" up -d "$SOURCE-source"
           python - <<'PY'
           import os, socket, time
           port = {"mariadb": 13306, "sqlserver": 11433, "mongodb": 17017}[os.environ["SOURCE"]]
@@ -52,7 +54,7 @@ jobs:
         run: |
           extra=()
           if [ "$SOURCE" = mariadb ]; then extra+=(--stateful-postgres); fi
-          python scripts/source_e2e.py --source "$SOURCE" --outage-container "cluecdc-source-fixtures-$SOURCE-source-1" --report "artifacts/source-e2e/$SOURCE.json" "${extra[@]}"
+          python scripts/source_e2e.py --fixture-project cluecdc-test-sources --source "$SOURCE" --outage-container "cluecdc-test-sources-$SOURCE-source-1" --report "artifacts/source-e2e/$SOURCE.json" "${extra[@]}"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -61,7 +63,7 @@ jobs:
       - name: Stop only this runner's disposable fixtures
         if: always()
         run: |
-          docker compose -p cluecdc-source-fixtures -f compose.sources.yaml --profile "sources-${{ matrix.source }}" down
-          docker compose -p cluecdc -f compose.yaml -f compose.test.yaml down
+          docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml --profile "sources-${{ matrix.source }}" down
+          docker compose -p cluecdc-test-sources -f docker-compose.yml -f docker-compose.demo.yml down
 # Oracle intentionally requires operator-provided infrastructure and licensing;
 # absence of a live Oracle job must never be reported as a passing Oracle E2E.

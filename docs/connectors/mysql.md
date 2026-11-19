@@ -101,10 +101,10 @@ database delete. Use upsert with record-key primary keys for at-least-once deliv
 
 Compose exposes the shared MySQL demo service at host port `3307`.
 Source and destination connections share `mysql-demo:3306` while using separate
-logical databases and users. Public test-only passwords are defined in `.env.test.example` and can be overridden
+logical databases and users. Local passwords use `CLUECDC_LOCAL_PASSWORD` with per-role overrides
 in `.env`. The source database `cluecdc_source` contains 100 UTF-8/emoji-aware
 customer, order, and order-item fixtures. The destination database is `cluecdc_destination`.
-Use `source_user` / `source123` for the source and `destination_user` / `destination123`
+Use `source_user` / `CLUECDC_LOCAL_PASSWORD` for the source and `destination_user` / `CLUECDC_LOCAL_PASSWORD`
 for the destination. See [fixture credentials](../getting-started/docker-compose.md#fixture-connections-and-credentials).
 
 ## Troubleshooting

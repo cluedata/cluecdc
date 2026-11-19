@@ -53,8 +53,8 @@ a temporary destination outage. PostgreSQL/MySQL source-capture E2E remains
 ClickHouse is an optional Compose profile and does not change the default stack:
 
 ```bash
-docker compose --env-file .env.test.example \
-  -f compose.yaml -f compose.test.yaml --profile clickhouse up -d clickhouse
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.demo.yml --profile clickhouse up -d clickhouse
 ```
 
 Use `localhost:${CLICKHOUSE_TEST_PORT:-8123}` from the host or `clickhouse:8123`
